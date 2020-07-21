@@ -8,7 +8,7 @@ use libc::{
     EAGAIN, EBUSY, EINTR, ENETDOWN, ENOBUFS, MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE,
     MSG_DONTWAIT, POLLIN, POLLOUT, PROT_READ, PROT_WRITE,
 };
-use std::{cmp, collections::VecDeque, ffi::CString, io, mem::MaybeUninit, ptr};
+use std::{cmp, collections::VecDeque, ffi::CString, io, mem, mem::MaybeUninit, ptr};
 
 pub struct Milliseconds {
     count: i32,
@@ -399,9 +399,12 @@ impl Umem {
         config: &UmemConfig,
         mmap_area: MmapArea,
     ) -> io::Result<(Umem, FillQueue, CompQueue)> {
+        let fill_size = config.fill_queue_size.next_power_of_two();
+        let comp_size = config.comp_queue_size.next_power_of_two();
+
         let config = xsk_umem_config {
-            fill_size: config.fill_queue_size,
-            comp_size: config.comp_queue_size,
+            fill_size,
+            comp_size,
             frame_size: mmap_area.frame_size as u32,
             frame_headroom: config.frame_headroom,
             flags: 0,
@@ -470,6 +473,10 @@ impl MmapArea {
             flags |= MAP_HUGETLB;
         }
 
+        let ptr_inc_size = mem::size_of::<libc::c_void>();
+
+        assert!(frame_size % ptr_inc_size == 0);
+
         let mem_ptr = unsafe {
             libc::mmap(
                 addr,
@@ -518,7 +525,7 @@ mod tests {
             use_huge_pages: false,
         };
 
-        MmapArea::new(config).expect("Creating memory mapped area failed");
+        MmapArea::new(&config).expect("Creating memory mapped area failed");
     }
 
     #[test]
@@ -529,7 +536,7 @@ mod tests {
             use_huge_pages: false,
         };
 
-        let mmap_area = MmapArea::new(mmap_config).expect("Creating memory mapped area failed");
+        let mmap_area = MmapArea::new(&mmap_config).expect("Creating memory mapped area failed");
 
         let umem_config = UmemConfig {
             fill_queue_size: 2048,
@@ -537,7 +544,7 @@ mod tests {
             frame_headroom: 0,
         };
 
-        Umem::new(umem_config, &mmap_area).expect("Initialisation of UMEM failed");
+        Umem::new(&umem_config, mmap_area).expect("Initialisation of UMEM failed");
     }
 
     // #[test]
@@ -575,7 +582,7 @@ mod tests {
             use_huge_pages: false,
         };
 
-        let mmap_area = MmapArea::new(mmap_config).expect("Creating memory mapped area failed");
+        let mmap_area = MmapArea::new(&mmap_config).expect("Creating memory mapped area failed");
 
         let umem_config = UmemConfig {
             fill_queue_size: 2048,
@@ -584,14 +591,14 @@ mod tests {
         };
 
         let (mut umem, fq, _cq) =
-            Umem::new(umem_config, &mmap_area).expect("Initialisation of UMEM failed");
+            Umem::new(&umem_config, mmap_area).expect("Initialisation of UMEM failed");
 
         let socket_config = SocketConfig {
             rx_queue_size: 2048,
             tx_queue_size: 2048,
         };
 
-        let (_socket, tx_q, _rx_q) = Socket::new("lo", 0, &mut umem, socket_config)
+        let (_socket, tx_q, _rx_q) = Socket::new("lo", 0, &mut umem, &socket_config)
             .expect("Failed to create and bind socket");
 
         assert!(fq.needs_wakeup());
