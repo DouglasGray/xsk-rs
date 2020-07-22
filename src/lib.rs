@@ -10,6 +10,9 @@ use libc::{
 };
 use std::{cmp, collections::VecDeque, ffi::CString, io, mem, mem::MaybeUninit, ptr};
 
+mod socket;
+mod umem;
+
 pub struct Milliseconds {
     count: i32,
 }
