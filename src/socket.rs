@@ -5,7 +5,13 @@ use libbpf_sys::{
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{cmp, collections::VecDeque, ffi::CString, io, mem::MaybeUninit, ptr};
 
-use crate::{poll_read, umem::Umem, Fd, Milliseconds};
+use crate::{
+    get_errno,
+    poll::{poll_read, Milliseconds},
+    umem::Umem,
+};
+
+pub struct Fd(pub(crate) i32);
 
 pub struct FrameDesc {
     pub addr: u64,
@@ -31,10 +37,6 @@ pub struct SocketConfig {
     pub queue_id: u32,
     pub rx_queue_size: u32,
     pub tx_queue_size: u32,
-}
-
-fn get_errno() -> i32 {
-    unsafe { *libc::__errno_location() }
 }
 
 impl Socket {

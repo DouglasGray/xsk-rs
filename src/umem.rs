@@ -2,7 +2,10 @@ use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
 use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_WRITE};
 use std::{cmp, collections::VecDeque, io, mem::MaybeUninit, ptr};
 
-use crate::{poll_read, Fd, Milliseconds};
+use crate::{
+    poll::{poll_read, Milliseconds},
+    socket::Fd,
+};
 
 struct MmapPtr(*mut libc::c_void);
 
