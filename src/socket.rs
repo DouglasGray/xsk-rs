@@ -8,23 +8,19 @@ use std::{cmp, collections::VecDeque, ffi::CString, io, mem::MaybeUninit, ptr};
 use crate::{
     get_errno,
     poll::{poll_read, Milliseconds},
-    umem::Umem,
+    umem::{FrameDesc, Umem},
 };
 
 pub struct Fd(pub(crate) i32);
 
-pub struct FrameDesc {
-    pub addr: u64,
-    pub len: u32,
-    pub options: u32,
-}
-
 pub struct TxQueue {
     inner: Box<xsk_ring_prod>,
+    socket_fd: Fd,
 }
 
 pub struct RxQueue {
     inner: Box<xsk_ring_cons>,
+    socket_fd: Fd,
 }
 
 pub struct Socket {
@@ -84,7 +80,6 @@ impl Socket {
 
             return Err(io::Error::from_raw_os_error(fd));
         }
-
         let socket = Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
             fd: Fd(fd),
@@ -92,10 +87,12 @@ impl Socket {
 
         let tx_queue = TxQueue {
             inner: unsafe { Box::new(tx_q_ptr.assume_init()) },
+            socket_fd: Fd(fd),
         };
 
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
+            socket_fd: Fd(fd),
         };
 
         Ok((socket, tx_queue, rx_queue))
@@ -143,10 +140,9 @@ impl RxQueue {
         &mut self,
         descs: &mut VecDeque<FrameDesc>,
         nb: usize,
-        socket_fd: &Fd,
         poll_timeout: &Milliseconds,
     ) -> io::Result<Option<usize>> {
-        match poll_read(socket_fd, poll_timeout)? {
+        match poll_read(&self.socket_fd, poll_timeout)? {
             Some(()) => Ok(Some(self.consume(descs, nb))),
             None => Ok(None),
         }
@@ -188,13 +184,20 @@ impl TxQueue {
         &mut self,
         descs: &mut VecDeque<FrameDesc>,
         nb: usize,
-        socket_fd: &Fd,
     ) -> io::Result<usize> {
         let cnt = self.produce(descs, nb);
 
         if self.needs_wakeup() {
-            let ret =
-                unsafe { libc::sendto(socket_fd.0, ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
+            let ret = unsafe {
+                libc::sendto(
+                    self.socket_fd.0,
+                    ptr::null(),
+                    0,
+                    MSG_DONTWAIT,
+                    ptr::null(),
+                    0,
+                )
+            };
 
             if ret < 0 {
                 match get_errno() {
