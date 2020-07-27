@@ -17,7 +17,7 @@ impl Milliseconds {
     }
 }
 
-pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<Option<()>> {
+pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: socket_fd.0,
         events: POLLIN,
@@ -30,18 +30,18 @@ pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<Op
         if get_errno() != EINTR {
             return Err(io::Error::last_os_error());
         } else {
-            return Ok(None);
+            return Ok(false);
         }
     }
 
     if ret == 0 {
-        Ok(None)
+        Ok(false)
     } else {
-        Ok(Some(()))
+        Ok(true)
     }
 }
 
-pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<Option<()>> {
+pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: socket_fd.0,
         events: POLLOUT,
@@ -54,13 +54,13 @@ pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<O
         if get_errno() != EINTR {
             return Err(io::Error::last_os_error());
         } else {
-            return Ok(None);
+            return Ok(false);
         }
     }
 
     if ret == 0 {
-        Ok(None)
+        Ok(false)
     } else {
-        Ok(Some(()))
+        Ok(true)
     }
 }

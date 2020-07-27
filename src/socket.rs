@@ -37,7 +37,7 @@ pub struct SocketConfig {
 
 impl Socket {
     pub fn new(config: SocketConfig, umem: &mut Umem) -> io::Result<(Socket, TxQueue, RxQueue)> {
-        let xsk_config = xsk_socket_config {
+        let socket_create_config = xsk_socket_config {
             rx_size: config.rx_queue_size,
             tx_size: config.tx_queue_size,
             xdp_flags: XDP_FLAGS_UPDATE_IF_NOEXIST,
@@ -60,7 +60,7 @@ impl Socket {
                 umem.as_mut_ptr(),
                 rx_q_ptr.as_mut_ptr(),
                 tx_q_ptr.as_mut_ptr(),
-                &xsk_config,
+                &socket_create_config,
             )
         };
 
@@ -108,13 +108,13 @@ impl Drop for Socket {
 }
 
 impl RxQueue {
-    pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: usize) -> usize {
+    pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
         let mut idx: u32 = 0;
 
-        let nb = cmp::min(descs.len(), nb) as u64;
+        // descs.len() returns usize, so should be ok to upcast to u64
+        let nb = cmp::min(descs.len() as u64, nb);
 
-        let cnt =
-            unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) as usize };
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
             unsafe {
@@ -130,7 +130,7 @@ impl RxQueue {
         }
 
         if cnt > 0 {
-            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt as u64) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 
         cnt
@@ -139,24 +139,24 @@ impl RxQueue {
     pub fn poll_and_consume(
         &mut self,
         descs: &mut VecDeque<FrameDesc>,
-        nb: usize,
+        nb: u64,
         poll_timeout: &Milliseconds,
-    ) -> io::Result<Option<usize>> {
+    ) -> io::Result<Option<u64>> {
         match poll_read(&self.socket_fd, poll_timeout)? {
-            Some(()) => Ok(Some(self.consume(descs, nb))),
-            None => Ok(None),
+            true => Ok(Some(self.consume(descs, nb))),
+            false => Ok(None),
         }
     }
 }
 
 impl TxQueue {
-    pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: usize) -> usize {
+    pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
         let mut idx: u32 = 0;
-        let nb = cmp::min(descs.len(), nb);
 
-        let cnt = unsafe {
-            libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb as u64, &mut idx) as usize
-        };
+        // descs.len() returns usize, so should be ok to upcast to u64
+        let nb = cmp::min(descs.len() as u64, nb);
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
             // Ensured above that cnt <= descs.len()
@@ -174,7 +174,7 @@ impl TxQueue {
         }
 
         if cnt > 0 {
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64) };
+            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
         }
 
         cnt
@@ -183,8 +183,8 @@ impl TxQueue {
     pub fn produce_and_wakeup(
         &mut self,
         descs: &mut VecDeque<FrameDesc>,
-        nb: usize,
-    ) -> io::Result<usize> {
+        nb: u64,
+    ) -> io::Result<u64> {
         let cnt = self.produce(descs, nb);
 
         if self.needs_wakeup() {

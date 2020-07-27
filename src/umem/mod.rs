@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
-use std::{cmp, collections::VecDeque, io, mem::MaybeUninit, ptr};
+use std::{cmp, collections::VecDeque, convert::TryInto, io, mem::MaybeUninit, ptr};
 
 use crate::{
     poll::{poll_read, Milliseconds},
@@ -39,20 +39,31 @@ pub struct FillQueue {
 }
 
 pub struct UmemConfig {
-    pub frame_count: usize,
-    pub frame_size: usize,
-    pub fill_queue_size: u32,
-    pub comp_queue_size: u32,
-    pub frame_headroom: u32,
-    pub use_huge_pages: bool,
+    frame_count: u32,
+    frame_size: u32,
+    fill_queue_size: u32,
+    comp_queue_size: u32,
+    frame_headroom: u32,
+    use_huge_pages: bool,
 }
 
 impl UmemBuilder {
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
-        let mmap_area = MmapArea::new(
-            self.config.frame_count * self.config.frame_size,
-            self.config.use_huge_pages,
-        )?;
+        // Assuming a 64-bit architecture and as frame_count and frame_size are both u32,
+        // casting to u64 (assuming their product doesn't overflow) should be fine
+        let mmap_len: u64 = (self.config.frame_count)
+            .checked_mul(self.config.frame_size)
+            .expect(
+                format!(
+                "u32 overflow while calculating mmap len (frame_count * frame_size) = ({} * {})",
+                &self.config.frame_count, &self.config.frame_size
+            )
+                .as_str(),
+            )
+            .try_into()
+            .unwrap();
+
+        let mmap_area = MmapArea::new(mmap_len, self.config.use_huge_pages)?;
 
         Ok(UmemBuilderWithMmap {
             config: self.config,
@@ -66,10 +77,10 @@ impl UmemBuilderWithMmap {
         let fill_size = self.config.fill_queue_size.next_power_of_two();
         let comp_size = self.config.comp_queue_size.next_power_of_two();
 
-        let config = xsk_umem_config {
+        let umem_create_config = xsk_umem_config {
             fill_size,
             comp_size,
-            frame_size: self.config.frame_size as u32,
+            frame_size: self.config.frame_size,
             frame_headroom: self.config.frame_headroom,
             flags: 0,
         };
@@ -78,21 +89,31 @@ impl UmemBuilderWithMmap {
         let mut fq_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
         let mut cq_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::uninit();
 
-        let size = self.mmap_area.len as u64;
-
         let err = unsafe {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
                 self.mmap_area.as_mut_ptr(),
-                size,
+                self.mmap_area.len,
                 fq_ptr.as_mut_ptr(),
                 cq_ptr.as_mut_ptr(),
-                &config,
+                &umem_create_config,
             )
         };
 
         if err != 0 {
             return Err(io::Error::from_raw_os_error(err));
+        }
+
+        // Assuming 64-bit architecture so casting from u32 to u64 should be ok
+        let umem_frame_descs: Vec<FrameDesc> =
+            Vec::with_capacity(self.config.frame_count.try_into().unwrap());
+
+        // Assuming 64-bit architecture so casting from u32 to u64 in 'addr' should be ok
+        for i in 0..self.config.frame_count {
+            let addr = (i * self.config.frame_size).try_into().unwrap();
+            let len = self.config.frame_size;
+            let options = 0;
+            let frame_desc = FrameDesc { addr, len, options };
         }
 
         let umem = Umem {
@@ -120,6 +141,20 @@ impl Umem {
     pub(crate) fn as_mut_ptr(&mut self) -> *mut xsk_umem {
         self.inner.as_mut()
     }
+
+    pub fn access_data_at_frame(&self, frame_desc: &FrameDesc) -> &[u8] {
+        unsafe {
+            let frame_ptr = self.mmap_area.as_ptr().offset(frame_desc.addr as isize);
+            std::slice::from_raw_parts(frame_ptr as *const u8, frame_desc.len as usize)
+        }
+    }
+
+    pub fn access_data_at_frame_mut(&mut self, frame_desc: &FrameDesc) -> &mut [u8] {
+        unsafe {
+            let frame_ptr = self.mmap_area.as_mut_ptr().offset(frame_desc.addr as isize);
+            std::slice::from_raw_parts_mut(frame_ptr as *mut u8, frame_desc.len as usize)
+        }
+    }
 }
 
 impl Drop for Umem {
@@ -133,13 +168,13 @@ impl Drop for Umem {
 }
 
 impl FillQueue {
-    pub fn produce(&mut self, addrs: &mut VecDeque<u64>, nb: usize) -> usize {
+    pub fn produce(&mut self, addrs: &mut VecDeque<u64>, nb: u64) -> u64 {
         let mut idx: u32 = 0;
-        let nb = cmp::min(addrs.len(), nb) as u64;
 
-        let cnt = unsafe {
-            libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) as usize
-        };
+        // Assuming 64-bit architecture so usize -> u64 should be fine
+        let nb = cmp::min(nb, addrs.len().try_into().unwrap());
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
             // Ensured above that cnt <= addrs.len()
@@ -152,7 +187,7 @@ impl FillQueue {
         }
 
         if cnt > 0 {
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64) };
+            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
         }
 
         cnt
@@ -161,10 +196,10 @@ impl FillQueue {
     pub fn produce_and_wakeup(
         &mut self,
         addrs: &mut VecDeque<u64>,
-        nb: usize,
+        nb: u64,
         socket_fd: &Fd,
         poll_timeout: &Milliseconds,
-    ) -> io::Result<usize> {
+    ) -> io::Result<u64> {
         let cnt = self.produce(addrs, nb);
 
         if cnt > 0 && self.needs_wakeup() {
@@ -186,12 +221,13 @@ impl FillQueue {
 }
 
 impl CompQueue {
-    pub fn consume(&mut self, addrs: &mut VecDeque<u64>, nb: usize) -> usize {
+    pub fn consume(&mut self, addrs: &mut VecDeque<u64>, nb: u64) -> u64 {
         let mut idx: u32 = 0;
-        let nb = cmp::min(addrs.len(), nb) as u64;
 
-        let cnt =
-            unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) as usize };
+        // Assuming 64-bit architecture so usize -> u64 should be fine
+        let nb = cmp::min(nb, addrs.len().try_into().unwrap());
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
             let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
@@ -202,7 +238,7 @@ impl CompQueue {
         }
 
         if cnt > 0 {
-            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt as u64) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 
         cnt
