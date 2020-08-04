@@ -124,7 +124,7 @@ impl RxQueue {
                 let len = (*recv_pkt_desc).len;
                 let options = (*recv_pkt_desc).options;
 
-                descs.push_back(FrameDesc { addr, len, options })
+                descs.push_back(FrameDesc::new(addr, len, options))
             }
             idx += 1;
         }
@@ -165,9 +165,9 @@ impl TxQueue {
             unsafe {
                 let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
-                (*send_pkt_desc).addr = desc.addr;
-                (*send_pkt_desc).len = desc.len;
-                (*send_pkt_desc).options = desc.options;
+                (*send_pkt_desc).addr = desc.addr();
+                (*send_pkt_desc).len = desc.len();
+                (*send_pkt_desc).options = desc.options();
             }
 
             idx += 1;

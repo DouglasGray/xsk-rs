@@ -11,9 +11,27 @@ mod mmap;
 use mmap::MmapArea;
 
 pub struct FrameDesc {
-    pub addr: u64,
-    pub len: u32,
-    pub options: u32,
+    addr: u64,
+    len: u32,
+    options: u32,
+}
+
+impl FrameDesc {
+    pub(crate) fn new(addr: u64, len: u32, options: u32) -> Self {
+        FrameDesc { addr, len, options }
+    }
+
+    pub fn addr(&self) -> u64 {
+        self.addr
+    }
+
+    pub fn len(&self) -> u32 {
+        self.len
+    }
+
+    pub fn options(&self) -> u32 {
+        self.options
+    }
 }
 
 pub struct UmemBuilder {
@@ -28,6 +46,14 @@ pub struct UmemBuilderWithMmap {
 pub struct Umem {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
+    frame_descs: Vec<FrameDesc>,
+    frame_count: u32,
+    frame_size: u32,
+}
+
+pub enum UmemAccessError {
+    InvalidFrameAddr,
+    InvalidFrameLen,
 }
 
 pub struct CompQueue {
@@ -49,9 +75,8 @@ pub struct UmemConfig {
 
 impl UmemBuilder {
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
-        // Assuming a 64-bit architecture and as frame_count and frame_size are both u32,
-        // casting to u64 (assuming their product doesn't overflow) should be fine
-        let mmap_len: u64 = (self.config.frame_count)
+        // First calculate mmap length as 32-bit
+        let mmap_len = (self.config.frame_count)
             .checked_mul(self.config.frame_size)
             .expect(
                 format!(
@@ -59,9 +84,10 @@ impl UmemBuilder {
                 &self.config.frame_count, &self.config.frame_size
             )
                 .as_str(),
-            )
-            .try_into()
-            .unwrap();
+            );
+
+        // Now upcast to 64-bit
+        let mmap_len: u64 = mmap_len.try_into().unwrap();
 
         let mmap_area = MmapArea::new(mmap_len, self.config.use_huge_pages)?;
 
@@ -105,20 +131,28 @@ impl UmemBuilderWithMmap {
         }
 
         // Assuming 64-bit architecture so casting from u32 to u64 should be ok
-        let umem_frame_descs: Vec<FrameDesc> =
+        let mut frame_descs: Vec<FrameDesc> =
             Vec::with_capacity(self.config.frame_count.try_into().unwrap());
 
         // Assuming 64-bit architecture so casting from u32 to u64 in 'addr' should be ok
+        // Also know from UmemBuilder that i * frame_size won't overflow, as max val is
+        // frame_count * frame_size
         for i in 0..self.config.frame_count {
             let addr = (i * self.config.frame_size).try_into().unwrap();
             let len = self.config.frame_size;
             let options = 0;
+
             let frame_desc = FrameDesc { addr, len, options };
+
+            frame_descs.push(frame_desc);
         }
 
         let umem = Umem {
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area: self.mmap_area,
+            frame_descs,
+            frame_count: self.config.frame_count,
+            frame_size: self.config.frame_size,
         };
 
         let fill_queue = FillQueue {
@@ -142,18 +176,44 @@ impl Umem {
         self.inner.as_mut()
     }
 
-    pub fn access_data_at_frame(&self, frame_desc: &FrameDesc) -> &[u8] {
+    pub fn access_data_at_frame(&self, frame_desc: &FrameDesc) -> Result<&[u8], UmemAccessError> {
+        if ((self.frame_count - 1) as u64) < frame_desc.addr {
+            return Err(UmemAccessError::InvalidFrameAddr);
+        }
+        if self.frame_size < frame_desc.len {
+            return Err(UmemAccessError::InvalidFrameLen);
+        }
         unsafe {
             let frame_ptr = self.mmap_area.as_ptr().offset(frame_desc.addr as isize);
-            std::slice::from_raw_parts(frame_ptr as *const u8, frame_desc.len as usize)
+            Ok(std::slice::from_raw_parts(
+                frame_ptr as *const u8,
+                frame_desc.len as usize,
+            ))
         }
     }
 
-    pub fn access_data_at_frame_mut(&mut self, frame_desc: &FrameDesc) -> &mut [u8] {
+    pub fn access_data_at_frame_mut(
+        &mut self,
+        frame_desc: &FrameDesc,
+    ) -> Result<&mut [u8], UmemAccessError> {
+        if ((self.frame_count - 1) as u64) < frame_desc.addr {
+            return Err(UmemAccessError::InvalidFrameAddr);
+        }
+        if self.frame_size < frame_desc.len {
+            return Err(UmemAccessError::InvalidFrameLen);
+        }
+
         unsafe {
             let frame_ptr = self.mmap_area.as_mut_ptr().offset(frame_desc.addr as isize);
-            std::slice::from_raw_parts_mut(frame_ptr as *mut u8, frame_desc.len as usize)
+            Ok(std::slice::from_raw_parts_mut(
+                frame_ptr as *mut u8,
+                frame_desc.len as usize,
+            ))
         }
+    }
+
+    pub fn frame_descs(&self) -> &[FrameDesc] {
+        &self.frame_descs[..]
     }
 }
 

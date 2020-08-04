@@ -59,8 +59,16 @@ impl Drop for MmapArea {
 mod tests {
     use super::*;
 
+    use std::mem;
+
     #[test]
-    fn build_mmap_and_write() {
-        unimplemented!()
+    fn test_build_mmap() {
+        let len = 128;
+        let _mmap = MmapArea::new(len, false).expect("Failed to build mmap area");
+    }
+
+    #[test]
+    fn confirm_pointer_offset_is_a_single_byte() {
+        assert_eq!(mem::size_of::<libc::c_void>(), 1);
     }
 }
