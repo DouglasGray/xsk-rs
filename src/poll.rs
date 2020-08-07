@@ -1,30 +1,32 @@
 use libc::{EINTR, POLLIN, POLLOUT};
-use std::io;
+use std::{convert::TryInto, io};
 
 use crate::{get_errno, socket::Fd};
 
 pub struct Milliseconds {
-    pub(crate) count: i32,
+    count: i32,
 }
 
 impl Milliseconds {
-    pub fn new(count: i32) -> Result<Self, &'static str> {
-        if count < 0 {
-            Err("Number of milliseconds must not be less than zero")
-        } else {
-            Ok(Milliseconds { count })
+    pub fn new(count: u16) -> Self {
+        Milliseconds {
+            count: count.try_into().unwrap(),
         }
+    }
+
+    pub fn count(&self) -> i32 {
+        self.count
     }
 }
 
 pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
-        fd: socket_fd.0,
+        fd: socket_fd.descriptor(),
         events: POLLIN,
         revents: 0,
     };
 
-    let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count) };
+    let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count()) };
 
     if ret < 0 {
         if get_errno() != EINTR {
@@ -43,12 +45,12 @@ pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bo
 
 pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
-        fd: socket_fd.0,
+        fd: socket_fd.descriptor(),
         events: POLLOUT,
         revents: 0,
     };
 
-    let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count) };
+    let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count()) };
 
     if ret < 0 {
         if get_errno() != EINTR {
@@ -62,5 +64,15 @@ pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<b
         Ok(false)
     } else {
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_u16_max_works_when_creating_milliseconds() {
+        Milliseconds::new(u16::MAX);
     }
 }

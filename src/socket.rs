@@ -3,7 +3,7 @@ use libbpf_sys::{
     XDP_USE_NEED_WAKEUP,
 };
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
-use std::{cmp, collections::VecDeque, ffi::CString, io, mem::MaybeUninit, ptr};
+use std::{cmp, collections::VecDeque, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
 
 use crate::{
     get_errno,
@@ -11,7 +11,13 @@ use crate::{
     umem::{FrameDesc, Umem},
 };
 
-pub struct Fd(pub(crate) i32);
+pub struct Fd(i32);
+
+impl Fd {
+    pub(crate) fn descriptor(&self) -> i32 {
+        self.0
+    }
+}
 
 pub struct TxQueue {
     inner: Box<xsk_ring_prod>,
@@ -28,11 +34,52 @@ pub struct Socket {
     fd: Fd,
 }
 
+impl Socket {
+    pub fn file_descriptor(&self) -> &Fd {
+        &self.fd
+    }
+}
+
 pub struct SocketConfig {
-    pub if_name: String,
-    pub queue_id: u32,
-    pub rx_queue_size: u32,
-    pub tx_queue_size: u32,
+    if_name: String,
+    queue_id: u32,
+    rx_queue_size: u32,
+    tx_queue_size: u32,
+}
+
+impl SocketConfig {
+    pub fn new(
+        if_name: impl Into<String>,
+        queue_id: u32,
+        rx_queue_size: u32,
+        tx_queue_size: u32,
+    ) -> Self {
+        let rx_queue_size = rx_queue_size.next_power_of_two();
+        let tx_queue_size = tx_queue_size.next_power_of_two();
+
+        SocketConfig {
+            if_name: if_name.into(),
+            queue_id,
+            rx_queue_size,
+            tx_queue_size,
+        }
+    }
+
+    pub fn if_name(&self) -> &str {
+        &self.if_name
+    }
+
+    pub fn queue_id(&self) -> u32 {
+        self.queue_id
+    }
+
+    pub fn rx_queue_size(&self) -> u32 {
+        self.rx_queue_size
+    }
+
+    pub fn tx_queue_size(&self) -> u32 {
+        self.tx_queue_size
+    }
 }
 
 impl Socket {
@@ -112,7 +159,7 @@ impl RxQueue {
         let mut idx: u32 = 0;
 
         // descs.len() returns usize, so should be ok to upcast to u64
-        let nb = cmp::min(descs.len() as u64, nb);
+        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
@@ -154,7 +201,7 @@ impl TxQueue {
         let mut idx: u32 = 0;
 
         // descs.len() returns usize, so should be ok to upcast to u64
-        let nb = cmp::min(descs.len() as u64, nb);
+        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 

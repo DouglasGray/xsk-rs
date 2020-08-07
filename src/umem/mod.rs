@@ -46,7 +46,7 @@ pub struct UmemBuilderWithMmap {
 pub struct Umem {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
-    frame_descs: Vec<FrameDesc>,
+    frame_descs: Option<Vec<FrameDesc>>,
     frame_count: u32,
     frame_size: u32,
 }
@@ -64,6 +64,7 @@ pub struct FillQueue {
     inner: Box<xsk_ring_prod>,
 }
 
+#[derive(Debug, Clone)]
 pub struct UmemConfig {
     frame_count: u32,
     frame_size: u32,
@@ -71,6 +72,50 @@ pub struct UmemConfig {
     comp_queue_size: u32,
     frame_headroom: u32,
     use_huge_pages: bool,
+}
+
+impl UmemConfig {
+    pub fn new(
+        frame_count: u32,
+        frame_size: u32,
+        fill_queue_size: u32,
+        comp_queue_size: u32,
+        frame_headroom: u32,
+        use_huge_pages: bool,
+    ) -> Self {
+        let frame_count = frame_count.next_power_of_two();
+        let frame_size = frame_size.next_power_of_two();
+        let fill_queue_size = fill_queue_size.next_power_of_two();
+        let comp_queue_size = comp_queue_size.next_power_of_two();
+        let frame_headroom = frame_headroom.next_power_of_two();
+
+        // TODO: check for overflow here?
+
+        UmemConfig {
+            frame_count,
+            frame_size,
+            fill_queue_size,
+            comp_queue_size,
+            frame_headroom,
+            use_huge_pages,
+        }
+    }
+
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    pub fn frame_size(&self) -> u32 {
+        self.frame_size
+    }
+
+    pub fn fill_queue_size(&self) -> u32 {
+        self.fill_queue_size
+    }
+
+    pub fn comp_queue_size(&self) -> u32 {
+        self.comp_queue_size
+    }
 }
 
 impl UmemBuilder {
@@ -100,12 +145,9 @@ impl UmemBuilder {
 
 impl UmemBuilderWithMmap {
     pub fn create_umem(mut self) -> io::Result<(Umem, FillQueue, CompQueue)> {
-        let fill_size = self.config.fill_queue_size.next_power_of_two();
-        let comp_size = self.config.comp_queue_size.next_power_of_two();
-
         let umem_create_config = xsk_umem_config {
-            fill_size,
-            comp_size,
+            fill_size: self.config.fill_queue_size,
+            comp_size: self.config.comp_queue_size,
             frame_size: self.config.frame_size,
             frame_headroom: self.config.frame_headroom,
             flags: 0,
@@ -139,7 +181,7 @@ impl UmemBuilderWithMmap {
         // frame_count * frame_size
         for i in 0..self.config.frame_count {
             let addr = (i * self.config.frame_size).try_into().unwrap();
-            let len = self.config.frame_size;
+            let len = 0;
             let options = 0;
 
             let frame_desc = FrameDesc { addr, len, options };
@@ -150,7 +192,7 @@ impl UmemBuilderWithMmap {
         let umem = Umem {
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area: self.mmap_area,
-            frame_descs,
+            frame_descs: Some(frame_descs),
             frame_count: self.config.frame_count,
             frame_size: self.config.frame_size,
         };
@@ -177,17 +219,23 @@ impl Umem {
     }
 
     pub fn access_data_at_frame(&self, frame_desc: &FrameDesc) -> Result<&[u8], UmemAccessError> {
-        if ((self.frame_count - 1) as u64) < frame_desc.addr {
+        // First check that frame address and frame length are within bounds
+        if frame_desc.addr > ((self.frame_count - 1).try_into().unwrap()) {
             return Err(UmemAccessError::InvalidFrameAddr);
         }
-        if self.frame_size < frame_desc.len {
+        if frame_desc.len > self.frame_size {
             return Err(UmemAccessError::InvalidFrameLen);
         }
+
         unsafe {
-            let frame_ptr = self.mmap_area.as_ptr().offset(frame_desc.addr as isize);
+            let frame_ptr = self
+                .mmap_area
+                .as_ptr()
+                .offset(frame_desc.addr.try_into().unwrap());
+
             Ok(std::slice::from_raw_parts(
                 frame_ptr as *const u8,
-                frame_desc.len as usize,
+                frame_desc.len.try_into().unwrap(),
             ))
         }
     }
@@ -196,24 +244,29 @@ impl Umem {
         &mut self,
         frame_desc: &FrameDesc,
     ) -> Result<&mut [u8], UmemAccessError> {
-        if ((self.frame_count - 1) as u64) < frame_desc.addr {
+        // First check that frame address and frame length are within bounds
+        if frame_desc.addr > ((self.frame_count - 1).try_into().unwrap()) {
             return Err(UmemAccessError::InvalidFrameAddr);
         }
-        if self.frame_size < frame_desc.len {
+        if frame_desc.len > self.frame_size {
             return Err(UmemAccessError::InvalidFrameLen);
         }
 
         unsafe {
-            let frame_ptr = self.mmap_area.as_mut_ptr().offset(frame_desc.addr as isize);
+            let frame_ptr = self
+                .mmap_area
+                .as_mut_ptr()
+                .offset(frame_desc.addr.try_into().unwrap());
+
             Ok(std::slice::from_raw_parts_mut(
                 frame_ptr as *mut u8,
-                frame_desc.len as usize,
+                frame_desc.len.try_into().unwrap(),
             ))
         }
     }
 
-    pub fn frame_descs(&self) -> &[FrameDesc] {
-        &self.frame_descs[..]
+    pub fn consume_frame_descs(&mut self) -> Option<Vec<FrameDesc>> {
+        self.frame_descs.take()
     }
 }
 
@@ -228,20 +281,30 @@ impl Drop for Umem {
 }
 
 impl FillQueue {
-    pub fn produce(&mut self, addrs: &mut VecDeque<u64>, nb: u64) -> u64 {
+    pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
+        if nb == 0 {
+            return 0;
+        }
+
         let mut idx: u32 = 0;
 
-        // Assuming 64-bit architecture so usize -> u64 should be fine
-        let nb = cmp::min(nb, addrs.len().try_into().unwrap());
+        // First determine how many slots are free. Need to do this because if we try to reserve
+        // more than is available in 'xsk_ring_prod__reserve' it will fail
+        let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
+            .try_into()
+            .unwrap();
+
+        // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
+        let nb = cmp::min(nb_free, cmp::min(nb, descs.len().try_into().unwrap()));
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
-            // Ensured above that cnt <= addrs.len()
-            let addr = addrs.pop_front().unwrap();
+            // Ensured above that cnt <= descs.len()
+            let desc = descs.pop_front().unwrap();
 
             unsafe {
-                *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = addr;
+                *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = desc.addr;
             }
             idx += 1;
         }
@@ -255,12 +318,12 @@ impl FillQueue {
 
     pub fn produce_and_wakeup(
         &mut self,
-        addrs: &mut VecDeque<u64>,
+        descs: &mut VecDeque<FrameDesc>,
         nb: u64,
         socket_fd: &Fd,
         poll_timeout: &Milliseconds,
     ) -> io::Result<u64> {
-        let cnt = self.produce(addrs, nb);
+        let cnt = self.produce(descs, nb);
 
         if cnt > 0 && self.needs_wakeup() {
             poll_read(socket_fd, poll_timeout)?;
@@ -281,18 +344,24 @@ impl FillQueue {
 }
 
 impl CompQueue {
-    pub fn consume(&mut self, addrs: &mut VecDeque<u64>, nb: u64) -> u64 {
+    pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
+        if nb == 0 {
+            return 0;
+        }
+
         let mut idx: u32 = 0;
 
         // Assuming 64-bit architecture so usize -> u64 should be fine
-        let nb = cmp::min(nb, addrs.len().try_into().unwrap());
+        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
             let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
 
-            addrs.push_back(addr);
+            let desc = FrameDesc::new(addr, 0, 0);
+
+            descs.push_back(desc);
 
             idx += 1;
         }
