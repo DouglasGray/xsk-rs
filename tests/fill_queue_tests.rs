@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::Duration};
 
 use rust_xsk::poll::Milliseconds;
 
@@ -79,7 +79,13 @@ fn fill_queue_produce_and_wakeup_works() {
     .build();
 
     let ((mut umem, mut fill_q, _), (socket, _, _)) =
-        common::build_socket_and_umem(Some(umem_config), None);
+        common::build_socket_and_umem_with_retry_on_failure(
+            Some(umem_config),
+            None,
+            3,
+            Duration::from_millis(100),
+        )
+        .unwrap();
 
     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
 

@@ -34,12 +34,7 @@ pub struct Socket {
     fd: Fd,
 }
 
-impl Socket {
-    pub fn file_descriptor(&self) -> &Fd {
-        &self.fd
-    }
-}
-
+#[derive(Clone)]
 pub struct SocketConfig {
     if_name: String,
     queue_id: u32,
@@ -144,6 +139,10 @@ impl Socket {
 
         Ok((socket, tx_queue, rx_queue))
     }
+
+    pub fn file_descriptor(&self) -> &Fd {
+        &self.fd
+    }
 }
 
 impl Drop for Socket {
@@ -156,10 +155,11 @@ impl Drop for Socket {
 
 impl RxQueue {
     pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        let mut idx: u32 = 0;
+        if nb == 0 {
+            return 0;
+        }
 
-        // descs.len() returns usize, so should be ok to upcast to u64
-        let nb = cmp::min(nb, descs.len().try_into().unwrap());
+        let mut idx: u32 = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
@@ -198,15 +198,19 @@ impl RxQueue {
 
 impl TxQueue {
     pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        let mut idx: u32 = 0;
-
         // descs.len() returns usize, so should be ok to upcast to u64
         let nb = cmp::min(nb, descs.len().try_into().unwrap());
+
+        if nb == 0 {
+            return 0;
+        }
+
+        let mut idx: u32 = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
         for _ in 0..cnt {
-            // Ensured above that cnt <= descs.len()
+            // Ensured above that cnt <= nb <= descs.len()
             let desc = descs.pop_front().unwrap();
 
             unsafe {

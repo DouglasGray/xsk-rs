@@ -282,12 +282,6 @@ impl Drop for Umem {
 
 impl FillQueue {
     pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        if nb == 0 {
-            return 0;
-        }
-
-        let mut idx: u32 = 0;
-
         // First determine how many slots are free. Need to do this because if we try to reserve
         // more than is available in 'xsk_ring_prod__reserve' it will fail
         let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
@@ -296,6 +290,12 @@ impl FillQueue {
 
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb = cmp::min(nb_free, cmp::min(nb, descs.len().try_into().unwrap()));
+
+        if nb == 0 {
+            return 0;
+        }
+
+        let mut idx: u32 = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
@@ -350,9 +350,6 @@ impl CompQueue {
         }
 
         let mut idx: u32 = 0;
-
-        // Assuming 64-bit architecture so usize -> u64 should be fine
-        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 

@@ -2,6 +2,7 @@ use rust_xsk::{
     socket::{RxQueue, Socket, SocketConfig, TxQueue},
     umem::{CompQueue, FillQueue, Umem, UmemConfig},
 };
+use std::{io, thread, time::Duration};
 
 pub struct UmemConfigBuilder {
     pub frame_count: u32,
@@ -74,6 +75,34 @@ pub fn build_umem(umem_config: Option<UmemConfig>) -> (Umem, FillQueue, CompQueu
         .expect("Failed to create mmap area")
         .create_umem()
         .expect("Failed to create umem")
+}
+
+pub fn build_socket_and_umem_with_retry_on_failure(
+    umem_config: Option<UmemConfig>,
+    socket_config: Option<SocketConfig>,
+    max_retries: u8,
+    time_between_attempts: Duration,
+) -> Result<((Umem, FillQueue, CompQueue), (Socket, TxQueue, RxQueue)), io::Error> {
+    let socket_config = match socket_config {
+        Some(cfg) => cfg,
+        None => SocketConfigBuilder::default().build(),
+    };
+
+    let mut attempts = 0;
+
+    loop {
+        let (mut umem, fill_q, comp_q) = build_umem(umem_config.clone());
+        match Socket::new(socket_config.clone(), &mut umem) {
+            Ok(res) => return Ok(((umem, fill_q, comp_q), res)),
+            Err(e) => {
+                attempts += 1;
+                if attempts > max_retries {
+                    return Err(e);
+                }
+            }
+        }
+        thread::sleep(time_between_attempts)
+    }
 }
 
 pub fn build_socket_and_umem(
