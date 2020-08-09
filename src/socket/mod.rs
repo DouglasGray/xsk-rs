@@ -8,7 +8,7 @@ use crate::{
     umem::{FrameDesc, Umem},
 };
 
-mod config;
+pub mod config;
 
 use config::Config;
 

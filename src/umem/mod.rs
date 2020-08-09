@@ -6,8 +6,10 @@ use crate::{
     socket::Fd,
 };
 
+mod config;
 mod mmap;
 
+use config::Config;
 use mmap::MmapArea;
 
 pub struct FrameDesc {
@@ -35,11 +37,11 @@ impl FrameDesc {
 }
 
 pub struct UmemBuilder {
-    config: UmemConfig,
+    config: Config,
 }
 
 pub struct UmemBuilderWithMmap {
-    config: UmemConfig,
+    config: Config,
     mmap_area: MmapArea,
 }
 
@@ -64,77 +66,9 @@ pub struct FillQueue {
     inner: Box<xsk_ring_prod>,
 }
 
-#[derive(Debug, Clone)]
-pub struct UmemConfig {
-    frame_count: u32,
-    frame_size: u32,
-    fill_queue_size: u32,
-    comp_queue_size: u32,
-    frame_headroom: u32,
-    use_huge_pages: bool,
-}
-
-impl UmemConfig {
-    pub fn new(
-        frame_count: u32,
-        frame_size: u32,
-        fill_queue_size: u32,
-        comp_queue_size: u32,
-        frame_headroom: u32,
-        use_huge_pages: bool,
-    ) -> Self {
-        let frame_count = frame_count.next_power_of_two();
-        let frame_size = frame_size.next_power_of_two();
-        let fill_queue_size = fill_queue_size.next_power_of_two();
-        let comp_queue_size = comp_queue_size.next_power_of_two();
-        let frame_headroom = frame_headroom.next_power_of_two();
-
-        // TODO: check for overflow here?
-
-        UmemConfig {
-            frame_count,
-            frame_size,
-            fill_queue_size,
-            comp_queue_size,
-            frame_headroom,
-            use_huge_pages,
-        }
-    }
-
-    pub fn frame_count(&self) -> u32 {
-        self.frame_count
-    }
-
-    pub fn frame_size(&self) -> u32 {
-        self.frame_size
-    }
-
-    pub fn fill_queue_size(&self) -> u32 {
-        self.fill_queue_size
-    }
-
-    pub fn comp_queue_size(&self) -> u32 {
-        self.comp_queue_size
-    }
-}
-
 impl UmemBuilder {
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
-        // First calculate mmap length as 32-bit
-        let mmap_len = (self.config.frame_count)
-            .checked_mul(self.config.frame_size)
-            .expect(
-                format!(
-                "u32 overflow while calculating mmap len (frame_count * frame_size) = ({} * {})",
-                &self.config.frame_count, &self.config.frame_size
-            )
-                .as_str(),
-            );
-
-        // Now upcast to 64-bit
-        let mmap_len: u64 = mmap_len.try_into().unwrap();
-
-        let mmap_area = MmapArea::new(mmap_len, self.config.use_huge_pages)?;
+        let mmap_area = MmapArea::new(self.config.umem_len(), self.config.use_huge_pages())?;
 
         Ok(UmemBuilderWithMmap {
             config: self.config,
@@ -146,11 +80,11 @@ impl UmemBuilder {
 impl UmemBuilderWithMmap {
     pub fn create_umem(mut self) -> io::Result<(Umem, FillQueue, CompQueue)> {
         let umem_create_config = xsk_umem_config {
-            fill_size: self.config.fill_queue_size,
-            comp_size: self.config.comp_queue_size,
-            frame_size: self.config.frame_size,
-            frame_headroom: self.config.frame_headroom,
-            flags: 0,
+            fill_size: self.config.fill_queue_size(),
+            comp_size: self.config.comp_queue_size(),
+            frame_size: self.config.frame_size(),
+            frame_headroom: self.config.frame_headroom(),
+            flags: self.config.umem_flags().bits(),
         };
 
         let mut umem_ptr: *mut xsk_umem = ptr::null_mut();
@@ -174,13 +108,13 @@ impl UmemBuilderWithMmap {
 
         // Assuming 64-bit architecture so casting from u32 to u64 should be ok
         let mut frame_descs: Vec<FrameDesc> =
-            Vec::with_capacity(self.config.frame_count.try_into().unwrap());
+            Vec::with_capacity(self.config.frame_count().try_into().unwrap());
 
         // Assuming 64-bit architecture so casting from u32 to u64 in 'addr' should be ok
         // Also know from UmemBuilder that i * frame_size won't overflow, as max val is
         // frame_count * frame_size
-        for i in 0..self.config.frame_count {
-            let addr = (i * self.config.frame_size).try_into().unwrap();
+        for i in 0..self.config.frame_count() {
+            let addr = (i * self.config.frame_size()).try_into().unwrap();
             let len = 0;
             let options = 0;
 
@@ -193,8 +127,8 @@ impl UmemBuilderWithMmap {
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area: self.mmap_area,
             frame_descs: Some(frame_descs),
-            frame_count: self.config.frame_count,
-            frame_size: self.config.frame_size,
+            frame_count: self.config.frame_count(),
+            frame_size: self.config.frame_size(),
         };
 
         let fill_queue = FillQueue {
@@ -210,7 +144,7 @@ impl UmemBuilderWithMmap {
 }
 
 impl Umem {
-    pub fn new(config: UmemConfig) -> UmemBuilder {
+    pub fn new(config: Config) -> UmemBuilder {
         UmemBuilder { config }
     }
 
