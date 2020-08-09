@@ -35,7 +35,7 @@ pub struct Socket {
 
 impl Socket {
     pub fn new(
-        if_name: CString,
+        if_name: &str,
         queue_id: u32,
         config: Config,
         umem: &mut Umem,
@@ -51,6 +51,9 @@ impl Socket {
         let mut xsk_ptr: *mut xsk_socket = ptr::null_mut();
         let mut tx_q_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
         let mut rx_q_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::uninit();
+
+        let if_name = CString::new(if_name)
+            .expect("Failed to construct CString from provided interface name");
 
         let err = unsafe {
             libbpf_sys::xsk_socket__create(
