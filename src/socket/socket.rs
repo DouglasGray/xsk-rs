@@ -160,13 +160,22 @@ impl RxQueue {
 
 impl TxQueue {
     pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        // descs.len() returns usize, so should be ok to upcast to u64
-        let nb = cmp::min(nb, descs.len().try_into().unwrap());
-
         if nb == 0 {
             return 0;
         }
 
+        // First determine how many slots are free. Need to do this because if we try to reserve
+        // more than is available in 'xsk_ring_prod__reserve' it will reserve nothing and return 0
+        let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
+            .try_into()
+            .unwrap();
+
+        // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
+        let nb = cmp::min(nb_free, cmp::min(nb, descs.len().try_into().unwrap()));
+
+        if nb == 0 {
+            return 0;
+        }
         let mut idx: u32 = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
@@ -176,11 +185,11 @@ impl TxQueue {
             let desc = descs.pop_front().unwrap();
 
             unsafe {
-                let send_frame_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
+                let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
-                (*send_frame_desc).addr = desc.addr();
-                (*send_frame_desc).len = desc.len();
-                (*send_frame_desc).options = desc.options();
+                (*send_pkt_desc).addr = desc.addr();
+                (*send_pkt_desc).len = desc.len();
+                (*send_pkt_desc).options = desc.options();
             }
 
             idx += 1;

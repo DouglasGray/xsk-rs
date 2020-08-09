@@ -213,7 +213,7 @@ impl FillQueue {
         }
 
         // First determine how many slots are free. Need to do this because if we try to reserve
-        // more than is available in 'xsk_ring_prod__reserve' it will fail
+        // more than is available in 'xsk_ring_prod__reserve' it will reserve nothing and return 0
         let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
             .try_into()
             .unwrap();
