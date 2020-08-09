@@ -51,9 +51,9 @@ pub struct Umem {
     frame_size: u32,
 }
 
-pub enum UmemAccessError {
+pub enum UmemError {
     InvalidFrameAddr,
-    InvalidFrameLen,
+    InvalidDataLen,
 }
 
 pub struct CompQueue {
@@ -218,51 +218,47 @@ impl Umem {
         self.inner.as_mut()
     }
 
-    pub fn access_data_at_frame(&self, frame_desc: &FrameDesc) -> Result<&[u8], UmemAccessError> {
+    pub fn frame_ref(&self, addr: u64) -> Result<&[u8], UmemError> {
         // First check that frame address and frame length are within bounds
-        if frame_desc.addr > ((self.frame_count - 1).try_into().unwrap()) {
-            return Err(UmemAccessError::InvalidFrameAddr);
-        }
-        if frame_desc.len > self.frame_size {
-            return Err(UmemAccessError::InvalidFrameLen);
+        if addr > ((self.frame_count - 1).try_into().unwrap()) {
+            return Err(UmemError::InvalidFrameAddr);
         }
 
         unsafe {
-            let frame_ptr = self
-                .mmap_area
-                .as_ptr()
-                .offset(frame_desc.addr.try_into().unwrap());
+            let frame_ptr = self.mmap_area.as_ptr().offset(addr.try_into().unwrap());
 
             Ok(std::slice::from_raw_parts(
                 frame_ptr as *const u8,
-                frame_desc.len.try_into().unwrap(),
+                self.frame_size.try_into().unwrap(),
             ))
         }
     }
 
-    pub fn access_data_at_frame_mut(
-        &mut self,
-        frame_desc: &FrameDesc,
-    ) -> Result<&mut [u8], UmemAccessError> {
-        // First check that frame address and frame length are within bounds
-        if frame_desc.addr > ((self.frame_count - 1).try_into().unwrap()) {
-            return Err(UmemAccessError::InvalidFrameAddr);
-        }
-        if frame_desc.len > self.frame_size {
-            return Err(UmemAccessError::InvalidFrameLen);
+    pub fn frame_ref_mut(&mut self, addr: u64) -> Result<&mut [u8], UmemError> {
+        if addr > ((self.frame_count - 1).try_into().unwrap()) {
+            return Err(UmemError::InvalidFrameAddr);
         }
 
         unsafe {
-            let frame_ptr = self
-                .mmap_area
-                .as_mut_ptr()
-                .offset(frame_desc.addr.try_into().unwrap());
+            let frame_ptr = self.mmap_area.as_mut_ptr().offset(addr.try_into().unwrap());
 
             Ok(std::slice::from_raw_parts_mut(
                 frame_ptr as *mut u8,
-                frame_desc.len.try_into().unwrap(),
+                self.frame_size.try_into().unwrap(),
             ))
         }
+    }
+
+    pub fn copy_data_to_frame(&mut self, addr: u64, data: &[u8]) -> Result<(), UmemError> {
+        if data.len() > self.frame_size.try_into().unwrap() {
+            return Err(UmemError::InvalidDataLen);
+        }
+
+        let frame_ref = self.frame_ref_mut(addr)?;
+
+        frame_ref[..data.len()].copy_from_slice(data);
+
+        Ok(())
     }
 
     pub fn consume_frame_descs(&mut self) -> Option<Vec<FrameDesc>> {
@@ -282,6 +278,10 @@ impl Drop for Umem {
 
 impl FillQueue {
     pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
+        if nb == 0 {
+            return 0;
+        }
+
         // First determine how many slots are free. Need to do this because if we try to reserve
         // more than is available in 'xsk_ring_prod__reserve' it will fail
         let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }

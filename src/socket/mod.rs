@@ -5,6 +5,8 @@ use libbpf_sys::{
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{cmp, collections::VecDeque, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
 
+mod config;
+
 use crate::{
     get_errno,
     poll::{poll_read, Milliseconds},
@@ -214,11 +216,11 @@ impl TxQueue {
             let desc = descs.pop_front().unwrap();
 
             unsafe {
-                let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
+                let send_frame_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
-                (*send_pkt_desc).addr = desc.addr();
-                (*send_pkt_desc).len = desc.len();
-                (*send_pkt_desc).options = desc.options();
+                (*send_frame_desc).addr = desc.addr();
+                (*send_frame_desc).len = desc.len();
+                (*send_frame_desc).options = desc.options();
             }
 
             idx += 1;
