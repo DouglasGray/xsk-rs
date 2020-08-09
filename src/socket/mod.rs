@@ -1,17 +1,16 @@
-use libbpf_sys::{
-    xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config, XDP_FLAGS_UPDATE_IF_NOEXIST,
-    XDP_USE_NEED_WAKEUP,
-};
+use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{cmp, collections::VecDeque, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
-
-mod config;
 
 use crate::{
     get_errno,
     poll::{poll_read, Milliseconds},
     umem::{FrameDesc, Umem},
 };
+
+mod config;
+
+use config::Config;
 
 pub struct Fd(i32);
 
@@ -36,61 +35,20 @@ pub struct Socket {
     fd: Fd,
 }
 
-#[derive(Clone)]
-pub struct SocketConfig {
-    if_name: String,
-    queue_id: u32,
-    rx_queue_size: u32,
-    tx_queue_size: u32,
-}
-
-impl SocketConfig {
-    pub fn new(
-        if_name: impl Into<String>,
-        queue_id: u32,
-        rx_queue_size: u32,
-        tx_queue_size: u32,
-    ) -> Self {
-        let rx_queue_size = rx_queue_size.next_power_of_two();
-        let tx_queue_size = tx_queue_size.next_power_of_two();
-
-        SocketConfig {
-            if_name: if_name.into(),
-            queue_id,
-            rx_queue_size,
-            tx_queue_size,
-        }
-    }
-
-    pub fn if_name(&self) -> &str {
-        &self.if_name
-    }
-
-    pub fn queue_id(&self) -> u32 {
-        self.queue_id
-    }
-
-    pub fn rx_queue_size(&self) -> u32 {
-        self.rx_queue_size
-    }
-
-    pub fn tx_queue_size(&self) -> u32 {
-        self.tx_queue_size
-    }
-}
-
 impl Socket {
-    pub fn new(config: SocketConfig, umem: &mut Umem) -> io::Result<(Socket, TxQueue, RxQueue)> {
+    pub fn new(
+        if_name: CString,
+        queue_id: u32,
+        config: Config,
+        umem: &mut Umem,
+    ) -> io::Result<(Socket, TxQueue, RxQueue)> {
         let socket_create_config = xsk_socket_config {
-            rx_size: config.rx_queue_size,
-            tx_size: config.tx_queue_size,
-            xdp_flags: XDP_FLAGS_UPDATE_IF_NOEXIST,
-            bind_flags: XDP_USE_NEED_WAKEUP as u16,
-            libbpf_flags: 0,
+            rx_size: config.rx_queue_size(),
+            tx_size: config.tx_queue_size(),
+            xdp_flags: config.xdp_flags().bits(),
+            bind_flags: config.bind_flags().bits(),
+            libbpf_flags: config.libbpf_flags().bits(),
         };
-
-        let if_name = CString::new(config.if_name)
-            .expect("Failed constructing CString from provided interface name");
 
         let mut xsk_ptr: *mut xsk_socket = ptr::null_mut();
         let mut tx_q_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
@@ -100,7 +58,7 @@ impl Socket {
             libbpf_sys::xsk_socket__create(
                 &mut xsk_ptr,
                 if_name.as_ptr(),
-                config.queue_id,
+                queue_id,
                 umem.as_mut_ptr(),
                 rx_q_ptr.as_mut_ptr(),
                 tx_q_ptr.as_mut_ptr(),

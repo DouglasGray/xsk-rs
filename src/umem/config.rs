@@ -3,6 +3,7 @@ use libbpf_sys::{
     XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS,
     XSK_UMEM__DEFAULT_FRAME_HEADROOM, XSK_UMEM__DEFAULT_FRAME_SIZE,
 };
+use std::num::NonZeroU32;
 use thiserror::Error;
 
 bitflags! {
@@ -32,8 +33,8 @@ pub struct Config {
 
 impl Config {
     pub fn new(
-        frame_count: u32,
-        frame_size: u32,
+        frame_count: NonZeroU32,
+        frame_size: NonZeroU32,
         fill_queue_size: u32,
         comp_queue_size: u32,
         frame_headroom: u32,
@@ -48,8 +49,8 @@ impl Config {
         }
 
         Ok(Config {
-            frame_count,
-            frame_size,
+            frame_count: frame_count.get(),
+            frame_size: frame_size.get(),
             fill_queue_size,
             comp_queue_size,
             frame_headroom,
@@ -58,9 +59,9 @@ impl Config {
         })
     }
 
-    pub fn default(frame_count: u32, use_huge_pages: bool) -> Self {
+    pub fn default(frame_count: NonZeroU32, use_huge_pages: bool) -> Self {
         Config {
-            frame_count,
+            frame_count: frame_count.get(),
             frame_size: XSK_UMEM__DEFAULT_FRAME_SIZE,
             fill_queue_size: XSK_RING_PROD__DEFAULT_NUM_DESCS,
             comp_queue_size: XSK_RING_CONS__DEFAULT_NUM_DESCS,
@@ -111,8 +112,16 @@ mod tests {
 
     #[test]
     fn umem_len_doesnt_panic_when_frame_count_and_size_are_u32_max() {
-        Config::new(u32::MAX, u32::MAX, 8, 8, 0, false, UmemFlags::empty())
-            .unwrap()
-            .umem_len();
+        Config::new(
+            NonZeroU32::new(u32::MAX).unwrap(),
+            NonZeroU32::new(u32::MAX).unwrap(),
+            8,
+            8,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap()
+        .umem_len();
     }
 }
