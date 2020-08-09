@@ -6,7 +6,7 @@ use crate::{
     socket::Fd,
 };
 
-mod config;
+pub mod config;
 mod mmap;
 
 use config::Config;
@@ -95,7 +95,7 @@ impl UmemBuilderWithMmap {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
                 self.mmap_area.as_mut_ptr(),
-                self.mmap_area.len,
+                self.mmap_area.len(),
                 fq_ptr.as_mut_ptr(),
                 cq_ptr.as_mut_ptr(),
                 &umem_create_config,

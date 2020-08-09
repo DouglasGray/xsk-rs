@@ -1,7 +1,7 @@
 use libc::{EINTR, POLLIN, POLLOUT};
 use std::{convert::TryInto, io};
 
-use crate::{get_errno, socket::Fd};
+use crate::{socket::Fd, util};
 
 pub struct Milliseconds {
     count: i32,
@@ -29,7 +29,7 @@ pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bo
     let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count()) };
 
     if ret < 0 {
-        if get_errno() != EINTR {
+        if util::get_errno() != EINTR {
             return Err(io::Error::last_os_error());
         } else {
             return Ok(false);
@@ -53,7 +53,7 @@ pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<b
     let ret = unsafe { libc::poll(&mut pollfd, 1, timeout.count()) };
 
     if ret < 0 {
-        if get_errno() != EINTR {
+        if util::get_errno() != EINTR {
             return Err(io::Error::last_os_error());
         } else {
             return Ok(false);

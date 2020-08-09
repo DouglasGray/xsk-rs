@@ -3,9 +3,9 @@ use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{cmp, collections::VecDeque, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
 
 use crate::{
-    get_errno,
     poll::{poll_read, Milliseconds},
     umem::{FrameDesc, Umem},
+    util,
 };
 
 pub mod config;
@@ -82,6 +82,7 @@ impl Socket {
 
             return Err(io::Error::from_raw_os_error(fd));
         }
+
         let socket = Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
             fd: Fd(fd),
@@ -211,7 +212,7 @@ impl TxQueue {
             };
 
             if ret < 0 {
-                match get_errno() {
+                match util::get_errno() {
                     ENOBUFS | EAGAIN | EBUSY | ENETDOWN => (),
                     _ => return Err(io::Error::last_os_error()),
                 }

@@ -2,6 +2,8 @@ use bitflags::bitflags;
 use libbpf_sys::{XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS};
 use thiserror::Error;
 
+use crate::util;
+
 bitflags! {
     pub struct LibbpfFlags: u32 {
         const XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD = 1;
@@ -52,10 +54,10 @@ impl Config {
         xdp_flags: XdpFlags,
         bind_flags: BindFlags,
     ) -> Result<Self, ConfigError> {
-        if rx_queue_size != rx_queue_size.next_power_of_two() {
+        if !util::is_pow_of_two(rx_queue_size) {
             return Err(ConfigError::RxSizeInvalid);
         }
-        if tx_queue_size != tx_queue_size.next_power_of_two() {
+        if !util::is_pow_of_two(tx_queue_size) {
             return Err(ConfigError::TxSizeInvalid);
         }
 

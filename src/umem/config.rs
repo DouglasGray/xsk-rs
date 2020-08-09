@@ -6,6 +6,8 @@ use libbpf_sys::{
 use std::num::NonZeroU32;
 use thiserror::Error;
 
+use crate::util;
+
 bitflags! {
     pub struct UmemFlags: u32 {
         const XDP_UMEM_UNALIGNED_CHUNK_FLAG = 1;
@@ -41,10 +43,10 @@ impl Config {
         use_huge_pages: bool,
         umem_flags: UmemFlags,
     ) -> Result<Self, ConfigError> {
-        if fill_queue_size != fill_queue_size.next_power_of_two() {
+        if !util::is_pow_of_two(fill_queue_size) {
             return Err(ConfigError::FillSizeInvalid);
         }
-        if comp_queue_size != comp_queue_size.next_power_of_two() {
+        if !util::is_pow_of_two(comp_queue_size) {
             return Err(ConfigError::CompSizeInvalid);
         }
 

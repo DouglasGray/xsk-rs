@@ -1,9 +1,6 @@
 pub mod poll;
 pub mod socket;
 pub mod umem;
+mod util;
 
 pub use socket::config::Config;
-
-pub(crate) fn get_errno() -> i32 {
-    unsafe { *libc::__errno_location() }
-}

@@ -2,7 +2,7 @@ use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_
 use std::{convert::TryInto, io, ptr};
 
 pub struct MmapArea {
-    pub len: u64,
+    len: u64,
     mem_ptr: *mut libc::c_void,
     len_usize: usize,
 }
@@ -15,6 +15,7 @@ impl MmapArea {
         let offset = 0;
 
         let mut flags = MAP_ANONYMOUS | MAP_PRIVATE;
+
         if use_huge_pages {
             flags |= MAP_HUGETLB;
         }
@@ -42,6 +43,10 @@ impl MmapArea {
 
     pub fn as_ptr(&self) -> *const libc::c_void {
         self.mem_ptr
+    }
+
+    pub fn len(&self) -> u64 {
+        self.len
     }
 }
 
