@@ -81,7 +81,7 @@ pub fn build_umem(umem_config: Option<UmemConfig>) -> (Umem, FillQueue, CompQueu
         None => UmemConfigBuilder::default().build(),
     };
 
-    Umem::new(config)
+    Umem::builder(config)
         .create_mmap()
         .expect("Failed to create mmap area")
         .create_umem()
@@ -93,7 +93,7 @@ pub fn build_socket_and_umem_with_retry_on_failure(
     socket_config: Option<SocketConfig>,
     max_retries: u8,
     time_between_attempts: Duration,
-) -> Result<((Umem, FillQueue, CompQueue), (Socket, TxQueue, RxQueue)), io::Error> {
+) -> ((Umem, FillQueue, CompQueue), (Socket, TxQueue, RxQueue)) {
     let socket_config = match socket_config {
         Some(cfg) => cfg,
         None => SocketConfigBuilder::default().build(),
@@ -110,11 +110,11 @@ pub fn build_socket_and_umem_with_retry_on_failure(
             socket_config.clone(),
             &mut umem,
         ) {
-            Ok(res) => return Ok(((umem, fill_q, comp_q), res)),
+            Ok(res) => return ((umem, fill_q, comp_q), res),
             Err(e) => {
                 attempts += 1;
                 if attempts > max_retries {
-                    return Err(e);
+                    panic!("Max retries hit. Final error: {}", e)
                 }
             }
         }

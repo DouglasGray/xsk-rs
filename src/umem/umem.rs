@@ -2,10 +2,7 @@ use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
 use std::{cmp, convert::TryInto, io, mem::MaybeUninit, ptr};
 use thiserror::Error;
 
-use crate::{
-    poll::{self, Milliseconds},
-    socket::Fd,
-};
+use crate::{poll, socket::Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
@@ -298,7 +295,7 @@ impl FillQueue {
         &mut self,
         descs: &[FrameDesc],
         socket_fd: &Fd,
-        poll_timeout: &Milliseconds,
+        poll_timeout: i32,
     ) -> io::Result<u64> {
         let cnt = self.produce(descs);
 
@@ -323,6 +320,7 @@ impl FillQueue {
 impl CompQueue {
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
         let nb: u64 = descs.len().try_into().unwrap();
+
         if nb == 0 {
             return 0;
         }
@@ -346,5 +344,31 @@ impl CompQueue {
         }
 
         cnt
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::umem::*;
+    use std::num::NonZeroU32;
+
+    #[test]
+    fn create_umem() {
+        let config = Config::new(
+            NonZeroU32::new(8).unwrap(),
+            NonZeroU32::new(2048).unwrap(),
+            4,
+            4,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap();
+
+        Umem::builder(config)
+            .create_mmap()
+            .unwrap()
+            .create_umem()
+            .unwrap();
     }
 }

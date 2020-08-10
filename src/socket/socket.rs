@@ -11,7 +11,7 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    poll::{poll_read, Milliseconds},
+    poll,
     umem::{FrameDesc, Umem},
     util,
 };
@@ -176,9 +176,9 @@ impl RxQueue {
     pub fn poll_and_consume(
         &mut self,
         descs: &mut [FrameDesc],
-        poll_timeout: &Milliseconds,
+        poll_timeout: i32,
     ) -> io::Result<Option<u64>> {
-        match poll_read(&self.socket_fd, poll_timeout)? {
+        match poll::poll_read(&self.socket_fd, poll_timeout)? {
             true => Ok(Some(self.consume(descs))),
             false => Ok(None),
         }
