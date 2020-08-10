@@ -115,11 +115,11 @@ impl UmemBuilderWithMmap {
             return Err(io::Error::from_raw_os_error(err));
         }
 
-        // Assuming 64-bit architecture so casting from u32 to u64 should be ok
+        // Ok: usize <= u64
         let mut frame_descs: Vec<FrameDesc> =
             Vec::with_capacity(self.config.frame_count().try_into().unwrap());
 
-        // Ok as upcasting from u32 -> u64
+        // Ok: upcasting u32 -> u64
         let frame_size_u64: u64 = self.config.frame_size().try_into().unwrap();
         let frame_count_u64: u64 = self.config.frame_count().try_into().unwrap();
 
@@ -238,6 +238,10 @@ impl Umem {
     }
 
     pub fn copy_data_to_frame(&mut self, addr: &u64, data: &[u8]) -> Result<(), UmemAccessError> {
+        if data.len() == 0 {
+            return Ok(());
+        }
+
         self.check_data_valid(data)?;
 
         let frame_ref = self.frame_ref_mut(addr)?;
@@ -349,26 +353,156 @@ impl CompQueue {
 
 #[cfg(test)]
 mod tests {
-    use crate::umem::*;
+    use rand;
     use std::num::NonZeroU32;
 
-    #[test]
-    fn create_umem() {
-        let config = Config::new(
-            NonZeroU32::new(8).unwrap(),
-            NonZeroU32::new(2048).unwrap(),
+    use super::*;
+    use crate::umem::{Config, UmemFlags};
+
+    const FRAME_COUNT: u32 = 8;
+    const FRAME_SIZE: u32 = 2048;
+
+    fn generate_random_bytes(len: u32) -> Vec<u8> {
+        (0..len).map(|_| rand::random::<u8>()).collect()
+    }
+
+    fn umem_config() -> Config {
+        Config::new(
+            NonZeroU32::new(FRAME_COUNT).unwrap(),
+            NonZeroU32::new(FRAME_SIZE).unwrap(),
             4,
             4,
             0,
             false,
             UmemFlags::empty(),
         )
-        .unwrap();
+        .unwrap()
+    }
+
+    fn umem() -> (Umem, FillQueue, CompQueue) {
+        let config = umem_config();
 
         Umem::builder(config)
             .create_mmap()
-            .unwrap()
+            .expect("Failed to create mmap region")
             .create_umem()
-            .unwrap();
+            .expect("Failed to create UMEM")
+    }
+
+    #[test]
+    fn frame_addr_checks_ok() {
+        let (umem, _fq, _cq) = umem();
+
+        // First frame / addr 0 is ok
+        assert!(umem.check_frame_addr_valid(&0).is_ok());
+
+        // Max possible address ok
+        let max_addr = (FRAME_COUNT as u64 - 1) * (FRAME_SIZE as u64);
+
+        assert!(umem.check_frame_addr_valid(&max_addr).is_ok());
+
+        // Another frame ok
+        let frame_addr = 2 * FRAME_SIZE as u64;
+        assert!(umem.check_frame_addr_valid(&(frame_addr)).is_ok());
+
+        // Max address + 1 fails
+        assert!(umem.check_frame_addr_valid(&(max_addr + 1)).is_err());
+
+        // Next valid address after maximum also fails
+        let max_addr_next = (FRAME_COUNT as u64) * (FRAME_SIZE as u64);
+
+        assert!(matches!(
+            umem.check_frame_addr_valid(&max_addr_next),
+            Err(UmemAccessError::AddrOutOfBounds { .. })
+        ));
+
+        // Misaligned address fails
+        assert!(matches!(
+            umem.check_frame_addr_valid(&1),
+            Err(UmemAccessError::AddrNotAligned { .. })
+        ));
+
+        // Misaligned address fails
+        assert!(matches!(
+            umem.check_frame_addr_valid(&(frame_addr + 13)),
+            Err(UmemAccessError::AddrNotAligned { .. })
+        ));
+    }
+
+    #[test]
+    fn data_checks_ok() {
+        let (umem, _fq, _cq) = umem();
+
+        // Empty data ok
+        let empty_data: Vec<u8> = Vec::new();
+
+        assert!(umem.check_data_valid(&empty_data).is_ok());
+
+        // Data within frame size ok
+        let data = generate_random_bytes(FRAME_SIZE - 1);
+
+        assert!(umem.check_data_valid(&data).is_ok());
+
+        // Data exactly frame size is ok
+        let data = generate_random_bytes(FRAME_SIZE);
+
+        assert!(umem.check_data_valid(&data).is_ok());
+
+        // Data greater than frame size fails
+        let data = generate_random_bytes(FRAME_SIZE + 1);
+
+        assert!(matches!(
+            umem.check_data_valid(&data),
+            Err(UmemAccessError::DataLenOutOfBounds { .. })
+        ));
+    }
+
+    #[test]
+    fn write_to_umem_then_read_small_byte_array() {
+        let (mut umem, _fq, _cq) = umem();
+
+        let addr = 0;
+        let data = [b'H', b'e', b'l', b'l', b'o'];
+
+        umem.copy_data_to_frame(&addr, &data[..]).unwrap();
+
+        let frame_ref = umem.frame_ref(&addr).unwrap();
+
+        assert_eq!(data, frame_ref[..data.len()]);
+    }
+
+    #[test]
+    fn write_max_bytes_to_neighbouring_umem_frames() {
+        let (mut umem, _fq, _cq) = umem();
+
+        // Create random data and write to adjacent frames
+        let fst_addr = 0;
+        let snd_addr = FRAME_SIZE as u64;
+
+        let fst_data = generate_random_bytes(FRAME_SIZE);
+        let snd_data = generate_random_bytes(FRAME_SIZE);
+
+        umem.copy_data_to_frame(&fst_addr, &fst_data).unwrap();
+        umem.copy_data_to_frame(&snd_addr, &snd_data).unwrap();
+
+        let fst_frame_ref = umem.frame_ref(&fst_addr).unwrap();
+        let snd_frame_ref = umem.frame_ref(&snd_addr).unwrap();
+
+        // Check that they are indeed the same
+        assert_eq!(fst_data[..], fst_frame_ref[..fst_data.len()]);
+        assert_eq!(snd_data[..], snd_frame_ref[..snd_data.len()]);
+
+        // Ensure there are no gaps and the frames lie snugly
+        let mem_ptr = umem.mmap_area.as_ptr();
+        let mem_len = (FRAME_SIZE * 2) as usize;
+
+        let mem_slice = unsafe { std::slice::from_raw_parts(mem_ptr as *const u8, mem_len) };
+
+        let mut data_vec = Vec::with_capacity(mem_len);
+
+        data_vec.extend_from_slice(&fst_data);
+        data_vec.extend_from_slice(&snd_data);
+
+        assert_eq!(&data_vec[..], mem_slice);
     }
 }

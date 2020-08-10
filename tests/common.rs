@@ -2,7 +2,7 @@ use rust_xsk::{
     socket::{Config as SocketConfig, *},
     umem::{Config as UmemConfig, *},
 };
-use std::{io, num::NonZeroU32, thread, time::Duration};
+use std::{num::NonZeroU32, thread, time::Duration};
 
 const DEFAULT_IF_NAME: &str = "lo";
 const DEFAULT_QUEUE_ID: u32 = 0;
