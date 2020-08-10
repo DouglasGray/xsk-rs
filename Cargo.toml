@@ -16,5 +16,9 @@ rand = "0.7.3"
 rtnetlink = "0.3.0"
 macaddr = "1.0.1"
 futures = "0.3.5"
-tokio = { version = "0.2.22", default-features = false, features = ["rt-core", "macros", "test-util", "time"] }
 anyhow = "1.0.32"
+
+[dev-dependencies.tokio]
+version = "0.2.22"
+default-features = false
+features =  ["rt-core", "macros", "test-util", "time", "blocking"]
