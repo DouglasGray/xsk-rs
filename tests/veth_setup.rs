@@ -1,10 +1,7 @@
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
-use std::{
-    sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
-};
-use tokio::time;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::task;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -30,13 +27,8 @@ async fn set_link_up(handle: &Handle, index: u32) -> anyhow::Result<()> {
     Ok(handle.link().set(index).up().execute().await?)
 }
 
-async fn delete_link(veth_link: VethLink) -> anyhow::Result<()> {
-    Ok(veth_link
-        .handle
-        .link()
-        .del(veth_link.if_index)
-        .execute()
-        .await?)
+async fn delete_link(handle: &Handle, index: u32) -> anyhow::Result<()> {
+    Ok(handle.link().del(index).execute().await?)
 }
 
 async fn build_veth_link(if_name: &str, peer_name: &str) -> anyhow::Result<VethLink> {
@@ -53,7 +45,7 @@ async fn build_veth_link(if_name: &str, peer_name: &str) -> anyhow::Result<VethL
 
     let if_index = get_link_index(&handle, if_name).await.expect(
         format!(
-            "Failed to retrieve index. Remember to remove link manually: 'sudo ip link del {}'",
+            "Failed to retrieve index, this is not expected. Remove link manually: 'sudo ip link del {}'",
             if_name
         )
         .as_str(),
@@ -71,8 +63,10 @@ async fn set_up_veth_link(veth_link: &VethLink, peer_name: &str) -> anyhow::Resu
     Ok(())
 }
 
-#[tokio::test]
-async fn test_setup() {
+pub async fn with_dev<F>(f: F)
+where
+    F: Fn(&str) + Send + 'static,
+{
     let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
 
     let if_name = format!("test{}", ctr);
@@ -82,15 +76,42 @@ async fn test_setup() {
 
     if let Err(e) = set_up_veth_link(&veth_link, &peer_name).await {
         eprintln!("Error setting up veth link: {}", e);
-        delete_link(veth_link)
+
+        delete_link(&veth_link.handle, veth_link.if_index)
             .await
-            .expect("Error deleting test link");
+            .expect(
+                format!(
+                    "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
+                    if_name
+                )
+                .as_str(),
+            );
+
         return;
     }
 
-    time::delay_for(Duration::from_secs(10)).await;
+    let if_name_clone = if_name.clone();
 
-    delete_link(veth_link)
+    let res = task::spawn_blocking(move || f(&if_name_clone)).await;
+
+    delete_link(&veth_link.handle, veth_link.if_index)
         .await
-        .expect("Error deleting test link");
+        .expect(
+            format!(
+                "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
+                if_name
+            )
+            .as_str(),
+        );
+
+    res.unwrap()
+}
+
+#[tokio::test]
+async fn test_setup() {
+    fn test_fn() {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
+
+    with_dev(|_| test_fn()).await;
 }
