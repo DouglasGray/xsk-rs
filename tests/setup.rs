@@ -1,8 +1,6 @@
 use futures::stream::TryStreamExt;
-use macaddr::MacAddr;
 use rtnetlink::Handle;
 use std::{
-    str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -10,13 +8,9 @@ use tokio::time;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-struct VethLink<'a> {
+struct VethLink {
     handle: Handle,
     if_index: u32,
-    if_name: &'a str,
-    peer_name: &'a str,
-    if_addr: &'a str,
-    peer_addr: &'a str,
 }
 
 async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
@@ -36,18 +30,7 @@ async fn set_link_up(handle: &Handle, index: u32) -> anyhow::Result<()> {
     Ok(handle.link().set(index).up().execute().await?)
 }
 
-async fn set_link_addr(handle: &Handle, index: u32, addr: &str) -> anyhow::Result<()> {
-    let addr = MacAddr::from_str(addr)?;
-
-    Ok(handle
-        .link()
-        .set(index)
-        .address(addr.as_bytes().to_vec())
-        .execute()
-        .await?)
-}
-
-async fn delete_link(veth_link: VethLink<'_>) -> anyhow::Result<()> {
+async fn delete_link(veth_link: VethLink) -> anyhow::Result<()> {
     Ok(veth_link
         .handle
         .link()
@@ -56,12 +39,7 @@ async fn delete_link(veth_link: VethLink<'_>) -> anyhow::Result<()> {
         .await?)
 }
 
-async fn build_veth_link<'a>(
-    if_name: &'a str,
-    peer_name: &'a str,
-    if_addr: &'a str,
-    peer_addr: &'a str,
-) -> anyhow::Result<VethLink<'a>> {
+async fn build_veth_link(if_name: &str, peer_name: &str) -> anyhow::Result<VethLink> {
     let (connection, handle, _) = rtnetlink::new_connection().unwrap();
 
     tokio::spawn(connection);
@@ -81,39 +59,16 @@ async fn build_veth_link<'a>(
         .as_str(),
     );
 
-    Ok(VethLink {
-        handle,
-        if_index,
-        if_name,
-        peer_name,
-        if_addr,
-        peer_addr,
-    })
+    Ok(VethLink { handle, if_index })
 }
 
-async fn set_up_veth_link(veth_link: &VethLink<'_>) -> anyhow::Result<()> {
-    let peer_index = get_link_index(&veth_link.handle, veth_link.peer_name).await?;
+async fn set_up_veth_link(veth_link: &VethLink, peer_name: &str) -> anyhow::Result<()> {
+    let peer_index = get_link_index(&veth_link.handle, peer_name).await?;
 
     set_link_up(&veth_link.handle, veth_link.if_index).await?;
     set_link_up(&veth_link.handle, peer_index).await?;
 
-    //set_link_addr(&veth_link.handle, veth_link.if_index, veth_link.if_addr).await?;
-    //set_link_addr(&veth_link.handle, peer_index, veth_link.peer_addr).await?;
-
     Ok(())
-}
-
-fn generate_random_bytes(len: u32) -> Vec<u8> {
-    (0..len).map(|_| rand::random::<u8>()).collect()
-}
-
-fn generate_mac_addr() -> String {
-    let bytes = generate_random_bytes(6);
-
-    format!(
-        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]
-    )
 }
 
 #[tokio::test]
@@ -121,19 +76,11 @@ async fn test_setup() {
     let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
 
     let if_name = format!("test{}", ctr);
-    let if_addr = generate_mac_addr();
-
     let peer_name = format!("echo{}", ctr);
-    let peer_addr = generate_mac_addr();
 
-    println!("if_addr: {}", if_addr);
-    println!("peer addr: {}", peer_addr);
+    let veth_link = build_veth_link(&if_name, &peer_name).await.unwrap();
 
-    let veth_link = build_veth_link(&if_name, &peer_name, &if_addr, &peer_addr)
-        .await
-        .unwrap();
-
-    if let Err(e) = set_up_veth_link(&veth_link).await {
+    if let Err(e) = set_up_veth_link(&veth_link, &peer_name).await {
         eprintln!("Error setting up veth link: {}", e);
         delete_link(veth_link)
             .await

@@ -14,7 +14,6 @@ log = "0.4"
 [dev-dependencies]
 rand = "0.7.3"
 rtnetlink = "0.3.0"
-macaddr = "1.0.1"
 futures = "0.3.5"
 anyhow = "1.0.32"
 
