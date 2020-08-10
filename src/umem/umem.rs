@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
-use std::{cmp, collections::VecDeque, convert::TryInto, io, mem::MaybeUninit, ptr};
+use std::{cmp, convert::TryInto, io, mem::MaybeUninit, ptr};
 
 use crate::{
     poll::{self, Milliseconds},
@@ -15,10 +15,6 @@ pub struct FrameDesc {
 }
 
 impl FrameDesc {
-    pub(crate) fn new(addr: u64, len: u32, options: u32) -> Self {
-        FrameDesc { addr, len, options }
-    }
-
     pub fn addr(&self) -> u64 {
         self.addr
     }
@@ -29,6 +25,18 @@ impl FrameDesc {
 
     pub fn options(&self) -> u32 {
         self.options
+    }
+
+    pub(crate) fn set_addr(&mut self, addr: u64) {
+        self.addr = addr
+    }
+
+    pub(crate) fn set_len(&mut self, len: u32) {
+        self.len = len
+    }
+
+    pub(crate) fn set_options(&mut self, options: u32) {
+        self.options = options
     }
 }
 
@@ -207,19 +215,15 @@ impl Drop for Umem {
 }
 
 impl FillQueue {
-    pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        if nb == 0 {
-            return 0;
-        }
-
+    pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
         // First determine how many slots are free. Need to do this because if we try to reserve
         // more than is available in 'xsk_ring_prod__reserve' it will reserve nothing and return 0
-        let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
+        let nb: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
             .try_into()
             .unwrap();
 
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
-        let nb = cmp::min(nb_free, cmp::min(nb, descs.len().try_into().unwrap()));
+        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         if nb == 0 {
             return 0;
@@ -229,10 +233,7 @@ impl FillQueue {
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
-        for _ in 0..cnt {
-            // Ensured above that cnt <= descs.len()
-            let desc = descs.pop_front().unwrap();
-
+        for desc in descs.iter().take(cnt.try_into().unwrap()) {
             unsafe {
                 *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = desc.addr;
             }
@@ -248,12 +249,11 @@ impl FillQueue {
 
     pub fn produce_and_wakeup(
         &mut self,
-        descs: &mut VecDeque<FrameDesc>,
-        nb: u64,
+        descs: &[FrameDesc],
         socket_fd: &Fd,
         poll_timeout: &Milliseconds,
     ) -> io::Result<u64> {
-        let cnt = self.produce(descs, nb);
+        let cnt = self.produce(descs);
 
         if cnt > 0 && self.needs_wakeup() {
             poll::poll_read(socket_fd, poll_timeout)?;
@@ -274,7 +274,8 @@ impl FillQueue {
 }
 
 impl CompQueue {
-    pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
+    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
+        let nb: u64 = descs.len().try_into().unwrap();
         if nb == 0 {
             return 0;
         }
@@ -283,12 +284,12 @@ impl CompQueue {
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
-        for _ in 0..cnt {
+        for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
             let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
 
-            let desc = FrameDesc::new(addr, 0, 0);
-
-            descs.push_back(desc);
+            desc.set_addr(addr);
+            desc.set_len(0);
+            desc.set_options(0);
 
             idx += 1;
         }

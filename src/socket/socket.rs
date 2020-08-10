@@ -1,6 +1,6 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
-use std::{cmp, collections::VecDeque, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
+use std::{cmp, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
 
 use crate::{
     poll::{poll_read, Milliseconds},
@@ -116,7 +116,13 @@ impl Drop for Socket {
 }
 
 impl RxQueue {
-    pub fn consume(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
+    /// Consume frames with received packets and add their info to [descs].
+    /// Number of frames consumed will be less than or equal to the length of [descs].
+    /// Returns the number of frames consumed (and therefore updated in [descs]).
+    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
+        // usize -> u64 ok
+        let nb: u64 = descs.len().try_into().unwrap();
+
         if nb == 0 {
             return 0;
         }
@@ -125,15 +131,14 @@ impl RxQueue {
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
-        for _ in 0..cnt {
+        // Assuming 64-bit so u64 -> usize is ok
+        for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
             unsafe {
                 let recv_pkt_desc = libbpf_sys::_xsk_ring_cons__rx_desc(self.inner.as_mut(), idx);
 
-                let addr = (*recv_pkt_desc).addr;
-                let len = (*recv_pkt_desc).len;
-                let options = (*recv_pkt_desc).options;
-
-                descs.push_back(FrameDesc::new(addr, len, options))
+                desc.set_addr((*recv_pkt_desc).addr);
+                desc.set_len((*recv_pkt_desc).len);
+                desc.set_options((*recv_pkt_desc).options);
             }
             idx += 1;
         }
@@ -147,43 +152,36 @@ impl RxQueue {
 
     pub fn poll_and_consume(
         &mut self,
-        descs: &mut VecDeque<FrameDesc>,
-        nb: u64,
+        descs: &mut [FrameDesc],
         poll_timeout: &Milliseconds,
     ) -> io::Result<Option<u64>> {
         match poll_read(&self.socket_fd, poll_timeout)? {
-            true => Ok(Some(self.consume(descs, nb))),
+            true => Ok(Some(self.consume(descs))),
             false => Ok(None),
         }
     }
 }
 
 impl TxQueue {
-    pub fn produce(&mut self, descs: &mut VecDeque<FrameDesc>, nb: u64) -> u64 {
-        if nb == 0 {
-            return 0;
-        }
-
+    pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
         // First determine how many slots are free. Need to do this because if we try to reserve
         // more than is available in 'xsk_ring_prod__reserve' it will reserve nothing and return 0
-        let nb_free: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
+        let nb: u64 = unsafe { libbpf_sys::_xsk_prod_nb_free(self.inner.as_mut(), 0) }
             .try_into()
             .unwrap();
 
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
-        let nb = cmp::min(nb_free, cmp::min(nb, descs.len().try_into().unwrap()));
+        let nb = cmp::min(nb, descs.len().try_into().unwrap());
 
         if nb == 0 {
             return 0;
         }
+
         let mut idx: u32 = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
 
-        for _ in 0..cnt {
-            // Ensured above that cnt <= nb <= descs.len()
-            let desc = descs.pop_front().unwrap();
-
+        for desc in descs.iter().take(cnt.try_into().unwrap()) {
             unsafe {
                 let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
@@ -202,12 +200,8 @@ impl TxQueue {
         cnt
     }
 
-    pub fn produce_and_wakeup(
-        &mut self,
-        descs: &mut VecDeque<FrameDesc>,
-        nb: u64,
-    ) -> io::Result<u64> {
-        let cnt = self.produce(descs, nb);
+    pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<u64> {
+        let cnt = self.produce(descs);
 
         if self.needs_wakeup() {
             let ret = unsafe {
