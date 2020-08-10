@@ -21,7 +21,7 @@ impl Milliseconds {
 
 pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
-        fd: socket_fd.descriptor(),
+        fd: socket_fd.id(),
         events: POLLIN,
         revents: 0,
     };
@@ -45,7 +45,7 @@ pub(crate) fn poll_read(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bo
 
 pub(crate) fn poll_write(socket_fd: &Fd, timeout: &Milliseconds) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
-        fd: socket_fd.descriptor(),
+        fd: socket_fd.id(),
         events: POLLOUT,
         revents: 0,
     };

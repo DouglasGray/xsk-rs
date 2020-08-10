@@ -1,5 +1,6 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
 use std::{cmp, convert::TryInto, io, mem::MaybeUninit, ptr};
+use thiserror::Error;
 
 use crate::{
     poll::{self, Milliseconds},
@@ -52,14 +53,21 @@ pub struct UmemBuilderWithMmap {
 pub struct Umem {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
-    frame_descs: Option<Vec<FrameDesc>>,
+    frame_descs: Vec<FrameDesc>,
     frame_count: u32,
     frame_size: u32,
+    max_addr: u64,
+    frame_size_u64: u64,
 }
 
-pub enum UmemError {
-    InvalidFrameAddr,
-    InvalidDataLen,
+#[derive(Error, Debug)]
+pub enum UmemAccessError {
+    #[error("Frame address {req_addr:? } is out of bounds, max address is {max_addr:?}")]
+    AddrOutOfBounds { req_addr: u64, max_addr: u64 },
+    #[error("Frame address {req_addr:?} must be a multiple of the frame size ({frame_size:?})")]
+    AddrNotAligned { req_addr: u64, frame_size: u32 },
+    #[error("Data ({data_len:?} bytes) cannot be larger than frame size ({frame_size:?} bytes)")]
+    DataLenOutOfBounds { data_len: usize, frame_size: u32 },
 }
 
 pub struct CompQueue {
@@ -114,11 +122,12 @@ impl UmemBuilderWithMmap {
         let mut frame_descs: Vec<FrameDesc> =
             Vec::with_capacity(self.config.frame_count().try_into().unwrap());
 
-        // Assuming 64-bit architecture so casting from u32 to u64 in 'addr' should be ok
-        // Also know from UmemBuilder that i * frame_size won't overflow, as max val is
-        // frame_count * frame_size
-        for i in 0..self.config.frame_count() {
-            let addr = (i * self.config.frame_size()).try_into().unwrap();
+        // Ok as upcasting from u32 -> u64
+        let frame_size_u64: u64 = self.config.frame_size().try_into().unwrap();
+        let frame_count_u64: u64 = self.config.frame_count().try_into().unwrap();
+
+        for i in 0..frame_count_u64 {
+            let addr = i * frame_size_u64;
             let len = 0;
             let options = 0;
 
@@ -130,9 +139,11 @@ impl UmemBuilderWithMmap {
         let umem = Umem {
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area: self.mmap_area,
-            frame_descs: Some(frame_descs),
+            frame_descs,
             frame_count: self.config.frame_count(),
             frame_size: self.config.frame_size(),
+            max_addr: (frame_count_u64 - 1) * frame_size_u64,
+            frame_size_u64,
         };
 
         let fill_queue = FillQueue {
@@ -148,22 +159,63 @@ impl UmemBuilderWithMmap {
 }
 
 impl Umem {
-    pub fn new(config: Config) -> UmemBuilder {
+    pub fn builder(config: Config) -> UmemBuilder {
         UmemBuilder { config }
+    }
+
+    pub fn frame_descs(&self) -> &[FrameDesc] {
+        &self.frame_descs[..]
+    }
+
+    pub fn frame_count(&self) -> u32 {
+        self.frame_count
+    }
+
+    pub fn frame_size(&self) -> u32 {
+        self.frame_size
     }
 
     pub(crate) fn as_mut_ptr(&mut self) -> *mut xsk_umem {
         self.inner.as_mut()
     }
 
-    pub fn frame_ref(&self, addr: u64) -> Result<&[u8], UmemError> {
-        // First check that frame address and frame length are within bounds
-        if addr > ((self.frame_count - 1).try_into().unwrap()) {
-            return Err(UmemError::InvalidFrameAddr);
+    fn check_frame_addr_valid(&self, addr: &u64) -> Result<(), UmemAccessError> {
+        // Check frame address is within bounds
+        if *addr > self.max_addr {
+            return Err(UmemAccessError::AddrOutOfBounds {
+                max_addr: self.max_addr,
+                req_addr: *addr,
+            });
         }
 
+        // Check frame address is aligned
+        if *addr % self.frame_size_u64 != 0 {
+            return Err(UmemAccessError::AddrNotAligned {
+                req_addr: *addr,
+                frame_size: self.frame_size,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn check_data_valid(&self, data: &[u8]) -> Result<(), UmemAccessError> {
+        // Check that data fits within a frame
+        if data.len() > self.frame_size.try_into().unwrap() {
+            return Err(UmemAccessError::DataLenOutOfBounds {
+                data_len: data.len(),
+                frame_size: self.frame_size,
+            });
+        }
+
+        Ok(())
+    }
+
+    pub fn frame_ref(&self, addr: &u64) -> Result<&[u8], UmemAccessError> {
+        self.check_frame_addr_valid(&addr)?;
+
         unsafe {
-            let frame_ptr = self.mmap_area.as_ptr().offset(addr.try_into().unwrap());
+            let frame_ptr = self.mmap_area.as_ptr().offset((*addr).try_into().unwrap());
 
             Ok(std::slice::from_raw_parts(
                 frame_ptr as *const u8,
@@ -172,13 +224,14 @@ impl Umem {
         }
     }
 
-    pub fn frame_ref_mut(&mut self, addr: u64) -> Result<&mut [u8], UmemError> {
-        if addr > ((self.frame_count - 1).try_into().unwrap()) {
-            return Err(UmemError::InvalidFrameAddr);
-        }
+    pub fn frame_ref_mut(&mut self, addr: &u64) -> Result<&mut [u8], UmemAccessError> {
+        self.check_frame_addr_valid(&addr)?;
 
         unsafe {
-            let frame_ptr = self.mmap_area.as_mut_ptr().offset(addr.try_into().unwrap());
+            let frame_ptr = self
+                .mmap_area
+                .as_mut_ptr()
+                .offset((*addr).try_into().unwrap());
 
             Ok(std::slice::from_raw_parts_mut(
                 frame_ptr as *mut u8,
@@ -187,20 +240,14 @@ impl Umem {
         }
     }
 
-    pub fn copy_data_to_frame(&mut self, addr: u64, data: &[u8]) -> Result<(), UmemError> {
-        if data.len() > self.frame_size.try_into().unwrap() {
-            return Err(UmemError::InvalidDataLen);
-        }
+    pub fn copy_data_to_frame(&mut self, addr: &u64, data: &[u8]) -> Result<(), UmemAccessError> {
+        self.check_data_valid(data)?;
 
         let frame_ref = self.frame_ref_mut(addr)?;
 
         frame_ref[..data.len()].copy_from_slice(data);
 
         Ok(())
-    }
-
-    pub fn consume_frame_descs(&mut self) -> Option<Vec<FrameDesc>> {
-        self.frame_descs.take()
     }
 }
 

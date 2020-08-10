@@ -1,6 +1,14 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
-use std::{cmp, convert::TryInto, ffi::CString, io, mem::MaybeUninit, ptr};
+use std::{
+    cmp,
+    convert::TryInto,
+    ffi::{CString, NulError},
+    io,
+    mem::MaybeUninit,
+    ptr,
+};
+use thiserror::Error;
 
 use crate::{
     poll::{poll_read, Milliseconds},
@@ -10,12 +18,24 @@ use crate::{
 
 use super::config::Config;
 
-pub struct Fd(i32);
+pub struct Fd {
+    id: i32,
+}
 
-impl Fd {
-    pub(crate) fn descriptor(&self) -> i32 {
-        self.0
-    }
+#[derive(Error, Debug)]
+pub enum SocketCreateError {
+    #[error("Interface name contains one or more null bytes")]
+    InvalidIfName(#[from] NulError),
+    #[error("OS or FFI call failed")]
+    OsError {
+        context: &'static str,
+        io_err: io::Error,
+    },
+}
+
+pub struct Socket {
+    inner: Box<xsk_socket>,
+    fd: Fd,
 }
 
 pub struct TxQueue {
@@ -28,9 +48,10 @@ pub struct RxQueue {
     socket_fd: Fd,
 }
 
-pub struct Socket {
-    inner: Box<xsk_socket>,
-    fd: Fd,
+impl Fd {
+    pub(crate) fn id(&self) -> i32 {
+        self.id
+    }
 }
 
 impl Socket {
@@ -39,7 +60,7 @@ impl Socket {
         queue_id: u32,
         config: Config,
         umem: &mut Umem,
-    ) -> io::Result<(Socket, TxQueue, RxQueue)> {
+    ) -> Result<(Socket, TxQueue, RxQueue), SocketCreateError> {
         let socket_create_config = xsk_socket_config {
             rx_size: config.rx_queue_size(),
             tx_size: config.tx_queue_size(),
@@ -52,8 +73,7 @@ impl Socket {
         let mut tx_q_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
         let mut rx_q_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::uninit();
 
-        let if_name = CString::new(if_name)
-            .expect("Failed to construct CString from provided interface name");
+        let if_name = CString::new(if_name).map_err(|e| SocketCreateError::InvalidIfName(e))?;
 
         let err = unsafe {
             libbpf_sys::xsk_socket__create(
@@ -68,35 +88,38 @@ impl Socket {
         };
 
         if err != 0 {
-            eprintln!("Failed to create and bind socket");
-            return Err(io::Error::from_raw_os_error(err));
+            return Err(SocketCreateError::OsError {
+                context: "Failed to create AF_XDP socket",
+                io_err: io::Error::from_raw_os_error(err),
+            });
         }
 
         let fd = unsafe { libbpf_sys::xsk_socket__fd(xsk_ptr) };
 
         if fd < 0 {
-            eprintln!("Failed while retrieving socket file descriptor");
-
             unsafe {
                 libbpf_sys::xsk_socket__delete(xsk_ptr);
             }
 
-            return Err(io::Error::from_raw_os_error(fd));
+            return Err(SocketCreateError::OsError {
+                context: "Could not retrieve AF_XDP socket file descriptor",
+                io_err: io::Error::from_raw_os_error(err),
+            });
         }
 
         let socket = Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
-            fd: Fd(fd),
+            fd: Fd { id: fd },
         };
 
         let tx_queue = TxQueue {
             inner: unsafe { Box::new(tx_q_ptr.assume_init()) },
-            socket_fd: Fd(fd),
+            socket_fd: Fd { id: fd },
         };
 
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
-            socket_fd: Fd(fd),
+            socket_fd: Fd { id: fd },
         };
 
         Ok((socket, tx_queue, rx_queue))
@@ -206,7 +229,7 @@ impl TxQueue {
         if self.needs_wakeup() {
             let ret = unsafe {
                 libc::sendto(
-                    self.socket_fd.0,
+                    self.socket_fd.id(),
                     ptr::null(),
                     0,
                     MSG_DONTWAIT,
