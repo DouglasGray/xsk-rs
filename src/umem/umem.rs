@@ -256,7 +256,7 @@ impl Drop for Umem {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
 
         if err != 0 {
-            eprintln!("xsk_umem__delete failed: {}", err);
+            log::error!("xsk_umem__delete failed: {}", err);
         }
     }
 }
