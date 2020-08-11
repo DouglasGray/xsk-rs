@@ -56,10 +56,10 @@ impl Fd {
 
 impl Socket {
     pub fn new(
-        if_name: &str,
-        queue_id: u32,
         config: Config,
         umem: &mut Umem,
+        if_name: &str,
+        queue_id: u32,
     ) -> Result<(Socket, TxQueue, RxQueue), SocketCreateError> {
         let socket_create_config = xsk_socket_config {
             rx_size: config.rx_queue_size(),

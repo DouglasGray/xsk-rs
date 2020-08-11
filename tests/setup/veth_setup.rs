@@ -65,7 +65,7 @@ async fn set_up_veth_link(veth_link: &VethLink, peer_name: &str) -> anyhow::Resu
 
 pub async fn with_dev<F>(f: F)
 where
-    F: Fn(&str) + Send + 'static,
+    F: FnOnce(String) + Send + 'static,
 {
     let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
 
@@ -92,7 +92,7 @@ where
 
     let if_name_clone = if_name.clone();
 
-    let res = task::spawn_blocking(move || f(&if_name_clone)).await;
+    let res = task::spawn_blocking(move || f(if_name_clone)).await;
 
     delete_link(&veth_link.handle, veth_link.if_index)
         .await
@@ -105,13 +105,4 @@ where
         );
 
     res.unwrap()
-}
-
-#[tokio::test]
-async fn test_setup() {
-    fn test_fn() {
-        std::thread::sleep(std::time::Duration::from_secs(5));
-    }
-
-    with_dev(|_| test_fn()).await;
 }

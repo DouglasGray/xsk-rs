@@ -1,145 +1,32 @@
-// use std::{collections::VecDeque, time::Duration};
+use rust_xsk::{
+    socket::{Config as SocketConfig, *},
+    umem::{Config as UmemConfig, *},
+};
 
-// mod common;
+mod setup;
 
-// use common::SocketConfigBuilder;
+use setup::SocketConfigBuilder;
 
-// #[test]
-// fn tx_queue_produce_no_frames() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
+#[tokio::test]
+async fn tx_queue_produce_lt_tx_size_frames() {
+    fn test_fn(
+        umem: Umem,
+        _fill_q: FillQueue,
+        _comp_q: CompQueue,
+        _socket: Socket,
+        mut tx_q: TxQueue,
+        _rx_q: RxQueue,
+    ) {
+        let frame_descs = umem.frame_descs();
 
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
+        assert_eq!(tx_q.produce(&frame_descs[..3]), 3);
+    }
 
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
+    let socket_config = SocketConfigBuilder {
+        tx_queue_size: 4,
+        ..SocketConfigBuilder::default()
+    }
+    .build();
 
-//     assert_eq!(tx_q.produce(&mut frame_descs, 0), 0);
-// }
-
-// #[test]
-// fn tx_queue_produce_lt_tx_size_frames() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
-
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
-
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 3), 3);
-// }
-
-// #[test]
-// fn tx_queue_produce_eq_tx_size_frames() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
-
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
-
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 4), 4);
-// }
-
-// #[test]
-// fn tx_queue_produce_gt_tx_size_frames() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
-
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
-
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 5), 4);
-// }
-
-// #[test]
-// fn tx_queue_produce_frames_until_none_accepted() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
-
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
-
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 3), 3);
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 2), 1);
-
-//     assert_eq!(tx_q.produce(&mut frame_descs, 1), 0);
-// }
-
-// #[test]
-// fn tx_queue_produce_and_wakeup() {
-//     let socket_config = SocketConfigBuilder {
-//         tx_queue_size: 4,
-//         ..SocketConfigBuilder::default()
-//     }
-//     .build();
-
-//     let ((mut umem, _, _), (_socket, mut tx_q, _)) =
-//         common::build_socket_and_umem_with_retry_on_failure(
-//             None,
-//             Some(socket_config),
-//             3,
-//             Duration::from_millis(1000),
-//         )
-//         .unwrap();
-
-//     let mut frame_descs = VecDeque::from(umem.consume_frame_descs().unwrap());
-
-//     let cnt = tx_q
-//         .produce_and_wakeup(&mut frame_descs, 4)
-//         .expect("Poll error");
-
-//     assert_eq!(cnt, 4);
-// }
+    setup::run_test(None, Some(socket_config), test_fn).await;
+}
