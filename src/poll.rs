@@ -3,7 +3,7 @@ use std::io;
 
 use crate::{socket::Fd, util};
 
-pub(crate) fn poll_read(socket_fd: &Fd, timeout_ms: i32) -> io::Result<bool> {
+pub fn poll_read(socket_fd: &Fd, timeout_ms: i32) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: socket_fd.id(),
         events: POLLIN,
@@ -27,7 +27,7 @@ pub(crate) fn poll_read(socket_fd: &Fd, timeout_ms: i32) -> io::Result<bool> {
     }
 }
 
-pub(crate) fn poll_write(socket_fd: &Fd, timeout_ms: i32) -> io::Result<bool> {
+pub fn poll_write(socket_fd: &Fd, timeout_ms: i32) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: socket_fd.id(),
         events: POLLOUT,

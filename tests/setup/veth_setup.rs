@@ -69,8 +69,8 @@ where
 {
     let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
 
-    let if_name = format!("test{}", ctr);
-    let peer_name = format!("echo{}", ctr);
+    let if_name = format!("xsk_test{}", ctr);
+    let peer_name = format!("xsk_echo{}", ctr);
 
     let veth_link = build_veth_link(&if_name, &peer_name).await.unwrap();
 
