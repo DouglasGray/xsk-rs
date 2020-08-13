@@ -173,14 +173,14 @@ impl RxQueue {
         cnt
     }
 
-    pub fn poll_and_consume(
+    pub fn wakeup_and_consume(
         &mut self,
         descs: &mut [FrameDesc],
         poll_timeout: i32,
-    ) -> io::Result<Option<u64>> {
+    ) -> io::Result<u64> {
         match poll::poll_read(&self.socket_fd, poll_timeout)? {
-            true => Ok(Some(self.consume(descs))),
-            false => Ok(None),
+            true => Ok(self.consume(descs)),
+            false => Ok(0),
         }
     }
 }
@@ -227,29 +227,35 @@ impl TxQueue {
         let cnt = self.produce(descs);
 
         if self.needs_wakeup() {
-            let ret = unsafe {
-                libc::sendto(
-                    self.socket_fd.id(),
-                    ptr::null(),
-                    0,
-                    MSG_DONTWAIT,
-                    ptr::null(),
-                    0,
-                )
-            };
-
-            if ret < 0 {
-                match util::get_errno() {
-                    ENOBUFS | EAGAIN | EBUSY | ENETDOWN => (),
-                    _ => return Err(io::Error::last_os_error()),
-                }
-            }
+            self.wakeup()?;
         }
 
         Ok(cnt)
     }
 
-    fn needs_wakeup(&self) -> bool {
+    pub fn wakeup(&self) -> io::Result<()> {
+        let ret = unsafe {
+            libc::sendto(
+                self.socket_fd.id(),
+                ptr::null(),
+                0,
+                MSG_DONTWAIT,
+                ptr::null(),
+                0,
+            )
+        };
+
+        if ret < 0 {
+            match util::get_errno() {
+                ENOBUFS | EAGAIN | EBUSY | ENETDOWN => (),
+                _ => return Err(io::Error::last_os_error()),
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn needs_wakeup(&self) -> bool {
         unsafe {
             if libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 {
                 true

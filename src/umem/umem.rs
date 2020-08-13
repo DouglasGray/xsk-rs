@@ -6,6 +6,7 @@ use crate::{poll, socket::Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct FrameDesc {
     addr: u64,
     len: u32,
@@ -29,7 +30,7 @@ impl FrameDesc {
         self.addr = addr
     }
 
-    pub(crate) fn set_len(&mut self, len: u32) {
+    pub fn set_len(&mut self, len: u32) {
         self.len = len
     }
 
@@ -304,13 +305,18 @@ impl FillQueue {
         let cnt = self.produce(descs);
 
         if cnt > 0 && self.needs_wakeup() {
-            poll::poll_read(socket_fd, poll_timeout)?;
+            self.wakeup(socket_fd, poll_timeout)?;
         }
 
         Ok(cnt)
     }
 
-    fn needs_wakeup(&self) -> bool {
+    pub fn wakeup(&self, socket_fd: &Fd, poll_timeout: i32) -> io::Result<()> {
+        poll::poll_read(socket_fd, poll_timeout)?;
+        Ok(())
+    }
+
+    pub fn needs_wakeup(&self) -> bool {
         unsafe {
             if libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 {
                 true

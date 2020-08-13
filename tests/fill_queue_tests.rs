@@ -1,24 +1,10 @@
-use rust_xsk::{socket::*, umem::*};
+use rust_xsk::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 
-use setup::UmemConfigBuilder;
+use setup::{SocketState, UmemConfigBuilder};
 
-#[tokio::test]
-async fn fill_queue_produce_tx_size_frames() {
-    fn test_fn(
-        umem: Umem,
-        mut fill_q: FillQueue,
-        _comp_q: CompQueue,
-        _socket: Socket,
-        _tx_q: TxQueue,
-        _rx_q: RxQueue,
-    ) {
-        let frame_descs = umem.frame_descs();
-
-        assert_eq!(fill_q.produce(&frame_descs[..4]), 4);
-    }
-
+fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
         frame_count: 8,
         fill_queue_size: 4,
@@ -26,87 +12,46 @@ async fn fill_queue_produce_tx_size_frames() {
     }
     .build();
 
-    setup::run_test(Some(umem_config), None, test_fn).await;
+    (Some(umem_config), None)
+}
+
+#[tokio::test]
+async fn fill_queue_produce_tx_size_frames() {
+    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+        let frame_descs = dev1.umem.frame_descs();
+
+        assert_eq!(dev1.fill_q.produce(&frame_descs[..4]), 4);
+    }
+
+    let (umem_config, socket_config) = build_configs();
+
+    setup::run_test(umem_config, socket_config, test_fn).await;
 }
 
 #[tokio::test]
 async fn fill_queue_produce_gt_tx_size_frames() {
-    fn test_fn(
-        umem: Umem,
-        mut fill_q: FillQueue,
-        _comp_q: CompQueue,
-        _socket: Socket,
-        _tx_q: TxQueue,
-        _rx_q: RxQueue,
-    ) {
-        let frame_descs = umem.frame_descs();
+    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+        let frame_descs = dev1.umem.frame_descs();
 
-        assert_eq!(fill_q.produce(&frame_descs[..5]), 4);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[..5]), 4);
     }
 
-    let umem_config = UmemConfigBuilder {
-        frame_count: 8,
-        fill_queue_size: 4,
-        ..UmemConfigBuilder::default()
-    }
-    .build();
+    let (umem_config, socket_config) = build_configs();
 
-    setup::run_test(Some(umem_config), None, test_fn).await;
+    setup::run_test(umem_config, socket_config, test_fn).await;
 }
 
 #[tokio::test]
 async fn fill_queue_produce_frames_until_full() {
-    fn test_fn(
-        umem: Umem,
-        mut fill_q: FillQueue,
-        _comp_q: CompQueue,
-        _socket: Socket,
-        _tx_q: TxQueue,
-        _rx_q: RxQueue,
-    ) {
-        let frame_descs = umem.frame_descs();
+    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+        let frame_descs = dev1.umem.frame_descs();
 
-        assert_eq!(fill_q.produce(&frame_descs[..2]), 2);
-        assert_eq!(fill_q.produce(&frame_descs[2..5]), 2);
-        assert_eq!(fill_q.produce(&frame_descs[5..8]), 0);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[..2]), 2);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[2..5]), 2);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[5..8]), 0);
     }
 
-    let umem_config = UmemConfigBuilder {
-        frame_count: 8,
-        fill_queue_size: 4,
-        ..UmemConfigBuilder::default()
-    }
-    .build();
+    let (umem_config, socket_config) = build_configs();
 
-    setup::run_test(Some(umem_config), None, test_fn).await;
-}
-
-#[tokio::test]
-async fn fill_queue_produce_and_wakeup() {
-    fn test_fn(
-        umem: Umem,
-        mut fill_q: FillQueue,
-        _comp_q: CompQueue,
-        socket: Socket,
-        _tx_q: TxQueue,
-        _rx_q: RxQueue,
-    ) {
-        let frame_descs = umem.frame_descs();
-
-        assert_eq!(
-            fill_q
-                .produce_and_wakeup(&frame_descs[..5], socket.file_descriptor(), 100)
-                .unwrap(),
-            4
-        );
-    }
-
-    let umem_config = UmemConfigBuilder {
-        frame_count: 8,
-        fill_queue_size: 4,
-        ..UmemConfigBuilder::default()
-    }
-    .build();
-
-    setup::run_test(Some(umem_config), None, test_fn).await;
+    setup::run_test(umem_config, socket_config, test_fn).await;
 }
