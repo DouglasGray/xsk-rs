@@ -1,9 +1,6 @@
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::task;
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 struct VethLink {
     handle: Handle,
@@ -67,10 +64,8 @@ pub async fn run_with_dev<F>(f: F)
 where
     F: FnOnce(String, String) + Send + 'static,
 {
-    let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
-
-    let dev1_if_name = format!("xsk_test_dev1_{}", ctr);
-    let dev2_if_name = format!("xsk_test_dev2_{}", ctr);
+    let dev1_if_name = "xsk_bench_dev1";
+    let dev2_if_name = "xsk_bench_dev2";
 
     let veth_link = build_veth_link(&dev1_if_name, &dev2_if_name).await.unwrap();
 
@@ -90,10 +85,10 @@ where
         return;
     }
 
-    let dev1_if_name_clone = dev1_if_name.clone();
-    let dev2_if_name_clone = dev2_if_name.clone();
+    let dev1_if_name_str = dev1_if_name.to_string();
+    let dev2_if_name_str = dev2_if_name.to_string();
 
-    let res = task::spawn_blocking(move || f(dev1_if_name_clone, dev2_if_name_clone)).await;
+    let res = task::spawn_blocking(move || f(dev1_if_name_str, dev2_if_name_str)).await;
 
     delete_link(&veth_link.handle, veth_link.dev1_index)
         .await

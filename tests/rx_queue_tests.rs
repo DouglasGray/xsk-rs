@@ -137,3 +137,45 @@ async fn consumed_frame_addr_matches_fill_q_frame_addr() {
 
     setup::run_test(umem_config, socket_config, test_fn).await;
 }
+
+#[tokio::test]
+async fn what_lurks_in_the_void() {
+    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+        let d1_fill_q_frames = dev1.umem.frame_descs().to_vec();
+        let mut d1_rx_q_frames = dev1.umem.frame_descs().to_vec();
+
+        println!("Interface: {}", dev1.if_name);
+
+        std::thread::sleep(std::time::Duration::from_secs(10));
+
+        dev1.fill_q.produce(&d1_fill_q_frames[..]);
+
+        std::thread::sleep(std::time::Duration::from_secs(5));
+
+        // Now read on dev1
+        let cnt = dev1
+            .rx_q
+            .wakeup_and_consume(&mut d1_rx_q_frames[..], 1000 * 5)
+            .unwrap();
+
+        if cnt > 0 {
+            println!("Frames consumed: {}", cnt);
+
+            for frame in d1_rx_q_frames.iter().take(cnt as usize) {
+                let frame_len = frame.len() as usize;
+                let frame_ref = dev1.umem.frame_ref(&frame.addr()).unwrap();
+
+                println!(
+                    "Frame {}: (len = {}) {:x?}",
+                    frame.addr(),
+                    frame_len,
+                    &frame_ref[..frame_len]
+                );
+            }
+        }
+    }
+
+    let (umem_config, socket_config) = build_configs();
+
+    setup::run_test(umem_config, socket_config, test_fn).await;
+}

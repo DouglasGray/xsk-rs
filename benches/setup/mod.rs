@@ -18,10 +18,10 @@ pub struct SocketState {
     pub rx_q: RxQueue,
 }
 
-pub async fn run_test<F>(
+pub async fn run_bench<F>(
     umem_config: Option<UmemConfig>,
     socket_config: Option<SocketConfig>,
-    test: F,
+    bench_fn: F,
 ) where
     F: Fn(SocketState, SocketState) + Send + 'static,
 {
@@ -57,7 +57,7 @@ pub async fn run_test<F>(
             rx_q,
         };
 
-        test(dev1_socket, dev2_socket)
+        bench_fn(dev1_socket, dev2_socket)
     };
 
     veth_setup::run_with_dev(inner).await;
