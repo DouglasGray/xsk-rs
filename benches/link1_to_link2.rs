@@ -1,60 +1,95 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use std::slice;
+use std::thread;
 use tokio::runtime::Runtime;
 
 mod setup;
 
 use setup::{SocketConfigBuilder, SocketState, UmemConfigBuilder};
 
-fn rx(num_packets: u32, mut rx_socket: SocketState) {
-    // Receiver thread
-    let pkts_recvd = 0;
+const PROD_Q_SIZE: u32 = 2048;
+const CONS_Q_SIZE: u32 = 2048;
+const MS_TIMEOUT: i32 = 1000;
 
-    let mut fill_q_frames = rx_socket.umem.frame_descs().to_vec();
-    let mut rx_q_frames = rx_socket.umem.frame_descs().to_vec();
+fn rx(num_packets: u64, mut rx_socket: SocketState) {
+    // Receiver thread
+    let mut total_pkts_recvd = 0;
+
+    let mut rx_frames = rx_socket.umem.frame_descs().to_vec();
 
     // Initialise the fill queue
-    let fill_q_ix = rx_socket.fill_q.produce(&fill_q_frames[..]);
+    let frames_produced = rx_socket.fill_q.produce_and_wakeup(
+        &rx_frames[..],
+        rx_socket.socket.file_descriptor(),
+        MS_TIMEOUT,
+    );
 
-    while pkts_recvd < num_packets {
+    assert_eq!(frames_produced, PROD_Q_SIZE as u64);
+
+    while total_pkts_recvd < num_packets {
         // Try read some frames
-        let frames_recvd = rx_socket
+        let pkts_recvd = rx_socket
             .rx_q
-            .wakeup_and_consume(&mut rx_q_frames[..], 1000)
+            .wakeup_and_consume(&mut rx_frames[..], MS_TIMEOUT)
             .unwrap();
 
-        if frames_recvd > 0 {
+        if pkts_recvd > 0 {
             // If we've read some frames then add them back to the fill queue
-            fill_q_frames[(fill_q_ix - frames_recvd)..fill_q_ix]
-                .copy_from_slice(rx_q_frames[..frames_recvd]);
-            let frames_produced = rx_socket.fill_q.produce(&fill_q_frames[..]);
+            rx_socket.fill_q.produce_and_wakeup(
+                &rx_frames[..(pkts_recvd as usize)],
+                rx_socket.socket.file_descriptor(),
+                MS_TIMEOUT,
+            );
+
+            total_pkts_recvd += pkts_recvd;
         }
     }
 }
 
-fn tx(num_packets: u32, tx_socket: SocketState) {
-    unimplemented!();
+fn tx(num_packets: u64, tx_socket: SocketState) {
+    // Sender thread
+    let mut total_pkts_sent = 0;
+
+    let mut tx_frames = tx_socket.umem.frame_descs().to_vec();
+
+    // Initialise the tx queue
+    let frames_produced = tx_socket.tx_q.produce_and_wakeup(&tx_frames[..]);
+
+    assert_eq!(frames_produced, PROD_Q_SIZE as u64);
+
+    while total_pkts_sent < num_packets {
+        // Check the completion queue
+        let pkts_sent = tx_socket.comp_q.consume(&mut tx_frames[..]);
+
+        if pkts_sent > 0 {
+            // If we've sent some frames then add them back to the tx queue
+            tx_socket
+                .tx_q
+                .produce_and_wakeup(&tx_frames[..(pkts_sent as usize)]);
+
+            total_pkts_sent += pkts_sent;
+        }
+    }
 }
 
-fn link1_to_link2() {
+fn link1_to_link2(num_packets: u64) {
     let umem_config = UmemConfigBuilder {
         frame_count: 4096,
         frame_size: 2048,
-        fill_queue_size: 2048,
-        comp_queue_size: 2048,
+        fill_queue_size: PROD_Q_SIZE,
+        comp_queue_size: CONS_Q_SIZE,
         ..UmemConfigBuilder::default()
     }
     .build();
 
     let socket_config = SocketConfigBuilder {
-        tx_queue_size: 2048,
-        rx_queue_size: 2048,
+        tx_queue_size: PROD_Q_SIZE,
+        rx_queue_size: CONS_Q_SIZE,
         ..SocketConfigBuilder::default()
     }
     .build();
 
-    fn bench(dev1: SocketState, dev2: SocketState) {
-        //
+    fn bench(num_packets: u64, dev1: SocketState, dev2: SocketState) {
+        let rx_handle = thread::spawn(move || rx(num_packets, dev1));
         unimplemented!()
     }
 
@@ -64,6 +99,7 @@ fn link1_to_link2() {
         Some(umem_config),
         Some(socket_config),
         bench,
+        num_packets,
     ))
 }
 

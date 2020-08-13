@@ -22,8 +22,9 @@ pub async fn run_bench<F>(
     umem_config: Option<UmemConfig>,
     socket_config: Option<SocketConfig>,
     bench_fn: F,
+    num_packets: u64,
 ) where
-    F: Fn(SocketState, SocketState) + Send + 'static,
+    F: Fn(u64, SocketState, SocketState) + Send + 'static,
 {
     let inner = move |dev1_if_name: String, dev2_if_name: String| {
         // Create the socket for the first interfaace
@@ -57,7 +58,7 @@ pub async fn run_bench<F>(
             rx_q,
         };
 
-        bench_fn(dev1_socket, dev2_socket)
+        bench_fn(num_packets, dev1_socket, dev2_socket)
     };
 
     veth_setup::run_with_dev(inner).await;
