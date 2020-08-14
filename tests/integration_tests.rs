@@ -4,9 +4,9 @@ mod setup;
 
 use setup::{SocketConfigBuilder, SocketState, UmemConfigBuilder};
 
-const FRAME_COUNT: u32 = 256;
-const PROD_Q_SIZE: u32 = 8;
-const CONS_Q_SIZE: u32 = 8;
+const FRAME_COUNT: u32 = 4096;
+const PROD_Q_SIZE: u32 = 2048;
+const CONS_Q_SIZE: u32 = 2048;
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -34,19 +34,25 @@ async fn rx_drop() {
         let mut dev1_frames = dev1.umem.frame_descs().to_vec();
         let mut dev2_frames = dev2.umem.frame_descs().to_vec();
 
-        let cnt = 1_000;
+        let cnt = 10_000;
 
         // Populate fill queue
         assert_eq!(
             dev1.fill_q
-                .produce_and_wakeup(&dev1_frames[..], dev1.socket.fd(), 100)
+                .produce_and_wakeup(
+                    &dev1_frames[..(PROD_Q_SIZE as usize)],
+                    dev1.socket.fd(),
+                    100
+                )
                 .unwrap(),
             PROD_Q_SIZE as u64
         );
 
         // Populate tx queue
         assert_eq!(
-            dev2.tx_q.produce_and_wakeup(&dev2_frames[..]).unwrap(),
+            dev2.tx_q
+                .produce_and_wakeup(&dev2_frames[..(PROD_Q_SIZE as usize)])
+                .unwrap(),
             PROD_Q_SIZE as u64
         );
 
@@ -71,31 +77,22 @@ async fn rx_drop() {
                         // Add consumed frames back to the fill queue
                         println!("Received {} packets, adding back to fill queue", pkts_recvd);
 
-                        let mut filled = 0;
-
-                        while filled < pkts_recvd {
-                            let produced = dev1
-                                .fill_q
-                                .produce_and_wakeup(
-                                    &dev1_frames[(filled as usize)..(pkts_recvd as usize)],
-                                    dev1.socket.fd(),
-                                    100,
-                                )
-                                .unwrap();
-
+                        while dev1
+                            .fill_q
+                            .produce_and_wakeup(
+                                &dev1_frames[..(pkts_recvd as usize)],
+                                dev1.socket.fd(),
+                                100,
+                            )
+                            .unwrap()
+                            != pkts_recvd
+                        {
                             if dev1.fill_q.needs_wakeup() {
                                 dev1.fill_q.wakeup(dev1.socket.fd(), 100).unwrap();
-                            }
-
-                            if produced > 0 {
-                                println!("Adding {} frames back to the fill queue", produced);
-                                filled += produced;
                             }
                         }
 
                         total_pkts_received += pkts_recvd;
-
-                        println!("Added {} packets back to fill queue", filled);
                     }
                 }
             }
@@ -110,15 +107,13 @@ async fn rx_drop() {
                         // Add consumed frames back to the tx queue
                         println!("Sent {} packets, adding back to tx queue", pkts_sent);
 
-                        let mut filled = 0;
-
-                        while filled < pkts_sent {
-                            filled += dev2
-                                .tx_q
-                                .produce_and_wakeup(
-                                    &dev2_frames[(filled as usize)..(pkts_sent as usize)],
-                                )
-                                .unwrap()
+                        while dev2
+                            .tx_q
+                            .produce_and_wakeup(&dev2_frames[..(pkts_sent as usize)])
+                            .unwrap()
+                            != pkts_sent
+                        {
+                            dev2.socket.wakeup().unwrap();
                         }
 
                         total_pkts_sent += pkts_sent;

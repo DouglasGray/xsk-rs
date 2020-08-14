@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
-use std::{cmp, convert::TryInto, io, mem::MaybeUninit, ptr};
+use std::{convert::TryInto, io, mem::MaybeUninit, ptr};
 use thiserror::Error;
 
 use crate::{poll, socket::Fd};

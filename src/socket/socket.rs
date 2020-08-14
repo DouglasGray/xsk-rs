@@ -1,7 +1,6 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{
-    cmp,
     convert::TryInto,
     ffi::{CString, NulError},
     io,
