@@ -33,7 +33,7 @@ async fn fill_queue_produce_gt_tx_size_frames() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
         let frame_descs = dev1.umem.frame_descs();
 
-        assert_eq!(dev1.fill_q.produce(&frame_descs[..5]), 4);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[..5]), 0);
     }
 
     let (umem_config, socket_config) = build_configs();
@@ -47,8 +47,9 @@ async fn fill_queue_produce_frames_until_full() {
         let frame_descs = dev1.umem.frame_descs();
 
         assert_eq!(dev1.fill_q.produce(&frame_descs[..2]), 2);
-        assert_eq!(dev1.fill_q.produce(&frame_descs[2..5]), 2);
-        assert_eq!(dev1.fill_q.produce(&frame_descs[5..8]), 0);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[2..3]), 1);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[3..8]), 0);
+        assert_eq!(dev1.fill_q.produce(&frame_descs[3..4]), 1);
     }
 
     let (umem_config, socket_config) = build_configs();

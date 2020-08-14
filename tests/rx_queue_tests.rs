@@ -50,14 +50,14 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
         let d2_tx_q_frames = dev2.umem.frame_descs().to_vec();
 
         assert_eq!(
-            dev2.tx_q.produce_and_wakeup(&d2_tx_q_frames[..]).unwrap(),
+            dev2.tx_q.produce_and_wakeup(&d2_tx_q_frames[..4]).unwrap(),
             4
         );
 
         assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..4]), 0);
         assert_eq!(
             dev1.rx_q
-                .wakeup_and_consume(&mut d1_rx_q_frames[..2], 100)
+                .wakeup_and_consume(&mut d1_rx_q_frames[..4], 100)
                 .unwrap(),
             0
         );
