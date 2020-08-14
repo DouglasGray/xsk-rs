@@ -56,6 +56,7 @@ pub struct Umem {
     frame_size: u32,
     max_addr: u64,
     frame_size_u64: u64,
+    frame_size_usize: usize,
 }
 
 #[derive(Error, Debug)]
@@ -72,9 +73,13 @@ pub struct CompQueue {
     inner: Box<xsk_ring_cons>,
 }
 
+unsafe impl Send for CompQueue {}
+
 pub struct FillQueue {
     inner: Box<xsk_ring_prod>,
 }
+
+unsafe impl Send for FillQueue {}
 
 impl UmemBuilder {
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
@@ -142,6 +147,7 @@ impl UmemBuilderWithMmap {
             frame_size: self.config.frame_size(),
             max_addr: (frame_count_u64 - 1) * frame_size_u64,
             frame_size_u64,
+            frame_size_usize: self.config.frame_size().try_into().unwrap(),
         };
 
         let fill_queue = FillQueue {
@@ -212,30 +218,23 @@ impl Umem {
     pub fn frame_ref(&self, addr: &u64) -> Result<&[u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
 
-        unsafe {
-            let frame_ptr = self.mmap_area.as_ptr().offset((*addr).try_into().unwrap());
+        let offset: usize = (*addr).try_into().unwrap();
 
-            Ok(std::slice::from_raw_parts(
-                frame_ptr as *const u8,
-                self.frame_size.try_into().unwrap(),
-            ))
-        }
+        Ok(self
+            .mmap_area
+            .mem_range(offset, self.frame_size_usize)
+            .unwrap())
     }
 
     pub fn frame_ref_mut(&mut self, addr: &u64) -> Result<&mut [u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
 
-        unsafe {
-            let frame_ptr = self
-                .mmap_area
-                .as_mut_ptr()
-                .offset((*addr).try_into().unwrap());
+        let offset: usize = (*addr).try_into().unwrap();
 
-            Ok(std::slice::from_raw_parts_mut(
-                frame_ptr as *mut u8,
-                self.frame_size.try_into().unwrap(),
-            ))
-        }
+        Ok(self
+            .mmap_area
+            .mem_range_mut(offset, self.frame_size_usize)
+            .unwrap())
     }
 
     pub fn copy_data_to_frame(&mut self, addr: &u64, data: &[u8]) -> Result<(), UmemAccessError> {
@@ -499,16 +498,15 @@ mod tests {
         assert_eq!(snd_data[..], snd_frame_ref[..snd_data.len()]);
 
         // Ensure there are no gaps and the frames lie snugly
-        let mem_ptr = umem.mmap_area.as_ptr();
         let mem_len = (FRAME_SIZE * 2) as usize;
 
-        let mem_slice = unsafe { std::slice::from_raw_parts(mem_ptr as *const u8, mem_len) };
+        let mem_range = umem.mmap_area.mem_range(0, mem_len).unwrap();
 
         let mut data_vec = Vec::with_capacity(mem_len);
 
         data_vec.extend_from_slice(&fst_data);
         data_vec.extend_from_slice(&snd_data);
 
-        assert_eq!(&data_vec[..], mem_slice);
+        assert_eq!(&data_vec[..], mem_range);
     }
 }

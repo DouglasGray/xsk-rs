@@ -43,10 +43,14 @@ pub struct TxQueue {
     socket_fd: Fd,
 }
 
+unsafe impl Send for TxQueue {}
+
 pub struct RxQueue {
     inner: Box<xsk_ring_cons>,
     socket_fd: Fd,
 }
+
+unsafe impl Send for RxQueue {}
 
 impl Fd {
     pub(crate) fn id(&self) -> i32 {
@@ -125,8 +129,22 @@ impl Socket {
         Ok((socket, tx_queue, rx_queue))
     }
 
-    pub fn file_descriptor(&self) -> &Fd {
+    pub fn fd(&self) -> &Fd {
         &self.fd
+    }
+
+    pub fn wakeup(&self) -> io::Result<()> {
+        let ret =
+            unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
+
+        if ret < 0 {
+            match util::get_errno() {
+                ENOBUFS | EAGAIN | EBUSY | ENETDOWN => (),
+                _ => return Err(io::Error::last_os_error()),
+            }
+        }
+
+        Ok(())
     }
 }
 

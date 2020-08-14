@@ -46,11 +46,7 @@ impl MmapArea {
         }
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut libc::c_void {
-        self.mem_ptr
-    }
-
-    pub fn as_ptr(&self) -> *const libc::c_void {
+    pub(in crate::umem) fn as_mut_ptr(&mut self) -> *mut libc::c_void {
         self.mem_ptr
     }
 
@@ -104,14 +100,8 @@ impl Drop for MmapArea {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     #[test]
     fn confirm_pointer_offset_is_a_single_byte() {
         assert_eq!(std::mem::size_of::<libc::c_void>(), 1);
-    }
-
-    #[test]
-    fn confirm_clone_not_possible() {
-        let mut mmap = MmapArea::new(128, false).unwrap();
     }
 }
