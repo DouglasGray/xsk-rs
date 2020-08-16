@@ -131,20 +131,6 @@ impl Socket {
     pub fn fd(&self) -> &Fd {
         &self.fd
     }
-
-    pub fn wakeup(&self) -> io::Result<()> {
-        let ret =
-            unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
-
-        if ret < 0 {
-            match util::get_errno() {
-                ENOBUFS | EAGAIN | EBUSY | ENETDOWN => (),
-                _ => return Err(io::Error::last_os_error()),
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl Drop for Socket {

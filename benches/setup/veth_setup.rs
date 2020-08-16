@@ -1,6 +1,6 @@
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
-use tokio::task;
+use tokio::sync::oneshot::{Receiver, Sender};
 
 struct VethLink {
     handle: Handle,
@@ -51,7 +51,7 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
     Ok(VethLink { handle, dev1_index })
 }
 
-async fn set_up_veth_link(veth_link: &VethLink, dev2_if_name: &str) -> anyhow::Result<()> {
+async fn configure_veth_link(veth_link: &VethLink, dev2_if_name: &str) -> anyhow::Result<()> {
     let peer_index = get_link_index(&veth_link.handle, dev2_if_name).await?;
 
     set_link_up(&veth_link.handle, veth_link.dev1_index).await?;
@@ -60,45 +60,41 @@ async fn set_up_veth_link(veth_link: &VethLink, dev2_if_name: &str) -> anyhow::R
     Ok(())
 }
 
-pub async fn run_with_dev<F>(f: F)
-where
-    F: FnOnce(String, String) + Send + 'static,
-{
-    let dev1_if_name = "xsk_bench_dev1";
-    let dev2_if_name = "xsk_bench_dev2";
+pub async fn run_veth_link(
+    dev1_if_name: &str,
+    dev2_if_name: &str,
+    startup_signal: Sender<()>,
+    shutdown_signal: Receiver<()>,
+) {
+    async fn delete_link_with_context(handle: &Handle, index: u32, if_name: &str) {
+        delete_link(handle, index).await.expect(
+            format!(
+                "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
+                if_name
+            )
+            .as_str(),
+        )
+    }
 
     let veth_link = build_veth_link(&dev1_if_name, &dev2_if_name).await.unwrap();
 
-    if let Err(e) = set_up_veth_link(&veth_link, &dev2_if_name).await {
+    if let Err(e) = configure_veth_link(&veth_link, &dev2_if_name).await {
         eprintln!("Error setting up veth link: {}", e);
 
-        delete_link(&veth_link.handle, veth_link.dev1_index)
-            .await
-            .expect(
-                format!(
-                    "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
-                    dev1_if_name
-                )
-                .as_str(),
-            );
+        delete_link_with_context(&veth_link.handle, veth_link.dev1_index, dev1_if_name).await;
 
         return;
     }
 
-    let dev1_if_name_str = dev1_if_name.to_string();
-    let dev2_if_name_str = dev2_if_name.to_string();
+    // Let spawning thread know that the link is set up
+    if let Err(_) = startup_signal.send(()) {
+        // Receiver gone away
+        delete_link_with_context(&veth_link.handle, veth_link.dev1_index, dev1_if_name).await;
 
-    let res = task::spawn_blocking(move || f(dev1_if_name_str, dev2_if_name_str)).await;
+        return;
+    }
 
-    delete_link(&veth_link.handle, veth_link.dev1_index)
-        .await
-        .expect(
-            format!(
-                "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
-                dev1_if_name
-            )
-            .as_str(),
-        );
+    let _ = shutdown_signal.await;
 
-    res.unwrap()
+    delete_link_with_context(&veth_link.handle, veth_link.dev1_index, dev1_if_name).await;
 }

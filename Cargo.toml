@@ -21,7 +21,7 @@ criterion = "0.3.3"
 [dev-dependencies.tokio]
 version = "0.2.22"
 default-features = false
-features =  ["rt-core", "macros", "test-util", "blocking"]
+features =  ["rt-core", "macros", "test-util", "blocking", "sync"]
 
 [[bench]]
 name = "link1_to_link2"
