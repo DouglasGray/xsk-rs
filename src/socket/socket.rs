@@ -17,6 +17,7 @@ use crate::{
 
 use super::config::Config;
 
+#[derive(Clone)]
 pub struct Fd {
     id: i32,
 }
