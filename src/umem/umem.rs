@@ -310,8 +310,8 @@ impl FillQueue<'_> {
         Ok(cnt)
     }
 
-    pub fn wakeup(&self, socket_fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
-        poll::poll_read(socket_fd, poll_timeout)?;
+    pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
+        poll::poll_read(fd, poll_timeout)?;
         Ok(())
     }
 
