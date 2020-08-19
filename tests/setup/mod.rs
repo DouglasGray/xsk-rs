@@ -8,14 +8,13 @@ mod xsk_setup;
 
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
-pub struct SocketState {
+pub struct SocketState<'a> {
     pub if_name: String,
-    pub umem: Umem,
-    pub fill_q: FillQueue,
-    pub comp_q: CompQueue,
-    pub socket: Socket,
-    pub tx_q: TxQueue,
-    pub rx_q: RxQueue,
+    pub umem: Umem<'a>,
+    pub fill_q: FillQueue<'a>,
+    pub comp_q: CompQueue<'a>,
+    pub tx_q: TxQueue<'a>,
+    pub rx_q: RxQueue<'a>,
 }
 
 pub async fn run_test<F>(
@@ -27,7 +26,7 @@ pub async fn run_test<F>(
 {
     let inner = move |dev1_if_name: String, dev2_if_name: String| {
         // Create the socket for the first interfaace
-        let ((umem, fill_q, comp_q), (socket, tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
+        let ((umem, fill_q, comp_q), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
             umem_config.clone(),
             socket_config.clone(),
             &dev1_if_name,
@@ -39,12 +38,11 @@ pub async fn run_test<F>(
             umem,
             fill_q,
             comp_q,
-            socket,
             tx_q,
             rx_q,
         };
 
-        let ((umem, fill_q, comp_q), (socket, tx_q, rx_q)) =
+        let ((umem, fill_q, comp_q), (tx_q, rx_q)) =
             xsk_setup::build_socket_and_umem(umem_config, socket_config, &dev2_if_name, 0);
 
         let dev2_socket = SocketState {
@@ -52,7 +50,6 @@ pub async fn run_test<F>(
             umem,
             fill_q,
             comp_q,
-            socket,
             tx_q,
             rx_q,
         };

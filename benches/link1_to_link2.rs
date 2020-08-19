@@ -18,7 +18,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
     dev1.fill_q
         .produce_and_wakeup(
             &dev1_frames[..(PROD_Q_SIZE as usize)],
-            dev1.socket.fd(),
+            dev1.rx_q.fd(),
             MS_TIMEOUT,
         )
         .unwrap();
@@ -50,7 +50,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                 0 => {
                     // No packets consumed, wake up fill queue if required
                     if dev1.fill_q.needs_wakeup() {
-                        dev1.fill_q.wakeup(dev1.socket.fd(), MS_TIMEOUT).unwrap();
+                        dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
                     }
                 }
                 pkts_recvd => {
@@ -59,14 +59,14 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                         .fill_q
                         .produce_and_wakeup(
                             &dev1_frames[..(pkts_recvd as usize)],
-                            dev1.socket.fd(),
+                            dev1.rx_q.fd(),
                             MS_TIMEOUT,
                         )
                         .unwrap()
                         != pkts_recvd
                     {
                         if dev1.fill_q.needs_wakeup() {
-                            dev1.fill_q.wakeup(dev1.socket.fd(), MS_TIMEOUT).unwrap();
+                            dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
                         }
                     }
 
@@ -88,7 +88,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                 pkts_sent => {
                     if total_pkts_sent < num_packets {
                         // Add consumed frames back to the tx queue
-                        while !poll::poll_write(dev2.socket.fd(), MS_TIMEOUT).unwrap() {
+                        while !poll::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
                             continue;
                         }
 

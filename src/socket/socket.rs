@@ -4,8 +4,10 @@ use std::{
     convert::TryInto,
     ffi::{CString, NulError},
     io,
+    marker::PhantomData,
     mem::MaybeUninit,
     ptr,
+    sync::Arc,
 };
 use thiserror::Error;
 
@@ -33,24 +35,27 @@ pub enum SocketCreateError {
     },
 }
 
-pub struct Socket {
+pub struct Socket<'umem> {
     inner: Box<xsk_socket>,
     fd: Fd,
+    _marker: PhantomData<&'umem ()>,
 }
 
-pub struct TxQueue {
+pub struct TxQueue<'umem> {
     inner: Box<xsk_ring_prod>,
-    socket_fd: Fd,
+    fd: Fd,
+    _socket: Arc<Socket<'umem>>,
 }
 
-unsafe impl Send for TxQueue {}
+unsafe impl Send for TxQueue<'_> {}
 
-pub struct RxQueue {
+pub struct RxQueue<'umem> {
     inner: Box<xsk_ring_cons>,
-    socket_fd: Fd,
+    fd: Fd,
+    _socket: Arc<Socket<'umem>>,
 }
 
-unsafe impl Send for RxQueue {}
+unsafe impl Send for RxQueue<'_> {}
 
 impl Fd {
     pub(crate) fn id(&self) -> i32 {
@@ -58,13 +63,13 @@ impl Fd {
     }
 }
 
-impl Socket {
-    pub fn new(
+impl Socket<'_> {
+    pub fn new<'a, 'umem>(
         config: Config,
-        umem: &mut Umem,
-        if_name: &str,
+        umem: &mut Umem<'umem>,
+        if_name: &'a str,
         queue_id: u32,
-    ) -> Result<(Socket, TxQueue, RxQueue), SocketCreateError> {
+    ) -> Result<(TxQueue<'umem>, RxQueue<'umem>), SocketCreateError> {
         let socket_create_config = xsk_socket_config {
             rx_size: config.rx_queue_size(),
             tx_size: config.tx_queue_size(),
@@ -111,22 +116,25 @@ impl Socket {
             });
         }
 
-        let socket = Socket {
+        let socket = Arc::new(Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
             fd: Fd { id: fd },
-        };
+            _marker: PhantomData,
+        });
 
         let tx_queue = TxQueue {
             inner: unsafe { Box::new(tx_q_ptr.assume_init()) },
-            socket_fd: Fd { id: fd },
+            fd: Fd { id: fd },
+            _socket: Arc::clone(&socket),
         };
 
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
-            socket_fd: Fd { id: fd },
+            fd: Fd { id: fd },
+            _socket: socket,
         };
 
-        Ok((socket, tx_queue, rx_queue))
+        Ok((tx_queue, rx_queue))
     }
 
     pub fn fd(&self) -> &Fd {
@@ -134,7 +142,7 @@ impl Socket {
     }
 }
 
-impl Drop for Socket {
+impl Drop for Socket<'_> {
     fn drop(&mut self) {
         unsafe {
             libbpf_sys::xsk_socket__delete(self.inner.as_mut());
@@ -142,7 +150,7 @@ impl Drop for Socket {
     }
 }
 
-impl RxQueue {
+impl RxQueue<'_> {
     /// Consume frames with received packets and add their info to [descs].
     /// Number of frames consumed will be less than or equal to the length of [descs].
     /// Returns the number of frames consumed (and therefore updated in [descs]).
@@ -182,14 +190,18 @@ impl RxQueue {
         descs: &mut [FrameDesc],
         poll_timeout: i32,
     ) -> io::Result<u64> {
-        match poll::poll_read(&self.socket_fd, poll_timeout)? {
+        match poll::poll_read(&self.fd, poll_timeout)? {
             true => Ok(self.consume(descs)),
             false => Ok(0),
         }
     }
+
+    pub fn fd(&self) -> &Fd {
+        &self.fd
+    }
 }
 
-impl TxQueue {
+impl TxQueue<'_> {
     pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
@@ -233,16 +245,8 @@ impl TxQueue {
     }
 
     pub fn wakeup(&self) -> io::Result<()> {
-        let ret = unsafe {
-            libc::sendto(
-                self.socket_fd.id(),
-                ptr::null(),
-                0,
-                MSG_DONTWAIT,
-                ptr::null(),
-                0,
-            )
-        };
+        let ret =
+            unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
 
         if ret < 0 {
             match util::get_errno() {
@@ -262,5 +266,9 @@ impl TxQueue {
                 false
             }
         }
+    }
+
+    pub fn fd(&self) -> &Fd {
+        &self.fd
     }
 }

@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
-use std::{convert::TryInto, io, mem::MaybeUninit, ptr};
+use std::{convert::TryInto, io, marker::PhantomData, mem::MaybeUninit, ptr};
 use thiserror::Error;
 
 use crate::{poll, socket::Fd};
@@ -48,7 +48,7 @@ pub struct UmemBuilderWithMmap {
     mmap_area: MmapArea,
 }
 
-pub struct Umem {
+pub struct Umem<'a> {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
     frame_descs: Vec<FrameDesc>,
@@ -57,6 +57,7 @@ pub struct Umem {
     max_addr: u64,
     frame_size_u64: u64,
     frame_size_usize: usize,
+    _marker: PhantomData<&'a ()>,
 }
 
 #[derive(Error, Debug)]
@@ -69,17 +70,19 @@ pub enum UmemAccessError {
     DataLenOutOfBounds { data_len: usize, frame_size: u32 },
 }
 
-pub struct CompQueue {
+pub struct CompQueue<'umem> {
     inner: Box<xsk_ring_cons>,
+    _marker: PhantomData<&'umem ()>,
 }
 
-unsafe impl Send for CompQueue {}
+unsafe impl Send for CompQueue<'_> {}
 
-pub struct FillQueue {
+pub struct FillQueue<'umem> {
     inner: Box<xsk_ring_prod>,
+    _marker: PhantomData<&'umem ()>,
 }
 
-unsafe impl Send for FillQueue {}
+unsafe impl Send for FillQueue<'_> {}
 
 impl UmemBuilder {
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
@@ -92,8 +95,8 @@ impl UmemBuilder {
     }
 }
 
-impl UmemBuilderWithMmap {
-    pub fn create_umem(mut self) -> io::Result<(Umem, FillQueue, CompQueue)> {
+impl<'a> UmemBuilderWithMmap {
+    pub fn create_umem(mut self) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>)> {
         let umem_create_config = xsk_umem_config {
             fill_size: self.config.fill_queue_size(),
             comp_size: self.config.comp_queue_size(),
@@ -148,21 +151,24 @@ impl UmemBuilderWithMmap {
             max_addr: (frame_count_u64 - 1) * frame_size_u64,
             frame_size_u64,
             frame_size_usize: self.config.frame_size().try_into().unwrap(),
+            _marker: PhantomData,
         };
 
         let fill_queue = FillQueue {
             inner: unsafe { Box::new(fq_ptr.assume_init()) },
+            _marker: PhantomData,
         };
 
         let comp_queue = CompQueue {
             inner: unsafe { Box::new(cq_ptr.assume_init()) },
+            _marker: PhantomData,
         };
 
         Ok((umem, fill_queue, comp_queue))
     }
 }
 
-impl Umem {
+impl Umem<'_> {
     pub fn builder(config: Config) -> UmemBuilder {
         UmemBuilder { config }
     }
@@ -252,7 +258,7 @@ impl Umem {
     }
 }
 
-impl Drop for Umem {
+impl Drop for Umem<'_> {
     fn drop(&mut self) {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
 
@@ -262,7 +268,7 @@ impl Drop for Umem {
     }
 }
 
-impl FillQueue {
+impl FillQueue<'_> {
     pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
@@ -320,7 +326,7 @@ impl FillQueue {
     }
 }
 
-impl CompQueue {
+impl CompQueue<'_> {
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
         let nb: u64 = descs.len().try_into().unwrap();
 
@@ -378,7 +384,7 @@ mod tests {
         .unwrap()
     }
 
-    fn umem() -> (Umem, FillQueue, CompQueue) {
+    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>) {
         let config = umem_config();
 
         Umem::builder(config)

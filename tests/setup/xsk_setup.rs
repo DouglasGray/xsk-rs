@@ -72,7 +72,7 @@ impl SocketConfigBuilder {
     }
 }
 
-fn build_umem(umem_config: Option<UmemConfig>) -> (Umem, FillQueue, CompQueue) {
+fn build_umem<'a>(umem_config: Option<UmemConfig>) -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>) {
     let config = match umem_config {
         Some(cfg) => cfg,
         None => UmemConfigBuilder::default().build(),
@@ -85,12 +85,15 @@ fn build_umem(umem_config: Option<UmemConfig>) -> (Umem, FillQueue, CompQueue) {
         .expect("Failed to create umem")
 }
 
-pub fn build_socket_and_umem(
+pub fn build_socket_and_umem<'a, 'umem>(
     umem_config: Option<UmemConfig>,
     socket_config: Option<SocketConfig>,
-    if_name: &str,
+    if_name: &'a str,
     queue_id: u32,
-) -> ((Umem, FillQueue, CompQueue), (Socket, TxQueue, RxQueue)) {
+) -> (
+    (Umem<'umem>, FillQueue<'umem>, CompQueue<'umem>),
+    (TxQueue<'umem>, RxQueue<'umem>),
+) {
     let socket_config = match socket_config {
         Some(cfg) => cfg,
         None => SocketConfigBuilder::default().build(),
@@ -98,8 +101,8 @@ pub fn build_socket_and_umem(
 
     let (mut umem, fill_q, comp_q) = build_umem(umem_config);
 
-    let (socket, tx_q, rx_q) =
+    let (tx_q, rx_q) =
         Socket::new(socket_config, &mut umem, if_name, queue_id).expect("Failed to build socket");
 
-    ((umem, fill_q, comp_q), (socket, tx_q, rx_q))
+    ((umem, fill_q, comp_q), (tx_q, rx_q))
 }

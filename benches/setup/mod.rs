@@ -13,22 +13,21 @@ mod xsk_setup;
 
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
-pub struct SocketState {
+pub struct SocketState<'umem> {
     pub if_name: String,
-    pub umem: Umem,
-    pub fill_q: FillQueue,
-    pub comp_q: CompQueue,
-    pub socket: Socket,
-    pub tx_q: TxQueue,
-    pub rx_q: RxQueue,
+    pub umem: Umem<'umem>,
+    pub fill_q: FillQueue<'umem>,
+    pub comp_q: CompQueue<'umem>,
+    pub tx_q: TxQueue<'umem>,
+    pub rx_q: RxQueue<'umem>,
 }
 
-pub fn run_bench<F>(
+pub fn run_bench<'a, 'b, F>(
     umem_config: Option<UmemConfig>,
     socket_config: Option<SocketConfig>,
     mut bench_fn: F,
 ) where
-    F: FnMut(SocketState, SocketState),
+    F: FnMut(SocketState<'a>, SocketState<'b>),
 {
     let dev1_if_name = String::from("xsk_bench_dev1");
     let dev2_if_name = String::from("xsk_bench_dev2");
@@ -59,7 +58,7 @@ pub fn run_bench<F>(
     }
 
     // Socket for the first interfaace
-    let ((umem, fill_q, comp_q), (socket, tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
+    let ((umem, fill_q, comp_q), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
         umem_config.clone(),
         socket_config.clone(),
         &dev1_if_name,
@@ -71,13 +70,12 @@ pub fn run_bench<F>(
         umem,
         fill_q,
         comp_q,
-        socket,
         tx_q,
         rx_q,
     };
 
     // Socket for the second interface
-    let ((umem, fill_q, comp_q), (socket, tx_q, rx_q)) =
+    let ((umem, fill_q, comp_q), (tx_q, rx_q)) =
         xsk_setup::build_socket_and_umem(umem_config, socket_config, &dev2_if_name, 0);
 
     let dev2_socket = SocketState {
@@ -85,7 +83,6 @@ pub fn run_bench<F>(
         umem,
         fill_q,
         comp_q,
-        socket,
         tx_q,
         rx_q,
     };
