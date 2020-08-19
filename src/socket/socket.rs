@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
-use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
+use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT, POLLIN, POLLOUT};
 use std::{
     convert::TryInto,
     ffi::{CString, NulError},
@@ -22,6 +22,8 @@ use super::config::Config;
 #[derive(Clone)]
 pub struct Fd {
     id: i32,
+    pollin_fd: libc::pollfd,
+    pollout_fd: libc::pollfd,
 }
 
 #[derive(Error, Debug)]
@@ -37,7 +39,6 @@ pub enum SocketCreateError {
 
 pub struct Socket<'umem> {
     inner: Box<xsk_socket>,
-    fd: Fd,
     _marker: PhantomData<&'umem ()>,
 }
 
@@ -60,6 +61,14 @@ unsafe impl Send for RxQueue<'_> {}
 impl Fd {
     pub(crate) fn id(&self) -> i32 {
         self.id
+    }
+
+    pub(crate) fn pollin_fd(&mut self) -> &mut libc::pollfd {
+        &mut self.pollin_fd
+    }
+
+    pub(crate) fn pollout_fd(&mut self) -> &mut libc::pollfd {
+        &mut self.pollout_fd
     }
 }
 
@@ -116,29 +125,42 @@ impl Socket<'_> {
             });
         }
 
+        let pollin_fd = libc::pollfd {
+            fd: fd,
+            events: POLLIN,
+            revents: 0,
+        };
+
+        let pollout_fd = libc::pollfd {
+            fd: fd,
+            events: POLLOUT,
+            revents: 0,
+        };
+
+        let fd = Fd {
+            id: fd,
+            pollin_fd,
+            pollout_fd,
+        };
+
         let socket = Arc::new(Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
-            fd: Fd { id: fd },
             _marker: PhantomData,
         });
 
         let tx_queue = TxQueue {
             inner: unsafe { Box::new(tx_q_ptr.assume_init()) },
-            fd: Fd { id: fd },
+            fd: fd.clone(),
             _socket: Arc::clone(&socket),
         };
 
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
-            fd: Fd { id: fd },
+            fd: fd,
             _socket: socket,
         };
 
         Ok((tx_queue, rx_queue))
-    }
-
-    pub fn fd(&self) -> &Fd {
-        &self.fd
     }
 }
 
@@ -190,14 +212,14 @@ impl RxQueue<'_> {
         descs: &mut [FrameDesc],
         poll_timeout: i32,
     ) -> io::Result<u64> {
-        match poll::poll_read(&self.fd, poll_timeout)? {
+        match poll::poll_read(&mut self.fd, poll_timeout)? {
             true => Ok(self.consume(descs)),
             false => Ok(0),
         }
     }
 
-    pub fn fd(&self) -> &Fd {
-        &self.fd
+    pub fn fd(&mut self) -> &mut Fd {
+        &mut self.fd
     }
 }
 
@@ -268,7 +290,7 @@ impl TxQueue<'_> {
         }
     }
 
-    pub fn fd(&self) -> &Fd {
-        &self.fd
+    pub fn fd(&mut self) -> &mut Fd {
+        &mut self.fd
     }
 }

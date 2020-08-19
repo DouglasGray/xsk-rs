@@ -298,7 +298,7 @@ impl FillQueue<'_> {
     pub fn produce_and_wakeup(
         &mut self,
         descs: &[FrameDesc],
-        socket_fd: &Fd,
+        socket_fd: &mut Fd,
         poll_timeout: i32,
     ) -> io::Result<u64> {
         let cnt = self.produce(descs);
@@ -310,7 +310,7 @@ impl FillQueue<'_> {
         Ok(cnt)
     }
 
-    pub fn wakeup(&self, socket_fd: &Fd, poll_timeout: i32) -> io::Result<()> {
+    pub fn wakeup(&self, socket_fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
         poll::poll_read(socket_fd, poll_timeout)?;
         Ok(())
     }
