@@ -26,7 +26,7 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 #[tokio::test]
 async fn comp_queue_consumes_nothing_if_tx_q_unused() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let mut d1_comp_q_frames = dev1.umem.frame_descs().to_vec();
+        let mut d1_comp_q_frames = dev1.umem.empty_frame_descs().to_vec();
 
         assert_eq!(dev1.comp_q.consume(&mut d1_comp_q_frames[..4]), 0);
     }
@@ -39,8 +39,8 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
 #[tokio::test]
 async fn num_frames_consumed_match_those_produced() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let d1_tx_q_frames = dev1.umem.frame_descs().to_vec();
-        let mut d1_comp_q_frames = dev1.umem.frame_descs().to_vec();
+        let d1_tx_q_frames = dev1.umem.empty_frame_descs().to_vec();
+        let mut d1_comp_q_frames = dev1.umem.empty_frame_descs().to_vec();
 
         assert_eq!(
             dev1.tx_q.produce_and_wakeup(&d1_tx_q_frames[..2]).unwrap(),
@@ -61,8 +61,8 @@ async fn num_frames_consumed_match_those_produced() {
 #[tokio::test]
 async fn addr_of_frames_consumed_match_addr_of_those_produced() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let d1_tx_q_frames = dev1.umem.frame_descs().to_vec();
-        let mut d1_comp_q_frames = dev1.umem.frame_descs().to_vec();
+        let d1_tx_q_frames = dev1.umem.empty_frame_descs().to_vec();
+        let mut d1_comp_q_frames = dev1.umem.empty_frame_descs().to_vec();
 
         dev1.tx_q.produce_and_wakeup(&d1_tx_q_frames[2..4]).unwrap();
 

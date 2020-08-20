@@ -1,5 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_xsk::socket;
+use rust_xsk::{socket, umem::Umem};
+use std::convert::TryInto;
 
 mod setup;
 
@@ -10,9 +11,20 @@ const PROD_Q_SIZE: u32 = 4096;
 const CONS_Q_SIZE: u32 = 4096;
 const MS_TIMEOUT: i32 = 10;
 
+fn populate_frame(frame: &mut [u8]) -> u32 {
+    unimplemented!()
+}
+
 fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: &mut SocketState) {
-    let mut dev1_frames = dev1.umem.frame_descs().to_vec();
-    let mut dev2_frames = dev2.umem.frame_descs().to_vec();
+    let mut dev1_frames = dev1.umem.empty_frame_descs().to_vec();
+    let mut dev2_frames = dev2.umem.empty_frame_descs().to_vec();
+
+    // Copy over some bytes to dev2's UMEM
+    for desc in dev2_frames.iter_mut() {
+        let frame = dev2.umem.frame_ref_mut(&desc.addr()).unwrap();
+        let len = populate_frame(frame);
+        desc.set_len(len);
+    }
 
     // Populate fill queue
     dev1.fill_q
@@ -32,6 +44,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
     let mut total_pkts_rcvd = 0;
     let mut total_pkts_consumed = 0;
 
+    let num_packets: usize = num_packets.try_into().unwrap();
     while total_pkts_sent < num_packets
         || total_pkts_rcvd < total_pkts_sent
         || total_pkts_consumed < total_pkts_sent
@@ -57,11 +70,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                     // Add frames back to fill queue
                     while dev1
                         .fill_q
-                        .produce_and_wakeup(
-                            &dev1_frames[..(pkts_recvd as usize)],
-                            dev1.rx_q.fd(),
-                            MS_TIMEOUT,
-                        )
+                        .produce_and_wakeup(&dev1_frames[..pkts_recvd], dev1.rx_q.fd(), MS_TIMEOUT)
                         .unwrap()
                         != pkts_recvd
                     {
@@ -94,7 +103,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
 
                         while dev2
                             .tx_q
-                            .produce_and_wakeup(&dev2_frames[..(pkts_sent as usize)])
+                            .produce_and_wakeup(&dev2_frames[..pkts_sent])
                             .unwrap()
                             != pkts_sent
                         {

@@ -18,7 +18,7 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 #[tokio::test]
 async fn fill_queue_produce_tx_size_frames() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let frame_descs = dev1.umem.frame_descs();
+        let frame_descs = dev1.umem.empty_frame_descs();
 
         assert_eq!(dev1.fill_q.produce(&frame_descs[..4]), 4);
     }
@@ -31,7 +31,7 @@ async fn fill_queue_produce_tx_size_frames() {
 #[tokio::test]
 async fn fill_queue_produce_gt_tx_size_frames() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let frame_descs = dev1.umem.frame_descs();
+        let frame_descs = dev1.umem.empty_frame_descs();
 
         assert_eq!(dev1.fill_q.produce(&frame_descs[..5]), 0);
     }
@@ -44,7 +44,7 @@ async fn fill_queue_produce_gt_tx_size_frames() {
 #[tokio::test]
 async fn fill_queue_produce_frames_until_full() {
     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-        let frame_descs = dev1.umem.frame_descs();
+        let frame_descs = dev1.umem.empty_frame_descs();
 
         assert_eq!(dev1.fill_q.produce(&frame_descs[..2]), 2);
         assert_eq!(dev1.fill_q.produce(&frame_descs[2..3]), 1);

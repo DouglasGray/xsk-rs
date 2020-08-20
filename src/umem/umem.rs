@@ -173,7 +173,7 @@ impl Umem<'_> {
         UmemBuilder { config }
     }
 
-    pub fn frame_descs(&self) -> &[FrameDesc] {
+    pub fn empty_frame_descs(&self) -> &[FrameDesc] {
         &self.frame_descs[..]
     }
 
@@ -243,9 +243,13 @@ impl Umem<'_> {
             .unwrap())
     }
 
-    pub fn copy_data_to_frame(&mut self, addr: &u64, data: &[u8]) -> Result<(), UmemAccessError> {
+    pub fn copy_data_to_frame(
+        &mut self,
+        addr: &u64,
+        data: &[u8],
+    ) -> Result<usize, UmemAccessError> {
         if data.len() == 0 {
-            return Ok(());
+            return Ok(0);
         }
 
         self.check_data_valid(data)?;
@@ -254,7 +258,7 @@ impl Umem<'_> {
 
         frame_ref[..data.len()].copy_from_slice(data);
 
-        Ok(())
+        Ok(data.len())
     }
 }
 
@@ -269,7 +273,7 @@ impl Drop for Umem<'_> {
 }
 
 impl FillQueue<'_> {
-    pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
+    pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
 
@@ -292,7 +296,7 @@ impl FillQueue<'_> {
             unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
         }
 
-        cnt
+        cnt.try_into().unwrap()
     }
 
     pub fn produce_and_wakeup(
@@ -300,7 +304,7 @@ impl FillQueue<'_> {
         descs: &[FrameDesc],
         socket_fd: &mut Fd,
         poll_timeout: i32,
-    ) -> io::Result<u64> {
+    ) -> io::Result<usize> {
         let cnt = self.produce(descs);
 
         if cnt > 0 && self.needs_wakeup() {
@@ -327,7 +331,7 @@ impl FillQueue<'_> {
 }
 
 impl CompQueue<'_> {
-    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
+    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         let nb: u64 = descs.len().try_into().unwrap();
 
         if nb == 0 {
@@ -352,7 +356,7 @@ impl CompQueue<'_> {
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 
-        cnt
+        cnt.try_into().unwrap()
     }
 }
 
