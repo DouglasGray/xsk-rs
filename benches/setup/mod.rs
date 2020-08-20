@@ -20,6 +20,7 @@ pub struct SocketState<'umem> {
     pub comp_q: CompQueue<'umem>,
     pub tx_q: TxQueue<'umem>,
     pub rx_q: RxQueue<'umem>,
+    pub frame_descs: Vec<FrameDesc>,
 }
 
 pub fn run_bench<'a, 'b, F>(
@@ -58,7 +59,7 @@ pub fn run_bench<'a, 'b, F>(
     }
 
     // Socket for the first interfaace
-    let ((umem, fill_q, comp_q), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
+    let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
         umem_config.clone(),
         socket_config.clone(),
         &dev1_if_name,
@@ -72,10 +73,11 @@ pub fn run_bench<'a, 'b, F>(
         comp_q,
         tx_q,
         rx_q,
+        frame_descs,
     };
 
     // Socket for the second interface
-    let ((umem, fill_q, comp_q), (tx_q, rx_q)) =
+    let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) =
         xsk_setup::build_socket_and_umem(umem_config, socket_config, &dev2_if_name, 0);
 
     let dev2_socket = SocketState {
@@ -85,6 +87,7 @@ pub fn run_bench<'a, 'b, F>(
         comp_q,
         tx_q,
         rx_q,
+        frame_descs,
     };
 
     bench_fn(dev1_socket, dev2_socket);

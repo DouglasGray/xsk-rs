@@ -138,7 +138,7 @@ impl RxQueue<'_> {
     /// Consume frames with received packets and add their info to [descs].
     /// Number of frames consumed will be less than or equal to the length of [descs].
     /// Returns the number of frames consumed (and therefore updated in [descs]).
-    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> u64 {
+    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         // usize -> u64 ok
         let nb: u64 = descs.len().try_into().unwrap();
 
@@ -166,14 +166,14 @@ impl RxQueue<'_> {
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 
-        cnt
+        cnt.try_into().unwrap()
     }
 
     pub fn wakeup_and_consume(
         &mut self,
         descs: &mut [FrameDesc],
         poll_timeout: i32,
-    ) -> io::Result<u64> {
+    ) -> io::Result<usize> {
         match poll::poll_read(&mut self.fd(), poll_timeout)? {
             true => Ok(self.consume(descs)),
             false => Ok(0),
@@ -186,7 +186,7 @@ impl RxQueue<'_> {
 }
 
 impl TxQueue<'_> {
-    pub fn produce(&mut self, descs: &[FrameDesc]) -> u64 {
+    pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
 
@@ -215,10 +215,10 @@ impl TxQueue<'_> {
             unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
         }
 
-        cnt
+        cnt.try_into().unwrap()
     }
 
-    pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<u64> {
+    pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);
 
         if self.needs_wakeup() {

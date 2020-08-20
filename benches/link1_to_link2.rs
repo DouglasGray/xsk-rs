@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_xsk::{socket, umem::Umem};
+use rust_xsk::socket;
 use std::convert::TryInto;
 
 mod setup;
@@ -7,24 +7,19 @@ mod setup;
 use setup::{SocketConfigBuilder, SocketState, UmemConfigBuilder};
 
 const FRAME_COUNT: u32 = 4096;
+const FRAME_SIZE: u32 = 2048;
 const PROD_Q_SIZE: u32 = 4096;
 const CONS_Q_SIZE: u32 = 4096;
 const MS_TIMEOUT: i32 = 10;
+const MSG_SIZE: u32 = 64;
 
-fn populate_frame(frame: &mut [u8]) -> u32 {
-    unimplemented!()
+fn generate_random_bytes(len: u32) -> Vec<u8> {
+    (0..len).map(|_| rand::random::<u8>()).collect()
 }
 
 fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: &mut SocketState) {
-    let mut dev1_frames = dev1.umem.empty_frame_descs().to_vec();
-    let mut dev2_frames = dev2.umem.empty_frame_descs().to_vec();
-
-    // Copy over some bytes to dev2's UMEM
-    for desc in dev2_frames.iter_mut() {
-        let frame = dev2.umem.frame_ref_mut(&desc.addr()).unwrap();
-        let len = populate_frame(frame);
-        desc.set_len(len);
-    }
+    let dev1_frames = &mut dev1.frame_descs;
+    let dev2_frames = &mut dev2.frame_descs;
 
     // Populate fill queue
     dev1.fill_q
@@ -34,6 +29,13 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
             MS_TIMEOUT,
         )
         .unwrap();
+
+    // Copy over some bytes to dev2's UMEM
+    for desc in dev2_frames.iter_mut() {
+        let bytes = generate_random_bytes(MSG_SIZE);
+        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
+        desc.set_len(len.try_into().unwrap());
+    }
 
     // Populate tx queue
     let mut total_pkts_sent = dev2
@@ -45,6 +47,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
     let mut total_pkts_consumed = 0;
 
     let num_packets: usize = num_packets.try_into().unwrap();
+
     while total_pkts_sent < num_packets
         || total_pkts_rcvd < total_pkts_sent
         || total_pkts_consumed < total_pkts_sent
@@ -96,6 +99,13 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                 }
                 pkts_sent => {
                     if total_pkts_sent < num_packets {
+                        // Populate the frames with new data
+                        for desc in dev2_frames[..pkts_sent].iter_mut() {
+                            let bytes = generate_random_bytes(MSG_SIZE);
+                            let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
+                            desc.set_len(len.try_into().unwrap());
+                        }
+
                         // Add consumed frames back to the tx queue
                         while !socket::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
                             continue;
@@ -144,7 +154,7 @@ fn runner(c: &mut Criterion, mut dev1: SocketState, mut dev2: SocketState) {
 pub fn xsk_benchmark(c: &mut Criterion) {
     let umem_config = UmemConfigBuilder {
         frame_count: FRAME_COUNT,
-        frame_size: 2048,
+        frame_size: FRAME_SIZE,
         fill_queue_size: PROD_Q_SIZE,
         comp_queue_size: CONS_Q_SIZE,
         ..UmemConfigBuilder::default()

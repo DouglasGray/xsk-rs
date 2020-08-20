@@ -51,7 +51,6 @@ pub struct UmemBuilderWithMmap {
 pub struct Umem<'a> {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
-    frame_descs: Vec<FrameDesc>,
     frame_count: u32,
     frame_size: u32,
     max_addr: u64,
@@ -96,7 +95,9 @@ impl UmemBuilder {
 }
 
 impl<'a> UmemBuilderWithMmap {
-    pub fn create_umem(mut self) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>)> {
+    pub fn create_umem(
+        mut self,
+    ) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>)> {
         let umem_create_config = xsk_umem_config {
             fill_size: self.config.fill_queue_size(),
             comp_size: self.config.comp_queue_size(),
@@ -145,7 +146,6 @@ impl<'a> UmemBuilderWithMmap {
         let umem = Umem {
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area: self.mmap_area,
-            frame_descs,
             frame_count: self.config.frame_count(),
             frame_size: self.config.frame_size(),
             max_addr: (frame_count_u64 - 1) * frame_size_u64,
@@ -164,17 +164,13 @@ impl<'a> UmemBuilderWithMmap {
             _marker: PhantomData,
         };
 
-        Ok((umem, fill_queue, comp_queue))
+        Ok((umem, fill_queue, comp_queue, frame_descs))
     }
 }
 
 impl Umem<'_> {
     pub fn builder(config: Config) -> UmemBuilder {
         UmemBuilder { config }
-    }
-
-    pub fn empty_frame_descs(&self) -> &[FrameDesc] {
-        &self.frame_descs[..]
     }
 
     pub fn frame_count(&self) -> u32 {
@@ -388,7 +384,7 @@ mod tests {
         .unwrap()
     }
 
-    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>) {
+    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>) {
         let config = umem_config();
 
         Umem::builder(config)
@@ -400,7 +396,7 @@ mod tests {
 
     #[test]
     fn frame_addr_checks_ok() {
-        let (umem, _fq, _cq) = umem();
+        let (umem, _fq, _cq, _frame_descs) = umem();
 
         // First frame / addr 0 is ok
         assert!(umem.check_frame_addr_valid(&0).is_ok());
@@ -440,7 +436,7 @@ mod tests {
 
     #[test]
     fn data_checks_ok() {
-        let (umem, _fq, _cq) = umem();
+        let (umem, _fq, _cq, _frame_descs) = umem();
 
         // Empty data ok
         let empty_data: Vec<u8> = Vec::new();
@@ -468,7 +464,7 @@ mod tests {
 
     #[test]
     fn write_to_umem_then_read_small_byte_array() {
-        let (mut umem, _fq, _cq) = umem();
+        let (mut umem, _fq, _cq, _frame_descs) = umem();
 
         let addr = 0;
         let data = [b'H', b'e', b'l', b'l', b'o'];
@@ -482,7 +478,7 @@ mod tests {
 
     #[test]
     fn write_max_bytes_to_neighbouring_umem_frames() {
-        let (mut umem, _fq, _cq) = umem();
+        let (mut umem, _fq, _cq, _frame_descs) = umem();
 
         // Create random data and write to adjacent frames
         let fst_addr = 0;
