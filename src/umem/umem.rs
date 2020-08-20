@@ -2,7 +2,7 @@ use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
 use std::{convert::TryInto, io, marker::PhantomData, mem::MaybeUninit, ptr};
 use thiserror::Error;
 
-use crate::{poll, socket::Fd};
+use crate::socket::{self, Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
@@ -311,7 +311,7 @@ impl FillQueue<'_> {
     }
 
     pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
-        poll::poll_read(fd, poll_timeout)?;
+        socket::poll_read(fd, poll_timeout)?;
         Ok(())
     }
 

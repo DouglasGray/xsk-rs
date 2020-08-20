@@ -1,10 +1,8 @@
 use libc::EINTR;
 use std::io;
 
-use crate::{
-    socket::{Fd, PollFd},
-    util,
-};
+use super::{Fd, PollFd};
+use crate::util;
 
 fn poll(fd: &mut PollFd, timeout_ms: i32) -> io::Result<bool> {
     let ret = unsafe { libc::poll(fd.pollfd(), 1, timeout_ms) };

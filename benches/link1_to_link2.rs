@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_xsk::poll;
+use rust_xsk::socket;
 
 mod setup;
 
@@ -88,7 +88,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                 pkts_sent => {
                     if total_pkts_sent < num_packets {
                         // Add consumed frames back to the tx queue
-                        while !poll::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
+                        while !socket::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
                             continue;
                         }
 

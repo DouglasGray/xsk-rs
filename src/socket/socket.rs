@@ -12,12 +12,11 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    poll,
     umem::{FrameDesc, Umem},
     util,
 };
 
-use super::{config::Config, fd::Fd};
+use super::{config::Config, fd::Fd, poll};
 
 #[derive(Error, Debug)]
 pub enum SocketCreateError {
