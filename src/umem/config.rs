@@ -16,10 +16,12 @@ bitflags! {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("Completion queue size invalid, must be a power of two")]
-    CompSizeInvalid,
-    #[error("Fill queue size invalid, must be a power of two")]
-    FillSizeInvalid,
+    #[error("Completion queue size invalid")]
+    CompSizeInvalid { reason: &'static str },
+    #[error("Fill queue size invalid")]
+    FillSizeInvalid { reason: &'static str },
+    #[error("Frame size invalid")]
+    FrameSizeInvalid { reason: &'static str },
 }
 
 #[derive(Debug, Clone)]
@@ -44,10 +46,19 @@ impl Config {
         umem_flags: UmemFlags,
     ) -> Result<Self, ConfigError> {
         if !util::is_pow_of_two(fill_queue_size) {
-            return Err(ConfigError::FillSizeInvalid);
+            return Err(ConfigError::FillSizeInvalid {
+                reason: "Fill queue size must be a power of two",
+            });
         }
         if !util::is_pow_of_two(comp_queue_size) {
-            return Err(ConfigError::CompSizeInvalid);
+            return Err(ConfigError::CompSizeInvalid {
+                reason: "Comp queue size must be a power of two",
+            });
+        }
+        if frame_size.get() < 2048 {
+            return Err(ConfigError::FrameSizeInvalid {
+                reason: "Frame size must be greater than or equal to 2048",
+            });
         }
 
         Ok(Config {

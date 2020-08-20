@@ -395,6 +395,87 @@ mod tests {
     }
 
     #[test]
+    fn umem_create_succeeds_when_frame_count_is_one() {
+        let config = Config::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(4096).unwrap(),
+            4,
+            4,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap();
+
+        Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+    }
+
+    #[test]
+    fn umem_create_succeeds_when_fill_size_is_one() {
+        let config = Config::new(
+            NonZeroU32::new(16).unwrap(),
+            NonZeroU32::new(4096).unwrap(),
+            1,
+            4,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap();
+
+        Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+    }
+
+    #[test]
+    fn umem_create_succeeds_when_comp_size_is_one() {
+        let config = Config::new(
+            NonZeroU32::new(16).unwrap(),
+            NonZeroU32::new(4096).unwrap(),
+            4,
+            1,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap();
+
+        Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+    }
+
+    #[test]
+    #[should_panic]
+    fn umem_create_fails_when_frame_size_is_lt_2048() {
+        let config = Config::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(2047).unwrap(),
+            4,
+            4,
+            0,
+            false,
+            UmemFlags::empty(),
+        )
+        .unwrap();
+
+        Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+    }
+
+    #[test]
     fn frame_addr_checks_ok() {
         let (umem, _fq, _cq, _frame_descs) = umem();
 
