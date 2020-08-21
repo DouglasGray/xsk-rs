@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_xsk::socket::{self, BindFlags};
 use std::convert::TryInto;
+use xsk_rs::socket::{self, BindFlags};
 
 mod setup;
 

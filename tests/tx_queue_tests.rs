@@ -1,4 +1,4 @@
-use rust_xsk::{socket::Config as SocketConfig, umem::Config as UmemConfig};
+use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 

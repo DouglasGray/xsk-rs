@@ -1,8 +1,8 @@
-use rust_xsk::{
+use std::num::NonZeroU32;
+use xsk_rs::{
     socket::{Config as SocketConfig, *},
     umem::{Config as UmemConfig, *},
 };
-use std::num::NonZeroU32;
 
 pub struct UmemConfigBuilder {
     pub frame_count: u32,

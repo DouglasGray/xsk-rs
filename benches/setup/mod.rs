@@ -1,11 +1,11 @@
-use rust_xsk::{
-    socket::{Config as SocketConfig, *},
-    umem::{Config as UmemConfig, *},
-};
 use std::thread;
 use tokio::{
     runtime::Runtime,
     sync::oneshot::{self, error::TryRecvError},
+};
+use xsk_rs::{
+    socket::{Config as SocketConfig, *},
+    umem::{Config as UmemConfig, *},
 };
 
 mod veth_setup;

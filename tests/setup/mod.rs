@@ -1,4 +1,4 @@
-use rust_xsk::{
+use xsk_rs::{
     socket::{Config as SocketConfig, *},
     umem::{Config as UmemConfig, *},
 };
