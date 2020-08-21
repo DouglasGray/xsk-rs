@@ -1,3 +1,3 @@
-# rust-xsk
+# xsk-rs
 
-A Rust interface for Linux AF_XDP sockets
+A Rust interface for Linux AF_XDP sockets using libbpf.
