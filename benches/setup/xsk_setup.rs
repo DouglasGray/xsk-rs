@@ -11,7 +11,6 @@ pub struct UmemConfigBuilder {
     pub comp_queue_size: u32,
     pub frame_headroom: u32,
     pub use_huge_pages: bool,
-    pub umem_flags: UmemFlags,
 }
 
 impl UmemConfigBuilder {
@@ -23,7 +22,6 @@ impl UmemConfigBuilder {
             comp_queue_size: 8,
             frame_headroom: 0,
             use_huge_pages: false,
-            umem_flags: UmemFlags::empty(),
         }
     }
 
@@ -35,7 +33,6 @@ impl UmemConfigBuilder {
             self.comp_queue_size,
             self.frame_headroom,
             self.use_huge_pages,
-            self.umem_flags,
         )
         .unwrap()
     }

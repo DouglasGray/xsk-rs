@@ -31,10 +31,10 @@ bitflags! {
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
-    #[error("Tx queue size invalid, must be a power of two")]
-    TxSizeInvalid,
-    #[error("Rx queue size invalid, must be a power of two")]
-    RxSizeInvalid,
+    #[error("Tx queue size invalid")]
+    TxSizeInvalid { reason: &'static str },
+    #[error("Rx queue size invalid")]
+    RxSizeInvalid { reason: &'static str },
 }
 
 #[derive(Debug, Clone)]
@@ -55,10 +55,14 @@ impl Config {
         bind_flags: BindFlags,
     ) -> Result<Self, ConfigError> {
         if !util::is_pow_of_two(rx_queue_size) {
-            return Err(ConfigError::RxSizeInvalid);
+            return Err(ConfigError::RxSizeInvalid {
+                reason: "Rx queue size must be a power of two",
+            });
         }
         if !util::is_pow_of_two(tx_queue_size) {
-            return Err(ConfigError::TxSizeInvalid);
+            return Err(ConfigError::TxSizeInvalid {
+                reason: "Tx queue size must be a power of two",
+            });
         }
 
         Ok(Config {

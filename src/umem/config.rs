@@ -1,4 +1,3 @@
-use bitflags::bitflags;
 use libbpf_sys::{
     XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS,
     XSK_UMEM__DEFAULT_FRAME_HEADROOM, XSK_UMEM__DEFAULT_FRAME_SIZE,
@@ -7,12 +6,6 @@ use std::num::NonZeroU32;
 use thiserror::Error;
 
 use crate::util;
-
-bitflags! {
-    pub struct UmemFlags: u32 {
-        const XDP_UMEM_UNALIGNED_CHUNK_FLAG = 1;
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum ConfigError {
@@ -32,7 +25,6 @@ pub struct Config {
     comp_queue_size: u32,
     frame_headroom: u32,
     use_huge_pages: bool,
-    umem_flags: UmemFlags,
 }
 
 impl Config {
@@ -43,7 +35,6 @@ impl Config {
         comp_queue_size: u32,
         frame_headroom: u32,
         use_huge_pages: bool,
-        umem_flags: UmemFlags,
     ) -> Result<Self, ConfigError> {
         if !util::is_pow_of_two(fill_queue_size) {
             return Err(ConfigError::FillSizeInvalid {
@@ -68,7 +59,6 @@ impl Config {
             comp_queue_size,
             frame_headroom,
             use_huge_pages,
-            umem_flags,
         })
     }
 
@@ -80,7 +70,6 @@ impl Config {
             comp_queue_size: XSK_RING_CONS__DEFAULT_NUM_DESCS,
             frame_headroom: XSK_UMEM__DEFAULT_FRAME_HEADROOM,
             use_huge_pages,
-            umem_flags: UmemFlags::empty(),
         }
     }
 
@@ -108,10 +97,6 @@ impl Config {
         self.use_huge_pages
     }
 
-    pub fn umem_flags(&self) -> &UmemFlags {
-        &self.umem_flags
-    }
-
     pub fn umem_len(&self) -> u64 {
         (self.frame_count as u64)
             .checked_mul(self.frame_size as u64)
@@ -132,7 +117,6 @@ mod tests {
             8,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap()
         .umem_len();

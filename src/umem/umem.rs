@@ -103,7 +103,7 @@ impl<'a> UmemBuilderWithMmap {
             comp_size: self.config.comp_queue_size(),
             frame_size: self.config.frame_size(),
             frame_headroom: self.config.frame_headroom(),
-            flags: self.config.umem_flags().bits(),
+            flags: 0,
         };
 
         let mut umem_ptr: *mut xsk_umem = ptr::null_mut();
@@ -362,7 +362,7 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::*;
-    use crate::umem::{Config, UmemFlags};
+    use crate::umem::Config;
 
     const FRAME_COUNT: u32 = 8;
     const FRAME_SIZE: u32 = 2048;
@@ -379,7 +379,6 @@ mod tests {
             4,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap()
     }
@@ -403,7 +402,6 @@ mod tests {
             4,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap();
 
@@ -423,7 +421,6 @@ mod tests {
             4,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap();
 
@@ -443,7 +440,6 @@ mod tests {
             1,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap();
 
@@ -464,7 +460,6 @@ mod tests {
             4,
             0,
             false,
-            UmemFlags::empty(),
         )
         .unwrap();
 

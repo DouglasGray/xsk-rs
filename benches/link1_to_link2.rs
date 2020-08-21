@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use rust_xsk::socket;
+use rust_xsk::socket::{self, BindFlags};
 use std::convert::TryInto;
 
 mod setup;
@@ -164,6 +164,7 @@ pub fn xsk_benchmark(c: &mut Criterion) {
     let socket_config = SocketConfigBuilder {
         tx_queue_size: PROD_Q_SIZE,
         rx_queue_size: CONS_Q_SIZE,
+        bind_flags: BindFlags::XDP_USE_NEED_WAKEUP,
         ..SocketConfigBuilder::default()
     }
     .build();
