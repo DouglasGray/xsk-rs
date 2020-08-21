@@ -150,19 +150,20 @@ impl RxQueue<'_> {
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
-        // Assuming 64-bit so u64 -> usize is ok
-        for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
-            unsafe {
-                let recv_pkt_desc = libbpf_sys::_xsk_ring_cons__rx_desc(self.inner.as_mut(), idx);
-
-                desc.set_addr((*recv_pkt_desc).addr);
-                desc.set_len((*recv_pkt_desc).len);
-                desc.set_options((*recv_pkt_desc).options);
-            }
-            idx += 1;
-        }
-
         if cnt > 0 {
+            // Assuming 64-bit so u64 -> usize is ok
+            for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
+                unsafe {
+                    let recv_pkt_desc =
+                        libbpf_sys::_xsk_ring_cons__rx_desc(self.inner.as_mut(), idx);
+
+                    desc.set_addr((*recv_pkt_desc).addr);
+                    desc.set_len((*recv_pkt_desc).len);
+                    desc.set_options((*recv_pkt_desc).options);
+                }
+                idx += 1;
+            }
+
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 

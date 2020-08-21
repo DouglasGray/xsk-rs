@@ -338,17 +338,18 @@ impl CompQueue<'_> {
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
 
-        for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
-            let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
-
-            desc.set_addr(addr);
-            desc.set_len(0);
-            desc.set_options(0);
-
-            idx += 1;
-        }
-
         if cnt > 0 {
+            for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
+                let addr =
+                    unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
+
+                desc.set_addr(addr);
+                desc.set_len(0);
+                desc.set_options(0);
+
+                idx += 1;
+            }
+
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
         }
 
