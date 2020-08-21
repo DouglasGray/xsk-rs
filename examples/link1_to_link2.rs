@@ -16,7 +16,7 @@ const PROD_Q_SIZE: u32 = 4096;
 const CONS_Q_SIZE: u32 = 4096;
 const MS_TIMEOUT: i32 = 10;
 const MSG_SIZE: u32 = 64;
-const NUM_PACKETS_TO_SEND: usize = 1_000_000;
+const NUM_PACKETS_TO_SEND: usize = 5_000_000;
 
 struct SocketState<'umem> {
     umem: Umem<'umem>,
@@ -70,13 +70,6 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
             MS_TIMEOUT,
         )
         .unwrap();
-
-    // Copy over some bytes to dev2's UMEM
-    for desc in dev2_frames.iter_mut() {
-        let bytes = generate_random_bytes(MSG_SIZE);
-        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
-        desc.set_len(len.try_into().unwrap());
-    }
 
     // Populate tx queue
     let mut total_pkts_sent = dev2
@@ -136,11 +129,9 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
                 }
                 pkts_sent => {
                     if total_pkts_sent < NUM_PACKETS_TO_SEND {
-                        // Populate the frames with new data
+                        // Data is still contained in the frames so just set the descriptor's length
                         for desc in dev2_frames[..pkts_sent].iter_mut() {
-                            let bytes = generate_random_bytes(MSG_SIZE);
-                            let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
-                            desc.set_len(len.try_into().unwrap());
+                            desc.set_len(MSG_SIZE);
                         }
 
                         // Add consumed frames back to the tx queue
@@ -230,9 +221,16 @@ fn main() {
 
     let now = Instant::now();
 
-    println!("Processing messages");
+    println!("Processing {} messages", NUM_PACKETS_TO_SEND);
 
-    // Send some messages
+    // Copy over some bytes to dev2's umem
+    for desc in dev2.frame_descs.iter_mut() {
+        let bytes = generate_random_bytes(MSG_SIZE);
+        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
+        desc.set_len(len.try_into().unwrap());
+    }
+
+    // Send messages
     link1_to_link2_single_thread(&mut dev1, &mut dev2);
 
     println!(

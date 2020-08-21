@@ -30,13 +30,6 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
         )
         .unwrap();
 
-    // Copy over some bytes to dev2's UMEM
-    for desc in dev2_frames.iter_mut() {
-        let bytes = generate_random_bytes(MSG_SIZE);
-        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
-        desc.set_len(len.try_into().unwrap());
-    }
-
     // Populate tx queue
     let mut total_pkts_sent = dev2
         .tx_q
@@ -99,11 +92,9 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
                 }
                 pkts_sent => {
                     if total_pkts_sent < num_packets {
-                        // Populate the frames with new data
+                        // Data is still contained in the frames so just set the descriptor's length
                         for desc in dev2_frames[..pkts_sent].iter_mut() {
-                            let bytes = generate_random_bytes(MSG_SIZE);
-                            let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
-                            desc.set_len(len.try_into().unwrap());
+                            desc.set_len(MSG_SIZE);
                         }
 
                         // Add consumed frames back to the tx queue
@@ -136,6 +127,13 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
 
 fn runner(c: &mut Criterion, mut dev1: SocketState, mut dev2: SocketState) {
     let mut group = c.benchmark_group("link1_to_link2_single_thread");
+
+    // First populate dev2's frames
+    for desc in dev2.frame_descs.iter_mut() {
+        let bytes = generate_random_bytes(MSG_SIZE);
+        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
+        desc.set_len(len.try_into().unwrap());
+    }
 
     for num_packets in [100_000].iter() {
         group.throughput(Throughput::Elements(*num_packets as u64));
