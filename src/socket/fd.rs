@@ -1,5 +1,6 @@
 use libc::{POLLIN, POLLOUT};
 
+/// Wrapper around libc's `pollfd` struct. Required when polling.
 #[derive(Clone)]
 pub struct PollFd {
     pollfd: libc::pollfd,
@@ -15,6 +16,7 @@ impl PollFd {
     }
 }
 
+/// Wrapper struct around some useful helper data for managing the socket.
 #[derive(Clone)]
 pub struct Fd {
     id: i32,
@@ -23,7 +25,7 @@ pub struct Fd {
 }
 
 impl Fd {
-    pub fn new(id: i32) -> Self {
+    pub(crate) fn new(id: i32) -> Self {
         let pollin_fd = PollFd::new(libc::pollfd {
             fd: id,
             events: POLLIN,
@@ -47,11 +49,11 @@ impl Fd {
         self.id
     }
 
-    pub fn pollin_fd(&mut self) -> &mut PollFd {
+    pub(crate) fn pollin_fd(&mut self) -> &mut PollFd {
         &mut self.pollin_fd
     }
 
-    pub fn pollout_fd(&mut self) -> &mut PollFd {
+    pub(crate) fn pollout_fd(&mut self) -> &mut PollFd {
         &mut self.pollout_fd
     }
 }

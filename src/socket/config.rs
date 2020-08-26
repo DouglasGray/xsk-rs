@@ -37,6 +37,9 @@ pub enum ConfigError {
     RxSizeInvalid { reason: &'static str },
 }
 
+/// Required when instantiating a [Socket](struct.Socket.html)
+///
+/// `rx_queue_size` and `tx_queue_size` must be powers of two.
 #[derive(Debug, Clone)]
 pub struct Config {
     rx_queue_size: u32,
@@ -74,6 +77,8 @@ impl Config {
         })
     }
 
+    /// Default configuration based on constants set in the `libbpf` library
+    /// with none of the flags set.
     pub fn default() -> Self {
         Config {
             rx_queue_size: XSK_RING_CONS__DEFAULT_NUM_DESCS,

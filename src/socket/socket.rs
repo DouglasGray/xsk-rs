@@ -29,11 +29,17 @@ pub enum SocketCreateError {
     },
 }
 
+/// An AF_XDP socket.
+///
+/// More details can be found in the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
 pub struct Socket<'umem> {
     inner: Box<xsk_socket>,
     _marker: PhantomData<&'umem ()>,
 }
 
+/// The transmitting side of an AF_XDP socket.
+///
+/// More details can be found in the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).
 pub struct TxQueue<'umem> {
     inner: Box<xsk_ring_prod>,
     fd: Fd,
@@ -42,6 +48,9 @@ pub struct TxQueue<'umem> {
 
 unsafe impl Send for TxQueue<'_> {}
 
+/// The receiving side of an AF_XDP socket.
+///
+/// More details can be found in the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#rx-ring).
 pub struct RxQueue<'umem> {
     inner: Box<xsk_ring_cons>,
     fd: Fd,
@@ -51,6 +60,9 @@ pub struct RxQueue<'umem> {
 unsafe impl Send for RxQueue<'_> {}
 
 impl Socket<'_> {
+    /// Create and bind a new AF_XDP socket to a given interface and queue id.
+    ///
+    /// May require root permissions to create and bind.
     pub fn new<'a, 'umem>(
         config: Config,
         umem: &mut Umem<'umem>,
@@ -135,9 +147,16 @@ impl Drop for Socket<'_> {
 }
 
 impl RxQueue<'_> {
-    /// Consume frames with received packets and add their info to [descs].
-    /// Number of frames consumed will be less than or equal to the length of [descs].
-    /// Returns the number of frames consumed (and therefore updated in [descs]).
+    /// Populate `descs` with information on packets received on the Rx ring.
+    ///
+    /// The number of entries updated will be less than or equal to the length of `descs`.
+    /// Entries will be updated sequentially from the start of `descs` until the end.
+    /// Returns the number of elements of `descs` which have been updated with received
+    /// packet information, namely their frame address and length.
+    ///
+    /// Once the contents of the consumed frames have been dealt with and are no longer
+    /// required, the frames should be added back on to either the
+    /// [FillQueue](struct.FillQueue.html) or the [TxQueue](struct.TxQueue.html).
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         // usize -> u64 ok
         let nb: u64 = descs.len().try_into().unwrap();
@@ -170,7 +189,8 @@ impl RxQueue<'_> {
         cnt.try_into().unwrap()
     }
 
-    pub fn wakeup_and_consume(
+    /// Same as `consume` but poll first to check if there is anything to read beforehand.
+    pub fn poll_and_consume(
         &mut self,
         descs: &mut [FrameDesc],
         poll_timeout: i32,
@@ -181,12 +201,27 @@ impl RxQueue<'_> {
         }
     }
 
+    /// Return the AF_XDP socket's file descriptor.
+    ///
+    /// Required for [poll_read](socket/poll/fn.poll_read.html)
+    /// or [poll_write](socket/poll/fn.poll_write.html).
     pub fn fd(&mut self) -> &mut Fd {
         &mut self.fd
     }
 }
 
 impl TxQueue<'_> {
+    /// Let the kernel know that the contents of frames in `descs` are ready to be transmitted.
+    ///
+    /// Note that if the length of `descs` is greater than the number of available spaces on the
+    /// underlying ring buffer then no frames at all will be submitted for transmission.
+    ///
+    /// This function returns the number of frames submitted to the kernel for transmission. Due
+    /// to the constraint mentioned in the above paragraph, this should always be the length of
+    /// `descs` or `0`.
+    ///
+    /// Once the frames have been submitted they should not be used again until consumed again
+    /// via the [CompQueue](struct.CompQueue.html)
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
@@ -219,6 +254,10 @@ impl TxQueue<'_> {
         cnt.try_into().unwrap()
     }
 
+    /// Same as `produce` but wake up the kernel to continue processing
+    /// produced frames (if required).
+    ///
+    /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
     pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);
 
@@ -229,6 +268,9 @@ impl TxQueue<'_> {
         Ok(cnt)
     }
 
+    /// Wake up the kernel to continue processing produced frames.
+    ///
+    /// See `produce_and_wakeup` for link to docs with further explanation.
     pub fn wakeup(&self) -> io::Result<()> {
         let ret =
             unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
@@ -243,6 +285,11 @@ impl TxQueue<'_> {
         Ok(())
     }
 
+    /// Check if the libbpf `NEED_WAKEUP` flag is set on the Tx ring.
+    /// If so then this means a call to `wakeup` will be required to
+    /// continue processing produced frames.
+    ///
+    /// See `produce_and_wakeup` for link to docs with further explanation.
     pub fn needs_wakeup(&self) -> bool {
         unsafe {
             if libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 {
@@ -253,6 +300,10 @@ impl TxQueue<'_> {
         }
     }
 
+    /// Return the AF_XDP socket's file descriptor.
+    ///
+    /// Required for [poll_read](socket/poll/fn.poll_read.html)
+    /// or [poll_write](socket/poll/fn.poll_write.html).
     pub fn fd(&mut self) -> &mut Fd {
         &mut self.fd
     }

@@ -53,7 +53,7 @@ fn link1_to_link2_single_thread(num_packets: u64, dev1: &mut SocketState, dev2: 
             // Handle rx
             match dev1
                 .rx_q
-                .wakeup_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
+                .poll_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
                 .unwrap()
             {
                 0 => {

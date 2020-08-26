@@ -22,10 +22,12 @@ fn poll(fd: &mut PollFd, timeout_ms: i32) -> io::Result<bool> {
     }
 }
 
+/// Check if anything is available to read on the socket.
 pub fn poll_read(fd: &mut Fd, timeout_ms: i32) -> io::Result<bool> {
     poll(fd.pollin_fd(), timeout_ms)
 }
 
+/// Check if the socket is available to write.
 pub fn poll_write(fd: &mut Fd, timeout_ms: i32) -> io::Result<bool> {
     poll(fd.pollout_fd(), timeout_ms)
 }
