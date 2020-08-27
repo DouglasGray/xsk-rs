@@ -4,6 +4,8 @@
 //!
 //! For more information please see the [networking docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
 //! or a more [detailed overview](http://vger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf).
+//!
+//! Some simple examples may be found in the `examples` directory in the GitHub repo.
 
 pub mod socket;
 pub mod umem;
