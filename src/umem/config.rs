@@ -17,6 +17,13 @@ pub enum ConfigError {
     FrameSizeInvalid { reason: &'static str },
 }
 
+/// Config for a [Umem](struct.Umem.html) instance.
+///
+/// `fill_queue_size` and `comp_queue_size` must be powers of two and frame size
+/// must not be less than `2048`.
+///
+/// If you have set `use_huge_pages` as `true` but are getting errors, check that
+/// the `HugePages_Total` setting is non-zero when you run `cat /proc/meminfo`.
 #[derive(Debug, Clone)]
 pub struct Config {
     frame_count: u32,
@@ -62,6 +69,7 @@ impl Config {
         })
     }
 
+    /// Default configuration based on constants set in the `libbpf` library.
     pub fn default(frame_count: NonZeroU32, use_huge_pages: bool) -> Self {
         Config {
             frame_count: frame_count.get(),

@@ -6,6 +6,19 @@ use crate::socket::{self, Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
+/// Describes a UMEM frame's location and current contents.
+///
+/// The `addr` field identifies the particular UMEM frame and
+/// the `len` field describes the length (in bytes) of any data
+/// stored at that frame. The address is the offset in bytes from
+/// the start of the UMEM, and as each addresss references the
+/// start of a frame it is therefore a multiple of the frame size.
+///
+/// If sending data, the `len` field will need to be set by the user
+/// before transmitting via the [TxQueue](struct.TxQueue.html).
+/// Otherwise when reading received frames using the [RxQueue](struct.RxQueue.html),
+/// the `len` field will be set by the kernel and dictates the number
+/// of bytes the user should read from the UMEM.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameDesc {
     addr: u64,
@@ -30,6 +43,12 @@ impl FrameDesc {
         self.addr = addr
     }
 
+    /// Required when sending data using [TxQueue](struct.TxQueue.html).
+    ///
+    /// Once data has been written to a UMEM frame by the user at a given
+    /// address, they must update the respective `FrameDesc`'s length before
+    /// handing it over to the kernel to be transmitted to ensure the
+    /// correct number of bytes are sent.
     pub fn set_len(&mut self, len: u32) {
         self.len = len
     }
@@ -39,15 +58,19 @@ impl FrameDesc {
     }
 }
 
+/// Initial step for building a UMEM. This creates the underlying `mmap` area.
 pub struct UmemBuilder {
     config: Config,
 }
 
+/// Final step for building a UMEM, this makes the required calls to `libbpf`.
 pub struct UmemBuilderWithMmap {
     config: Config,
     mmap_area: MmapArea,
 }
 
+/// A region of virtual contiguous memory divided into equal-sized frames.
+/// It provides the underlying working memory for an AF_XDP socket.
 pub struct Umem<'a> {
     inner: Box<xsk_umem>,
     mmap_area: MmapArea,
@@ -69,6 +92,12 @@ pub enum UmemAccessError {
     DataLenOutOfBounds { data_len: usize, frame_size: u32 },
 }
 
+/// Used to transfer ownership of UMEM frames from kernel-space to user-space.
+///
+/// Frames received in this queue are those that have been sent via the
+/// [TxQueue](struct.TxQueue.html).
+///
+/// For more information see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)
 pub struct CompQueue<'umem> {
     inner: Box<xsk_ring_cons>,
     _marker: PhantomData<&'umem ()>,
@@ -76,6 +105,12 @@ pub struct CompQueue<'umem> {
 
 unsafe impl Send for CompQueue<'_> {}
 
+/// Used to transfer ownership of UMEM frames from user-space to kernel-space.
+///
+/// These frames will be used to receive packets, and so will be returned
+/// via the [RxQueue](struct.RxQueue.html).
+///
+/// For more information see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring)
 pub struct FillQueue<'umem> {
     inner: Box<xsk_ring_prod>,
     _marker: PhantomData<&'umem ()>,
@@ -84,6 +119,11 @@ pub struct FillQueue<'umem> {
 unsafe impl Send for FillQueue<'_> {}
 
 impl UmemBuilder {
+    /// Allocate a memory region for the UMEM.
+    ///
+    /// Before we can create the UMEM we first need to allocate a chunk of memory,
+    /// which will eventually be split up into frames. We do this with a call to `mmap`,
+    /// requesting a read + write protected anonymous memory region.
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
         let mmap_area = MmapArea::new(self.config.umem_len(), self.config.use_huge_pages())?;
 
@@ -95,6 +135,11 @@ impl UmemBuilder {
 }
 
 impl<'a> UmemBuilderWithMmap {
+    /// Using the allocated memory region, create the UMEM.
+    ///
+    /// Once we've successfully requested a region of memory, create the UMEM with it by
+    /// splitting the memory region into frames and creating the [FillQueue](struct.FillQueue.html)
+    /// and [CompQueue](struct.CompQueue.html).
     pub fn create_umem(
         mut self,
     ) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>)> {
@@ -173,10 +218,12 @@ impl Umem<'_> {
         UmemBuilder { config }
     }
 
+    /// Number of frames in the UMEM
     pub fn frame_count(&self) -> u32 {
         self.frame_count
     }
 
+    /// The length of each frame in bytes
     pub fn frame_size(&self) -> u32 {
         self.frame_size
     }
@@ -217,6 +264,10 @@ impl Umem<'_> {
         Ok(())
     }
 
+    /// Return a reference to the frame at a given address.
+    ///
+    /// `addr` references the first byte of a frame and must therefore be
+    /// a multiple of the frame size.
     pub fn frame_ref(&self, addr: &u64) -> Result<&[u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
 
@@ -228,6 +279,15 @@ impl Umem<'_> {
             .unwrap())
     }
 
+    /// Return a mutable reference to the frame at a given address. Can be used
+    /// if writing to the UMEM, for example before transmitting a packet.
+    ///
+    /// `addr` references the first byte of a frame and must therefore be
+    /// a multiple of the frame size.
+    ///
+    /// Remember that if you write data to a frame, you must update the length on
+    /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting to
+    /// the [TxQueue](struct.TxQueue.html).
     pub fn frame_ref_mut(&mut self, addr: &u64) -> Result<&mut [u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
 
@@ -239,6 +299,16 @@ impl Umem<'_> {
             .unwrap())
     }
 
+    /// Copy `data` into the frame at `addr`.
+    ///
+    /// `addr` references the first byte of a frame and must therefore be
+    /// a multiple of the frame size. The length of `data` must be less
+    /// than or equal to the frame size.
+    ///
+    /// Returns the number of bytes copied. Remember that once data has
+    /// been written to a frame, you must update the length on
+    /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting
+    /// to the [TxQueue](struct.TxQueue.html).
     pub fn copy_data_to_frame(
         &mut self,
         addr: &u64,
@@ -269,6 +339,17 @@ impl Drop for Umem<'_> {
 }
 
 impl FillQueue<'_> {
+    /// Let the kernel know that the frames in `descs` may be used to receive data.
+    ///
+    /// Note that if the length of `descs` is greater than the number of available spaces on the
+    /// underlying ring buffer then no frames at all will be handed over to the kernel.
+    ///
+    /// This function returns the number of frames submitted to the kernel. Due to the
+    /// constraint mentioned in the above paragraph, this should always be the length of
+    /// `descs` or `0`.
+    ///
+    /// Once the frames have been submitted they should not be used again until consumed again
+    /// via the [RxQueue](struct.RxQueue.html)
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
         let nb: u64 = descs.len().try_into().unwrap();
@@ -327,6 +408,15 @@ impl FillQueue<'_> {
 }
 
 impl CompQueue<'_> {
+    /// Update `descs` with frames whose contents have been sent (after submission via
+    /// the [TxQueue](struct.TxQueue.html) and may now be used again.
+    ///
+    /// The number of entries updated will be less than or equal to the length of `descs`.
+    /// Entries will be updated sequentially from the start of `descs` until the end.
+    /// Returns the number of elements of `descs` which have been updated.
+    ///
+    /// Free frames should be added back on to either the [FillQueue](struct.FillQueue.html)
+    /// for data receipt or the [TxQueue](struct.TxQueue.html) for data transmission.
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         let nb: u64 = descs.len().try_into().unwrap();
 

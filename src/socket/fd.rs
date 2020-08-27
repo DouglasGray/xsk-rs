@@ -1,6 +1,6 @@
 use libc::{POLLIN, POLLOUT};
 
-/// Wrapper around libc's `pollfd` struct. Required when polling.
+/// Wrapper around libc's `pollfd` struct.
 #[derive(Clone)]
 pub struct PollFd {
     pollfd: libc::pollfd,

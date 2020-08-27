@@ -37,7 +37,7 @@ pub enum ConfigError {
     RxSizeInvalid { reason: &'static str },
 }
 
-/// Required when instantiating a [Socket](struct.Socket.html)
+/// Config for a [Socket](struct.Socket.html).
 ///
 /// `rx_queue_size` and `tx_queue_size` must be powers of two.
 #[derive(Debug, Clone)]

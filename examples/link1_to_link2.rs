@@ -92,7 +92,7 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
             // Handle rx
             match dev1
                 .rx_q
-                .wakeup_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
+                .poll_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
                 .unwrap()
             {
                 0 => {
@@ -160,40 +160,7 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
     }
 }
 
-fn main() {
-    let dev1_if_name = String::from("xsk_ex_dev1");
-    let dev2_if_name = String::from("xsk_ex_dev2");
-
-    let (startup_w, mut startup_r) = oneshot::channel();
-    let (shutdown_w, shutdown_r) = oneshot::channel();
-
-    let dev1_if_name_clone = dev1_if_name.clone();
-    let dev2_if_name_clone = dev2_if_name.clone();
-
-    // Set up the veth link
-    let veth_handle = thread::spawn(move || {
-        let mut runtime = Runtime::new().unwrap();
-
-        runtime.block_on(setup::run_veth_link(
-            &dev1_if_name_clone,
-            &dev2_if_name_clone,
-            startup_w,
-            shutdown_r,
-        ))
-    });
-
-    println!("Setting up veth link");
-
-    loop {
-        match startup_r.try_recv() {
-            Ok(_) => break,
-            Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Closed) => panic!("Failed to set up veth link"),
-        }
-    }
-
-    println!("veth link is up");
-
+fn run_example(dev1_if_name: String, dev2_if_name: String) {
     // Create umem and socket configs
     let umem_config = UmemConfig::new(
         NonZeroU32::new(FRAME_COUNT).unwrap(),
@@ -238,11 +205,49 @@ fn main() {
         NUM_PACKETS_TO_SEND,
         now.elapsed().as_secs()
     );
+}
 
-    // Wait for link to close
+fn main() {
+    let dev1_if_name = String::from("xsk_ex_dev1");
+    let dev2_if_name = String::from("xsk_ex_dev2");
+
+    let (startup_w, mut startup_r) = oneshot::channel();
+    let (shutdown_w, shutdown_r) = oneshot::channel();
+
+    let dev1_if_name_clone = dev1_if_name.clone();
+    let dev2_if_name_clone = dev2_if_name.clone();
+
+    // Create the veth link
+    let veth_handle = thread::spawn(move || {
+        let mut runtime = Runtime::new().unwrap();
+
+        runtime.block_on(setup::run_veth_link(
+            &dev1_if_name_clone,
+            &dev2_if_name_clone,
+            startup_w,
+            shutdown_r,
+        ))
+    });
+
+    loop {
+        match startup_r.try_recv() {
+            Ok(_) => break,
+            Err(TryRecvError::Empty) => (),
+            Err(TryRecvError::Closed) => panic!("Failed to set up veth link"),
+        }
+    }
+
+    // Run example in separate thread so that if it panics we can clean up here
+    let ex_handle = thread::spawn(move || run_example(dev1_if_name, dev2_if_name));
+
+    let res = ex_handle.join();
+
+    // Tell link to close
     if let Err(e) = shutdown_w.send(()) {
         eprintln!("veth link thread returned unexpectedly: {:?}", e);
     }
 
     veth_handle.join().unwrap();
+
+    res.unwrap();
 }
