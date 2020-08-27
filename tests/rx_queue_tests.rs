@@ -32,7 +32,7 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
         assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..2]), 0);
         assert_eq!(
             dev1.rx_q
-                .wakeup_and_consume(&mut d1_rx_q_frames[..2], 100)
+                .poll_and_consume(&mut d1_rx_q_frames[..2], 100)
                 .unwrap(),
             0
         );
@@ -57,7 +57,7 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
         assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..4]), 0);
         assert_eq!(
             dev1.rx_q
-                .wakeup_and_consume(&mut d1_rx_q_frames[..4], 100)
+                .poll_and_consume(&mut d1_rx_q_frames[..4], 100)
                 .unwrap(),
             0
         );
