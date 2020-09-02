@@ -19,8 +19,10 @@ pub struct SocketState<'a> {
 }
 
 pub async fn run_test<F>(
-    umem_config: Option<UmemConfig>,
-    socket_config: Option<SocketConfig>,
+    dev1_umem_config: Option<UmemConfig>,
+    dev1_socket_config: Option<SocketConfig>,
+    dev2_umem_config: Option<UmemConfig>,
+    dev2_socket_config: Option<SocketConfig>,
     test: F,
 ) where
     F: Fn(SocketState, SocketState) + Send + 'static,
@@ -28,8 +30,8 @@ pub async fn run_test<F>(
     let inner = move |dev1_if_name: String, dev2_if_name: String| {
         // Create the socket for the first interfaace
         let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
-            umem_config.clone(),
-            socket_config.clone(),
+            dev1_umem_config,
+            dev1_socket_config,
             &dev1_if_name,
             0,
         );
@@ -44,8 +46,12 @@ pub async fn run_test<F>(
             frame_descs,
         };
 
-        let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) =
-            xsk_setup::build_socket_and_umem(umem_config, socket_config, &dev2_if_name, 0);
+        let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
+            dev2_umem_config,
+            dev2_socket_config,
+            &dev2_if_name,
+            0,
+        );
 
         let dev2_socket = SocketState {
             if_name: dev2_if_name,

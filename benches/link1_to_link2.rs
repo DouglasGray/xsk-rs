@@ -171,7 +171,13 @@ pub fn xsk_benchmark(c: &mut Criterion) {
         runner(c, dev1, dev2);
     };
 
-    setup::run_bench(Some(umem_config), Some(socket_config), bench_fn);
+    setup::run_bench(
+        Some(umem_config.clone()),
+        Some(socket_config.clone()),
+        Some(umem_config),
+        Some(socket_config),
+        bench_fn,
+    );
 }
 
 criterion_group!(benches, xsk_benchmark);

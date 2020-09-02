@@ -31,9 +31,17 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
         assert_eq!(dev1.comp_q.consume(&mut dev1_frames[..4]), 0);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -49,9 +57,17 @@ async fn num_frames_consumed_match_those_produced() {
         assert_eq!(dev1.comp_q.consume(&mut dev1_frames[..4]), 2);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -82,7 +98,15 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
         );
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }

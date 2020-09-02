@@ -28,9 +28,17 @@ async fn tx_queue_produce_tx_size_frames() {
         assert_eq!(dev1.tx_q.produce(&frame_descs[..4]), 4);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -41,9 +49,17 @@ async fn tx_queue_produce_gt_tx_size_frames() {
         assert_eq!(dev1.tx_q.produce(&frame_descs[..5]), 0);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -57,7 +73,15 @@ async fn tx_queue_produce_frames_until_tx_queue_full() {
         assert_eq!(dev1.tx_q.produce(&frame_descs[3..4]), 1);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }

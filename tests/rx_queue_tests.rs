@@ -38,9 +38,17 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
         );
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -63,9 +71,17 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
         );
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -104,9 +120,17 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
         assert_eq!(frame_ref[..5], pkt[..]);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -133,9 +157,65 @@ async fn consumed_frame_addr_matches_fill_q_frame_addr() {
         assert_eq!(*&d1_rx_q_frames[0].addr(), 2048);
     }
 
-    let (umem_config, socket_config) = build_configs();
+    let (dev1_umem_config, dev1_socket_config) = build_configs();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
 
-    setup::run_test(umem_config, socket_config, test_fn).await;
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn too_large_packet_doesnt_corrupt_neighbouring_frames() {
+    fn test_fn(mut dev1: SocketState, mut dev2: SocketState) {
+        dev1.fill_q.produce(&dev1.frame_descs[..]);
+    }
+
+    let dev1_umem_config = UmemConfigBuilder {
+        frame_count: 8,
+        frame_size: 2048,
+        fill_queue_size: 4,
+        comp_queue_size: 4,
+        ..UmemConfigBuilder::default()
+    }
+    .build();
+
+    let dev1_socket_config = SocketConfigBuilder {
+        tx_queue_size: 4,
+        rx_queue_size: 4,
+        ..SocketConfigBuilder::default()
+    }
+    .build();
+
+    let dev2_umem_config = UmemConfigBuilder {
+        frame_count: 8,
+        frame_size: 4096,
+        fill_queue_size: 4,
+        comp_queue_size: 4,
+        ..UmemConfigBuilder::default()
+    }
+    .build();
+
+    let dev2_socket_config = SocketConfigBuilder {
+        tx_queue_size: 4,
+        rx_queue_size: 4,
+        ..SocketConfigBuilder::default()
+    }
+    .build();
+
+    setup::run_test(
+        Some(dev1_umem_config),
+        Some(dev1_socket_config),
+        Some(dev2_umem_config),
+        Some(dev2_socket_config),
+        test_fn,
+    )
+    .await;
 }
 
 // #[tokio::test]
