@@ -97,12 +97,14 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 
         // Pretend we're sending some data from dev2
         let pkt = vec![b'H', b'e', b'l', b'l', b'o'];
-        dev2.umem
-            .copy_data_to_frame_at_addr(&d2_tx_q_frames[0].addr(), &pkt[..])
-            .unwrap();
 
         assert_eq!(d2_tx_q_frames[0].len(), 0);
-        d2_tx_q_frames[0].set_len(5);
+
+        dev2.umem
+            .copy_data_to_frame(&mut d2_tx_q_frames[0], &pkt[..])
+            .unwrap();
+
+        assert_eq!(d2_tx_q_frames[0].len(), 5);
 
         // Send the frame
         assert_eq!(
@@ -132,45 +134,3 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
     )
     .await;
 }
-
-// #[tokio::test]
-// async fn what_lurks_in_the_void() {
-//     fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
-//         let d1_fill_q_frames = dev1.umem.empty_frame_descs().to_vec();
-//         let mut d1_rx_q_frames = dev1.umem.empty_frame_descs().to_vec();
-
-//         println!("Interface: {}", dev1.if_name);
-
-//         std::thread::sleep(std::time::Duration::from_secs(10));
-
-//         dev1.fill_q.produce(&d1_fill_q_frames[..]);
-
-//         std::thread::sleep(std::time::Duration::from_secs(5));
-
-//         // Now read on dev1
-//         let cnt = dev1
-//             .rx_q
-//             .wakeup_and_consume(&mut d1_rx_q_frames[..], 1000 * 5)
-//             .unwrap();
-
-//         if cnt > 0 {
-//             println!("Frames consumed: {}", cnt);
-
-//             for frame in d1_rx_q_frames.iter().take(cnt as usize) {
-//                 let frame_len = frame.len() as usize;
-//                 let frame_ref = dev1.umem.frame_ref(&frame.addr()).unwrap();
-
-//                 println!(
-//                     "Frame {}: (len = {}) {:x?}",
-//                     frame.addr(),
-//                     frame_len,
-//                     &frame_ref[..frame_len]
-//                 );
-//             }
-//         }
-//     }
-
-//     let (umem_config, socket_config) = build_configs();
-
-//     setup::run_test(umem_config, socket_config, test_fn).await;
-// }

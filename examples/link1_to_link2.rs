@@ -1,4 +1,4 @@
-use std::{convert::TryInto, num::NonZeroU32, thread, time::Instant};
+use std::{num::NonZeroU32, thread, time::Instant};
 use tokio::{
     runtime::Runtime,
     sync::oneshot::{self, error::TryRecvError},
@@ -193,11 +193,9 @@ fn run_example(dev1_if_name: String, dev2_if_name: String) {
     // Copy over some bytes to dev2's umem
     for desc in dev2.frame_descs.iter_mut() {
         let bytes = generate_random_bytes(MSG_SIZE);
-        let len = dev2
-            .umem
-            .copy_data_to_frame_at_addr(&desc.addr(), &bytes)
-            .unwrap();
-        desc.set_len(len.try_into().unwrap());
+        dev2.umem.copy_data_to_frame(desc, &bytes).unwrap();
+
+        assert_eq!(desc.len(), MSG_SIZE);
     }
 
     // Send messages

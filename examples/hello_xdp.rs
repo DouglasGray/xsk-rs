@@ -70,15 +70,9 @@ fn hello_xdp(dev1_if_name: String, dev2_if_name: String) {
     println!("Sending: {:?}", str::from_utf8(&data).unwrap());
 
     // Copy the data to the frame
-    assert_eq!(
-        dev1.umem
-            .copy_data_to_frame_at_addr(&send_frame.addr(), &data)
-            .unwrap(),
-        data.len()
-    );
+    dev1.umem.copy_data_to_frame(send_frame, &data).unwrap();
 
-    // Update the frame descriptor's length
-    send_frame.set_len(data.len() as u32);
+    assert_eq!(send_frame.len(), data.len() as u32);
 
     // 3. Hand over the frame to the kernel for transmission
     assert_eq!(dev1.tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap(), 1);
