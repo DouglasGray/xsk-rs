@@ -131,7 +131,10 @@ fn runner(c: &mut Criterion, mut dev1: SocketState, mut dev2: SocketState) {
     // First populate dev2's frames
     for desc in dev2.frame_descs.iter_mut() {
         let bytes = generate_random_bytes(MSG_SIZE);
-        let len = dev2.umem.copy_data_to_frame(&desc.addr(), &bytes).unwrap();
+        let len = dev2
+            .umem
+            .copy_data_to_frame_at_addr(&desc.addr(), &bytes)
+            .unwrap();
         desc.set_len(len.try_into().unwrap());
     }
 

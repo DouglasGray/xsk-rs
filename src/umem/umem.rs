@@ -299,7 +299,8 @@ impl Umem<'_> {
             .unwrap())
     }
 
-    /// Copy `data` into the frame at `addr`.
+    /// Copy `data` into the frame at `addr`. Consider using
+    /// `copy_data_into_frame` instead as less book-keeping required.
     ///
     /// `addr` references the first byte of a frame and must therefore be
     /// a multiple of the frame size. The length of `data` must be less
@@ -309,7 +310,7 @@ impl Umem<'_> {
     /// been written to a frame, you must update the length on
     /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting
     /// to the [TxQueue](struct.TxQueue.html).
-    pub fn copy_data_to_frame(
+    pub fn copy_data_to_frame_at_addr(
         &mut self,
         addr: &u64,
         data: &[u8],
@@ -325,6 +326,33 @@ impl Umem<'_> {
         frame_ref[..data.len()].copy_from_slice(data);
 
         Ok(data.len())
+    }
+
+    /// Copy `data` into the frame described by `frame_desc`.
+    ///
+    /// Similar to `copy_data_to_frame_at_addr` but it sets the length
+    /// on `frame_desc` if copying the data was successful, thereby
+    /// avoiding having to remember to set it yourself. The length of
+    /// `data` must be less than or equal to the frame size.
+    pub fn copy_data_to_frame(
+        &mut self,
+        frame_desc: &mut FrameDesc,
+        data: &[u8],
+    ) -> Result<(), UmemAccessError> {
+        if data.len() == 0 {
+            frame_desc.set_len(0);
+            return Ok(());
+        }
+
+        self.check_data_valid(data)?;
+
+        let frame_ref = self.frame_ref_mut(&frame_desc.addr())?;
+
+        frame_ref[..data.len()].copy_from_slice(data);
+
+        frame_desc.set_len(data.len().try_into().unwrap());
+
+        Ok(())
     }
 }
 
@@ -630,15 +658,43 @@ mod tests {
     }
 
     #[test]
-    fn write_to_umem_then_read_small_byte_array() {
+    fn write_to_umem_frame_addr_then_read_small_byte_array() {
         let (mut umem, _fq, _cq, _frame_descs) = umem();
 
         let addr = 0;
         let data = [b'H', b'e', b'l', b'l', b'o'];
 
-        umem.copy_data_to_frame(&addr, &data[..]).unwrap();
+        umem.copy_data_to_frame_at_addr(&addr, &data[..]).unwrap();
 
         let frame_ref = umem.frame_ref(&addr).unwrap();
+
+        assert_eq!(data, frame_ref[..data.len()]);
+    }
+
+    #[test]
+    fn write_no_data_to_umem_frame() {
+        let (mut umem, _fq, _cq, mut frame_descs) = umem();
+
+        let data = [];
+
+        umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
+            .unwrap();
+
+        assert_eq!(frame_descs[0].len(), 0);
+    }
+
+    #[test]
+    fn write_to_umem_frame_then_read_small_byte_array() {
+        let (mut umem, _fq, _cq, mut frame_descs) = umem();
+
+        let data = [b'H', b'e', b'l', b'l', b'o'];
+
+        umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
+            .unwrap();
+
+        assert_eq!(frame_descs[0].len(), 5);
+
+        let frame_ref = umem.frame_ref(&frame_descs[0].addr()).unwrap();
 
         assert_eq!(data, frame_ref[..data.len()]);
     }
@@ -654,8 +710,10 @@ mod tests {
         let fst_data = generate_random_bytes(FRAME_SIZE);
         let snd_data = generate_random_bytes(FRAME_SIZE);
 
-        umem.copy_data_to_frame(&fst_addr, &fst_data).unwrap();
-        umem.copy_data_to_frame(&snd_addr, &snd_data).unwrap();
+        umem.copy_data_to_frame_at_addr(&fst_addr, &fst_data)
+            .unwrap();
+        umem.copy_data_to_frame_at_addr(&snd_addr, &snd_data)
+            .unwrap();
 
         let fst_frame_ref = umem.frame_ref(&fst_addr).unwrap();
         let snd_frame_ref = umem.frame_ref(&snd_addr).unwrap();

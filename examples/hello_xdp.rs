@@ -72,7 +72,7 @@ fn hello_xdp(dev1_if_name: String, dev2_if_name: String) {
     // Copy the data to the frame
     assert_eq!(
         dev1.umem
-            .copy_data_to_frame(&send_frame.addr(), &data)
+            .copy_data_to_frame_at_addr(&send_frame.addr(), &data)
             .unwrap(),
         data.len()
     );
