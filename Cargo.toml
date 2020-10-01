@@ -3,6 +3,11 @@ name = "xsk-rs"
 version = "0.1.0"
 authors = ["Douglas Gray <dbgray01@gmail.com>"]
 edition = "2018"
+description = "Rust bindings for Linux AF_XDP sockets"
+license = "MIT"
+repository = "https://github.com/DouglasGray/xsk-rs"
+readme = "README.md"
+keywords = ["af_xdp", "xsk"]
 
 [dependencies]
 libc = "0.2"
