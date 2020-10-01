@@ -8,7 +8,6 @@
 //! Some simple examples may be found in the `examples` directory in the GitHub repo.
 
 pub mod socket;
-pub mod socket_manager;
 pub mod umem;
 
 mod util;
