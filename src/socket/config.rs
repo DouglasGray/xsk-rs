@@ -1,6 +1,6 @@
 use bitflags::bitflags;
 use libbpf_sys::{XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS};
-use thiserror::Error;
+use std::{error::Error, fmt};
 
 use crate::util;
 
@@ -29,13 +29,24 @@ bitflags! {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum ConfigError {
-    #[error("Tx queue size invalid")]
     TxSizeInvalid { reason: &'static str },
-    #[error("Rx queue size invalid")]
     RxSizeInvalid { reason: &'static str },
 }
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ConfigError::*;
+        let reason = match self {
+            TxSizeInvalid { reason } => reason,
+            RxSizeInvalid { reason } => reason,
+        };
+        write!(f, "{}", reason)
+    }
+}
+
+impl Error for ConfigError {}
 
 /// Config for a [Socket](struct.Socket.html).
 ///
@@ -59,12 +70,12 @@ impl Config {
     ) -> Result<Self, ConfigError> {
         if !util::is_pow_of_two(rx_queue_size) {
             return Err(ConfigError::RxSizeInvalid {
-                reason: "Rx queue size must be a power of two",
+                reason: "rx queue size must be a power of two",
             });
         }
         if !util::is_pow_of_two(tx_queue_size) {
             return Err(ConfigError::TxSizeInvalid {
-                reason: "Tx queue size must be a power of two",
+                reason: "tx queue size must be a power of two",
             });
         }
 

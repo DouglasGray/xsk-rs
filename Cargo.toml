@@ -13,7 +13,6 @@ keywords = ["af_xdp", "xsk"]
 libc = "0.2"
 libbpf-sys = "0.0.9-1"
 bitflags = "1.2.1"
-thiserror = "1.0.20"
 log = "0.4"
 
 [dev-dependencies]

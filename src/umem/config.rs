@@ -2,20 +2,30 @@ use libbpf_sys::{
     XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS,
     XSK_UMEM__DEFAULT_FRAME_HEADROOM, XSK_UMEM__DEFAULT_FRAME_SIZE,
 };
-use std::num::NonZeroU32;
-use thiserror::Error;
+use std::{error::Error, fmt, num::NonZeroU32};
 
 use crate::util;
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum ConfigError {
-    #[error("Completion queue size invalid")]
     CompSizeInvalid { reason: &'static str },
-    #[error("Fill queue size invalid")]
     FillSizeInvalid { reason: &'static str },
-    #[error("Frame size invalid")]
     FrameSizeInvalid { reason: &'static str },
 }
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use ConfigError::*;
+        let reason = match self {
+            CompSizeInvalid { reason } => reason,
+            FillSizeInvalid { reason } => reason,
+            FrameSizeInvalid { reason } => reason,
+        };
+        write!(f, "{}", reason)
+    }
+}
+
+impl Error for ConfigError {}
 
 /// Config for a [Umem](struct.Umem.html) instance.
 ///
@@ -45,17 +55,17 @@ impl Config {
     ) -> Result<Self, ConfigError> {
         if !util::is_pow_of_two(fill_queue_size) {
             return Err(ConfigError::FillSizeInvalid {
-                reason: "Fill queue size must be a power of two",
+                reason: "fill queue size must be a power of two",
             });
         }
         if !util::is_pow_of_two(comp_queue_size) {
             return Err(ConfigError::CompSizeInvalid {
-                reason: "Comp queue size must be a power of two",
+                reason: "comp queue size must be a power of two",
             });
         }
         if frame_size.get() < 2048 {
             return Err(ConfigError::FrameSizeInvalid {
-                reason: "Frame size must be greater than or equal to 2048",
+                reason: "frame size must be greater than or equal to 2048",
             });
         }
 

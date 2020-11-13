@@ -1,6 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config};
-use std::{convert::TryInto, io, marker::PhantomData, mem::MaybeUninit, ptr};
-use thiserror::Error;
+use std::{convert::TryInto, error::Error, fmt, io, marker::PhantomData, mem::MaybeUninit, ptr};
 
 use crate::socket::{self, Fd};
 
@@ -82,15 +81,43 @@ pub struct Umem<'a> {
     _marker: PhantomData<&'a ()>,
 }
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum UmemAccessError {
-    #[error("Frame address {req_addr:? } is out of bounds, max address is {max_addr:?}")]
     AddrOutOfBounds { req_addr: u64, max_addr: u64 },
-    #[error("Frame address {req_addr:?} must be a multiple of the frame size ({frame_size:?})")]
     AddrNotAligned { req_addr: u64, frame_size: u32 },
-    #[error("Data ({data_len:?} bytes) cannot be larger than frame size ({frame_size:?} bytes)")]
     DataLenOutOfBounds { data_len: usize, frame_size: u32 },
 }
+
+impl fmt::Display for UmemAccessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use UmemAccessError::*;
+        match self {
+            AddrOutOfBounds { req_addr, max_addr } => write!(
+                f,
+                "frame address {} is out of bounds, max address is {}",
+                req_addr, max_addr
+            ),
+            AddrNotAligned {
+                req_addr,
+                frame_size,
+            } => write!(
+                f,
+                "frame address {} must be a multiple of the frame size ({})",
+                req_addr, frame_size
+            ),
+            DataLenOutOfBounds {
+                data_len,
+                frame_size,
+            } => write!(
+                f,
+                "data length ({} bytes) cannot be larger than the frame size ({} bytes)",
+                data_len, frame_size
+            ),
+        }
+    }
+}
+
+impl Error for UmemAccessError {}
 
 /// Used to transfer ownership of UMEM frames from kernel-space to user-space.
 ///

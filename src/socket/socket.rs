@@ -2,14 +2,14 @@ use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket, xsk_socket_config};
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{
     convert::TryInto,
+    error::Error,
     ffi::{CString, NulError},
-    io,
+    fmt, io,
     marker::PhantomData,
     mem::MaybeUninit,
     ptr,
     sync::Arc,
 };
-use thiserror::Error;
 
 use crate::{
     umem::{FrameDesc, Umem},
@@ -18,15 +18,33 @@ use crate::{
 
 use super::{config::Config, fd::Fd, poll};
 
-#[derive(Error, Debug)]
+#[derive(Debug)]
 pub enum SocketCreateError {
-    #[error("Interface name contains one or more null bytes")]
-    InvalidIfName(#[from] NulError),
-    #[error("OS or FFI call failed")]
+    InvalidIfName(NulError),
     OsError {
         context: &'static str,
         io_err: io::Error,
     },
+}
+
+impl fmt::Display for SocketCreateError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use SocketCreateError::*;
+        match self {
+            InvalidIfName(_) => write!(f, "interface name contains null bytes"),
+            OsError { context, .. } => write!(f, "OS or ffi call failed: {}", context),
+        }
+    }
+}
+
+impl Error for SocketCreateError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        use SocketCreateError::*;
+        match self {
+            InvalidIfName(nul_err) => Some(nul_err),
+            OsError { io_err, .. } => Some(io_err),
+        }
+    }
 }
 
 /// An AF_XDP socket.
