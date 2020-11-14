@@ -309,13 +309,7 @@ impl TxQueue<'_> {
     ///
     /// See `produce_and_wakeup` for link to docs with further explanation.
     pub fn needs_wakeup(&self) -> bool {
-        unsafe {
-            if libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 {
-                true
-            } else {
-                false
-            }
-        }
+        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 }
     }
 
     /// Return the AF_XDP socket's file descriptor.

@@ -1,4 +1,4 @@
-use std::{num::NonZeroU32, thread, time::Instant};
+use std::{convert::TryInto, num::NonZeroU32, thread, time::Instant};
 use tokio::{
     runtime::Runtime,
     sync::oneshot::{self, error::TryRecvError},
@@ -62,21 +62,27 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
     let dev1_frames = &mut dev1.frame_descs;
     let dev2_frames = &mut dev2.frame_descs;
 
+    let prod_q_size: usize = PROD_Q_SIZE.try_into().unwrap();
+
     // Populate fill queue
-    dev1.fill_q
-        .produce_and_wakeup(
-            &dev1_frames[..(PROD_Q_SIZE as usize)],
-            dev1.rx_q.fd(),
-            MS_TIMEOUT,
-        )
+    let frames_filled = dev1
+        .fill_q
+        .produce_and_wakeup(&dev1_frames[..prod_q_size], dev1.rx_q.fd(), MS_TIMEOUT)
         .unwrap();
 
-    // Populate tx queue
-    let mut total_pkts_sent = dev2
+    assert_eq!(frames_filled, prod_q_size);
+
+    // Populate tx queue. May need to retry until frames are added.
+    while dev2
         .tx_q
-        .produce_and_wakeup(&dev2_frames[..(PROD_Q_SIZE as usize)])
-        .unwrap();
+        .produce_and_wakeup(&dev2_frames[..prod_q_size])
+        .unwrap()
+        != prod_q_size
+    {
+        // Loop until all frames added to tx ring.
+    }
 
+    let mut total_pkts_sent = prod_q_size;
     let mut total_pkts_rcvd = 0;
     let mut total_pkts_consumed = 0;
 
@@ -85,9 +91,11 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
         || total_pkts_consumed < total_pkts_sent
     {
         while total_pkts_rcvd < total_pkts_sent {
-            if dev2.tx_q.needs_wakeup() {
-                dev2.tx_q.wakeup().unwrap();
-            }
+            // In copy mode tx is driven by a syscall, so we need to wakeup the kernel
+            // with a call to either sendto() or poll() (wakeup() below uses sendto()).
+            // if dev2.tx_q.needs_wakeup() {
+            //     dev2.tx_q.wakeup().unwrap();
+            // }
 
             // Handle rx
             match dev1
@@ -101,20 +109,20 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
                         dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
                     }
                 }
-                pkts_recvd => {
+                pkts_rcvd => {
                     // Add frames back to fill queue
                     while dev1
                         .fill_q
-                        .produce_and_wakeup(&dev1_frames[..pkts_recvd], dev1.rx_q.fd(), MS_TIMEOUT)
+                        .produce_and_wakeup(&dev1_frames[..pkts_rcvd], dev1.rx_q.fd(), MS_TIMEOUT)
                         .unwrap()
-                        != pkts_recvd
+                        != pkts_rcvd
                     {
-                        if dev1.fill_q.needs_wakeup() {
-                            dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
-                        }
+                        // Loop until frames added to the fill ring.
                     }
 
-                    total_pkts_rcvd += pkts_recvd;
+                    println!("pckts_recvd: {}", pkts_rcvd);
+
+                    total_pkts_rcvd += pkts_rcvd;
                 }
             }
         }
@@ -134,21 +142,22 @@ fn link1_to_link2_single_thread(dev1: &mut SocketState, dev2: &mut SocketState) 
                             desc.set_len(MSG_SIZE);
                         }
 
-                        // Add consumed frames back to the tx queue
+                        // Wait until we're ok to write
                         while !socket::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
                             continue;
                         }
 
+                        // Add consumed frames back to the tx queue
                         while dev2
                             .tx_q
                             .produce_and_wakeup(&dev2_frames[..pkts_sent])
                             .unwrap()
                             != pkts_sent
                         {
-                            if dev2.tx_q.needs_wakeup() {
-                                dev2.tx_q.wakeup().unwrap();
-                            }
+                            // Loop until frames added to the tx ring.
                         }
+
+                        println!("pckts_sent: {}", pkts_sent);
 
                         total_pkts_sent += pkts_sent;
                     }
@@ -177,7 +186,7 @@ fn run_example(dev1_if_name: String, dev2_if_name: String) {
         PROD_Q_SIZE,
         LibbpfFlags::empty(),
         XdpFlags::empty(),
-        BindFlags::empty(),
+        BindFlags::XDP_USE_NEED_WAKEUP,
     )
     .unwrap();
 

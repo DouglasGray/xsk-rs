@@ -452,13 +452,7 @@ impl FillQueue<'_> {
     }
 
     pub fn needs_wakeup(&self) -> bool {
-        unsafe {
-            if libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 {
-                true
-            } else {
-                false
-            }
-        }
+        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 }
     }
 }
 
