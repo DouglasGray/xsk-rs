@@ -13,7 +13,7 @@ Inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire
 
 These can be found in the `examples` directory. A simple example of forwarding packets between two virtual
 interfaces can be found in `hello_xdp.rs`, while a slightly more complex example of sending and receiving
-packets is in `link1_to_link2.rs`.
+packets is in `dev2_to_dev1.rs`.
 
 ### Running tests / examples
 

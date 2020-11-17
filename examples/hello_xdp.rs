@@ -1,11 +1,13 @@
-use std::{num::NonZeroU32, str, thread};
+mod setup;
+
+use std::{net::Ipv4Addr, num::NonZeroU32, str, thread};
 use tokio::{
     runtime::Runtime,
     sync::oneshot::{self, error::TryRecvError},
 };
 use xsk_rs::{FillQueue, FrameDesc, RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig};
 
-mod setup;
+use setup::{LinkIpAddr, VethConfig};
 
 struct SocketState<'umem> {
     umem: Umem<'umem>,
@@ -39,15 +41,19 @@ fn build_socket_and_umem<'a, 'umem>(
     }
 }
 
-fn hello_xdp(dev1_if_name: String, dev2_if_name: String) {
+fn hello_xdp(veth_config: &VethConfig) {
     // Create umem and socket configs
     let umem_config = UmemConfig::default(NonZeroU32::new(16).unwrap(), false);
     let socket_config = SocketConfig::default();
 
-    let mut dev1 =
-        build_socket_and_umem(umem_config.clone(), socket_config.clone(), &dev1_if_name, 0);
+    let mut dev1 = build_socket_and_umem(
+        umem_config.clone(),
+        socket_config.clone(),
+        &veth_config.dev1_name(),
+        0,
+    );
 
-    let mut dev2 = build_socket_and_umem(umem_config, socket_config, &dev2_if_name, 0);
+    let mut dev2 = build_socket_and_umem(umem_config, socket_config, &veth_config.dev2_name(), 0);
 
     let mut dev1_frames = dev1.frame_descs;
 
@@ -104,21 +110,25 @@ fn hello_xdp(dev1_if_name: String, dev2_if_name: String) {
 }
 
 fn main() {
-    let dev1_if_name = String::from("xsk_ex_dev1");
-    let dev2_if_name = String::from("xsk_ex_dev2");
-
     let (startup_w, mut startup_r) = oneshot::channel();
     let (shutdown_w, shutdown_r) = oneshot::channel();
 
-    let dev1_if_name_clone = dev1_if_name.clone();
-    let dev2_if_name_clone = dev2_if_name.clone();
+    let veth_config = VethConfig::new(
+        String::from("xsk_ex_dev1"),
+        String::from("xsk_ex_dev2"),
+        [0xf6, 0xe0, 0xf6, 0xc9, 0x60, 0x0a],
+        [0x4a, 0xf1, 0x30, 0xeb, 0x0d, 0x31],
+        LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24),
+        LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 2), 24),
+    );
+
+    let veth_config_clone = veth_config.clone();
 
     let veth_handle = thread::spawn(move || {
         let mut runtime = Runtime::new().unwrap();
 
         runtime.block_on(setup::run_veth_link(
-            &dev1_if_name_clone,
-            &dev2_if_name_clone,
+            &veth_config_clone,
             startup_w,
             shutdown_r,
         ))
@@ -133,7 +143,7 @@ fn main() {
     }
 
     // Run example in separate thread so that if it panics we can clean up here
-    let ex_handle = thread::spawn(move || hello_xdp(dev1_if_name, dev2_if_name));
+    let ex_handle = thread::spawn(move || hello_xdp(&veth_config));
 
     let res = ex_handle.join();
 

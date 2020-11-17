@@ -7,20 +7,22 @@ description = "Rust bindings for Linux AF_XDP sockets"
 license = "MIT"
 repository = "https://github.com/DouglasGray/xsk-rs"
 readme = "README.md"
-keywords = ["af_xdp", "xsk"]
+keywords = ["af_xdp", "xsk", "ebpf", "xdp"]
 
 [dependencies]
-libc = "0.2"
-libbpf-sys = "0.0.9-1"
 bitflags = "1.2.1"
+libbpf-sys = "0.0.9-1"
+libc = "0.2"
 log = "0.4"
 
 [dev-dependencies]
+anyhow = "1.0.32"
+clap = "2.33.3"
+criterion = "0.3.3"
+etherparse = "0.9.0"
+futures = "0.3.5"
 rand = "0.7.3"
 rtnetlink = "0.3.0"
-futures = "0.3.5"
-anyhow = "1.0.32"
-criterion = "0.3.3"
 
 [dev-dependencies.tokio]
 version = "0.2.22"
