@@ -280,7 +280,6 @@ impl TxQueue<'_> {
         let cnt = self.produce(descs);
 
         if self.needs_wakeup() {
-            log::debug!("waking up tx_q (internally)");
             self.wakeup()?;
         }
 

@@ -111,7 +111,7 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
             {
                 0 => {
                     // No frames consumed, wake up fill queue if required
-                    log::debug!("dev1.rx_q.poll_and_consume() consumed zero frames");
+                    log::debug!("dev1.rx_q.poll_and_consume() consumed 0 frames");
                     if dev1.fill_q.needs_wakeup() {
                         log::debug!("waking up dev1.fill_q");
                         dev1.fill_q
@@ -155,7 +155,7 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
             // Handle tx
             match dev2.comp_q.consume(&mut dev2_frames[..]) {
                 0 => {
-                    log::debug!("dev2.comp_q.consume() consumed zero frames");
+                    log::debug!("dev2.comp_q.consume() consumed 0 frames");
                     if dev2.tx_q.needs_wakeup() {
                         log::debug!("waking up dev2.tx_q");
                         dev2.tx_q.wakeup().unwrap();
@@ -270,9 +270,10 @@ fn dev2_to_dev1_multithreaded(
             .unwrap();
 
         assert_eq!(frames_filled, config1.fill_q_size as usize);
+        log::debug!("(dev1) init frames added to dev1.fill_q: {}", frames_filled);
 
         if let Err(_) = d1_to_d2_tx.send(()) {
-            println!("sender thread has gone away");
+            println!("sender thread (dev2) has gone away");
             return 0;
         }
 
@@ -285,8 +286,10 @@ fn dev2_to_dev1_multithreaded(
                 .unwrap()
             {
                 0 => {
+                    log::debug!("(dev1) dev1.rx_q.poll_and_consume() consumed 0 frames");
                     // No packets consumed, wake up fill queue if required
                     if dev1.fill_q.needs_wakeup() {
+                        log::debug!("(dev1) waking up dev1.fill_q");
                         dev1.fill_q
                             .wakeup(dev1.rx_q.fd(), config1.poll_ms_timeout)
                             .unwrap();
@@ -294,12 +297,14 @@ fn dev2_to_dev1_multithreaded(
 
                     // Or it might be that there are no packets left to receive
                     if SENDER_DONE.load(Ordering::Relaxed) {
-                        return total_frames_rcvd;
+                        break;
                     }
                 }
                 frames_rcvd => {
-                    total_frames_rcvd += frames_rcvd;
-
+                    log::debug!(
+                        "(dev1) dev1.rx_q.poll_and_consume() consumed {} frames",
+                        frames_rcvd
+                    );
                     // Add frames back to fill queue
                     while dev1
                         .fill_q
@@ -312,11 +317,21 @@ fn dev2_to_dev1_multithreaded(
                         != frames_rcvd
                     {
                         // Loop until frames added to the fill ring.
+                        log::debug!("(dev1) dev1.fill_q.produce_and_wakeup() failed to allocate");
                     }
+
+                    log::debug!(
+                        "(dev1) dev1.fill_q.produce_and_wakeup() submitted {} frames",
+                        frames_rcvd
+                    );
+
+                    total_frames_rcvd += frames_rcvd;
+                    log::debug!("(dev1) total frames received: {}", total_frames_rcvd);
                 }
             }
         }
 
+        log::debug!("(dev1) recv complete");
         total_frames_rcvd
     });
 
@@ -326,26 +341,40 @@ fn dev2_to_dev1_multithreaded(
 
         // Populate tx queue.
         let mut total_frames_consumed = 0;
-        let mut total_frames_sent = dev2.tx_q.produce(&dev2_frames[..config2.max_batch_size]);
+        let mut total_frames_sent = dev2
+            .tx_q
+            .produce_and_wakeup(&dev2_frames[..config2.max_batch_size])
+            .unwrap();
 
         assert_eq!(total_frames_sent, config2.max_batch_size);
+        log::debug!(
+            "(dev2) init frames added to dev2.tx_q: {}",
+            total_frames_sent
+        );
 
         // Let the receiver populate its fill queue first and wait for the go-ahead.
         if let Err(_) = d1_to_d2_rx.recv() {
-            println!("receiver thread has gone away");
+            println!("receiver thread (dev1) has gone away");
             return 0;
         }
 
         while total_frames_consumed < config2.num_frames_to_send {
             match dev2.comp_q.consume(&mut dev2_frames[..]) {
                 0 => {
+                    log::debug!("(dev2) dev2.comp_q.consume() consumed 0 frames");
                     // In copy mode so need to make a syscall to actually send packets
                     // despite having produced frames onto the fill ring.
                     if dev2.tx_q.needs_wakeup() {
+                        log::debug!("(dev2) waking up dev2.tx_q");
                         dev2.tx_q.wakeup().unwrap();
                     }
                 }
                 frames_rcvd => {
+                    log::debug!(
+                        "(dev2) dev2.comp_q.consume() consumed {} frames",
+                        frames_rcvd
+                    );
+
                     total_frames_consumed += frames_rcvd;
 
                     if total_frames_sent < config2.num_frames_to_send {
@@ -357,6 +386,7 @@ fn dev2_to_dev1_multithreaded(
                         // Wait until we're ok to write
                         while !socket::poll_write(dev2.tx_q.fd(), config2.poll_ms_timeout).unwrap()
                         {
+                            log::debug!("(dev2) poll_write(dev2.tx_q) returned false");
                             continue;
                         }
 
@@ -373,13 +403,24 @@ fn dev2_to_dev1_multithreaded(
                             != frames_to_send
                         {
                             // Loop until frames added to the tx ring.
+                            log::debug!("(dev2) dev2.tx_q.produce_and_wakeup() failed to allocate");
                         }
+
+                        log::debug!(
+                            "(dev2) dev2.tx_q.produce_and_wakeup() submitted {} frames",
+                            frames_to_send
+                        );
 
                         total_frames_sent += frames_to_send;
                     }
+
+                    log::debug!("(dev2) total frames consumed: {}", total_frames_consumed);
+                    log::debug!("(dev2) total frames sent: {}", total_frames_sent);
                 }
             }
         }
+
+        log::debug!("(dev2) send complete");
 
         // Mark sender as done so receiver knows when to return
         SENDER_DONE.store(true, Ordering::Relaxed);
@@ -763,8 +804,7 @@ fn main() {
             }
         },
         recv(ctrl_c_events) -> _ => {
-            println!("deleting veth pair and exiting");
-            // Exit select
+            println!("SIGINT received, deleting veth pair and exiting");
         }
     }
 

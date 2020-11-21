@@ -385,7 +385,6 @@ impl Umem<'_> {
 
 impl Drop for Umem<'_> {
     fn drop(&mut self) {
-        log::debug!("calling xsk_umem__delete");
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
 
         if err != 0 {

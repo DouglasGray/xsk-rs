@@ -164,7 +164,7 @@ fn main() {
             }
         },
         recv(ctrl_c_events) -> _ => {
-            // Exit select
+            println!("SIGINT received, deleting veth pair and exiting");
         }
     }
 

@@ -11,7 +11,7 @@ Inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire
 
 ### Examples
 
-These can be found in the `examples` directory. A simple example of moving bytes between a veth pair can be found 
+A couple can be found in the `examples` directory. A simple example of moving bytes between a veth pair can be found 
 in `hello_xdp.rs`, while a slightly more complex example of sending and receiving eth frames is in 
 `dev2_to_dev1.rs`, which includes a single-threaded and multi-threaded implementation.
 
