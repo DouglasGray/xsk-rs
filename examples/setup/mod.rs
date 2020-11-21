@@ -1,10 +1,13 @@
+#![allow(dead_code)]
+mod util;
 mod veth_setup;
 
 use std::net::Ipv4Addr;
 
+pub use util::{ctrl_channel, generate_eth_frame};
 pub use veth_setup::run_veth_link;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LinkIpAddr {
     addr: Ipv4Addr,
     prefix_len: u8,
@@ -20,7 +23,7 @@ impl LinkIpAddr {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VethConfig {
     dev1_if_name: String,
     dev2_if_name: String,

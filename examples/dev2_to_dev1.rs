@@ -1,17 +1,14 @@
 mod setup;
 
 use clap::{App, Arg};
-use etherparse::PacketBuilder;
+use crossbeam_channel::{self, Receiver, Sender};
 use std::{
     cmp,
-    convert::TryInto,
-    io,
+    fmt::Debug,
     net::Ipv4Addr,
     num::NonZeroU32,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender},
-    },
+    str::FromStr,
+    sync::atomic::{AtomicBool, Ordering},
     thread,
     time::Instant,
 };
@@ -29,10 +26,9 @@ use setup::{LinkIpAddr, VethConfig};
 const RX_Q_SIZE: u32 = 4096;
 const TX_Q_SIZE: u32 = 4096;
 const COMP_Q_SIZE: u32 = 4096;
-const FILL_Q_SIZE: u32 = 4096 * 8;
+const FILL_Q_SIZE: u32 = 4096 * 4;
 const FRAME_SIZE: u32 = 2048;
-const FRAME_COUNT: u32 = COMP_Q_SIZE + FILL_Q_SIZE;
-const MS_TIMEOUT: i32 = 100;
+const POLL_MS_TIMEOUT: i32 = 100;
 const PAYLOAD_SIZE: u32 = 64;
 const MAX_BATCH_SIZE: usize = 64;
 const NUM_PACKETS_TO_SEND: usize = 5_000_000;
@@ -40,13 +36,389 @@ const NUM_PACKETS_TO_SEND: usize = 5_000_000;
 // Reqd for the multithreaded case to signal when all packets have been sent
 static SENDER_DONE: AtomicBool = AtomicBool::new(false);
 
+// Umem has to go last to maintain correct drop order!
+// If, for example, we tried to drop the umem before the queues
+// then the destructor would fail as the memory is still in use.
 struct SocketState<'umem> {
-    umem: Umem<'umem>,
-    fill_q: FillQueue<'umem>,
-    comp_q: CompQueue<'umem>,
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
+    fill_q: FillQueue<'umem>,
+    comp_q: CompQueue<'umem>,
     frame_descs: Vec<FrameDesc>,
+    umem: Umem<'umem>,
+}
+
+#[derive(Clone, Debug)]
+struct Config {
+    is_multithreaded: bool,
+    use_need_wakeup: bool,
+    zerocopy: bool,
+    tx_q_size: u32,
+    rx_q_size: u32,
+    comp_q_size: u32,
+    fill_q_size: u32,
+    frame_size: u32,
+    poll_ms_timeout: i32,
+    payload_size: u32,
+    max_batch_size: usize,
+    num_frames_to_send: usize,
+}
+
+/// Send ETH frames with payload size `msg_size` through dev2 to be received by dev1.
+/// This is single threaded so will handle the send and receive process alternately.
+fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: SocketState) {
+    // Extra 42 bytes is for the eth and IP headers
+    let sent_eth_frame_size = config.payload_size + 42;
+
+    let dev1_frames = &mut dev1.frame_descs;
+    let dev2_frames = &mut dev2.frame_descs;
+
+    let start = Instant::now();
+
+    // Populate fill queue
+    let frames_filled = dev1
+        .fill_q
+        .produce(&dev1_frames[..config.fill_q_size as usize]);
+
+    assert_eq!(frames_filled, config.fill_q_size as usize);
+    log::debug!("init frames added to dev1.fill_q: {}", frames_filled);
+
+    // Populate tx queue
+    let mut total_frames_sent = dev2.tx_q.produce(&dev2_frames[..config.max_batch_size]);
+
+    assert_eq!(total_frames_sent, config.max_batch_size);
+    log::debug!("init frames added to dev2.tx_q: {}", total_frames_sent);
+
+    let mut total_frames_rcvd = 0;
+    let mut total_frames_consumed = 0;
+
+    while total_frames_consumed < config.num_frames_to_send
+        || total_frames_rcvd < config.num_frames_to_send
+    {
+        while total_frames_rcvd < total_frames_sent {
+            // In copy mode tx is driven by a syscall, so we need to wakeup the kernel
+            // with a call to either sendto() or poll() (wakeup() below uses sendto()).
+            if dev2.tx_q.needs_wakeup() {
+                log::debug!("waking up dev2.tx_q");
+                dev2.tx_q.wakeup().unwrap();
+            }
+
+            // Handle rx
+            match dev1
+                .rx_q
+                .poll_and_consume(&mut dev1_frames[..], config.poll_ms_timeout)
+                .unwrap()
+            {
+                0 => {
+                    // No frames consumed, wake up fill queue if required
+                    log::debug!("dev1.rx_q.poll_and_consume() consumed zero frames");
+                    if dev1.fill_q.needs_wakeup() {
+                        log::debug!("waking up dev1.fill_q");
+                        dev1.fill_q
+                            .wakeup(dev1.rx_q.fd(), config.poll_ms_timeout)
+                            .unwrap();
+                    }
+                }
+                frames_rcvd => {
+                    log::debug!(
+                        "dev1.rx_q.poll_and_consume() consumed {} frames",
+                        frames_rcvd
+                    );
+                    // Add frames back to fill queue
+                    while dev1
+                        .fill_q
+                        .produce_and_wakeup(
+                            &dev1_frames[..frames_rcvd],
+                            dev1.rx_q.fd(),
+                            config.poll_ms_timeout,
+                        )
+                        .unwrap()
+                        != frames_rcvd
+                    {
+                        // Loop until frames added to the fill ring.
+                        log::debug!("dev1.fill_q.produce_and_wakeup() failed to allocate");
+                    }
+                    log::debug!(
+                        "dev1.fill_q.produce_and_wakeup() submitted {} frames",
+                        frames_rcvd
+                    );
+
+                    total_frames_rcvd += frames_rcvd;
+                    log::debug!("total frames received: {}", total_frames_rcvd);
+                }
+            }
+        }
+
+        if total_frames_sent < config.num_frames_to_send
+            || total_frames_consumed < config.num_frames_to_send
+        {
+            // Handle tx
+            match dev2.comp_q.consume(&mut dev2_frames[..]) {
+                0 => {
+                    log::debug!("dev2.comp_q.consume() consumed zero frames");
+                    if dev2.tx_q.needs_wakeup() {
+                        log::debug!("waking up dev2.tx_q");
+                        dev2.tx_q.wakeup().unwrap();
+                    }
+                }
+                frames_rcvd => {
+                    log::debug!("dev2.comp_q.consume() consumed {} frames", frames_rcvd);
+                    total_frames_consumed += frames_rcvd;
+
+                    if total_frames_sent < config.num_frames_to_send {
+                        // Data is still contained in the frames so just set the descriptor's length
+                        for desc in dev2_frames[..frames_rcvd].iter_mut() {
+                            desc.set_len(sent_eth_frame_size);
+                        }
+
+                        // Wait until we're ok to write
+                        while !socket::poll_write(dev2.tx_q.fd(), config.poll_ms_timeout).unwrap() {
+                            log::debug!("poll_write(dev2.tx_q) returned false");
+                            continue;
+                        }
+
+                        let frames_to_send = cmp::min(
+                            frames_rcvd,
+                            cmp::min(
+                                config.max_batch_size,
+                                config.num_frames_to_send - total_frames_sent,
+                            ),
+                        );
+
+                        // Add consumed frames back to the tx queue
+                        while dev2
+                            .tx_q
+                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                            .unwrap()
+                            != frames_to_send
+                        {
+                            // Loop until frames added to the tx ring.
+                            log::debug!("dev2.tx_q.produce_and_wakeup() failed to allocate");
+                        }
+                        log::debug!(
+                            "dev2.tx_q.produce_and_wakeup() submitted {} frames",
+                            frames_to_send
+                        );
+
+                        total_frames_sent += frames_to_send;
+                    }
+
+                    log::debug!("total frames consumed: {}", total_frames_consumed);
+                    log::debug!("total frames sent: {}", total_frames_sent);
+                }
+            }
+        }
+    }
+
+    let elapsed_secs = start.elapsed().as_secs_f64();
+
+    // Bytes sent per second is (number_of_packets * packet_size) / seconds_elapsed
+    let bytes_sent_per_sec: f64 =
+        (total_frames_sent as f64) * (sent_eth_frame_size as f64) / elapsed_secs;
+    let bytes_rcvd_per_sec: f64 =
+        (total_frames_rcvd as f64) * (sent_eth_frame_size as f64) / elapsed_secs;
+
+    // 1 bit/second = 1e-9 Gbps
+    // gbps_sent = (bytes_sent_per_sec * 8) / 1e9 = bytes_sent_per_sec / 0.125e9
+    let gbps_sent = bytes_sent_per_sec / 0.125e9;
+    let gbps_rcvd = bytes_rcvd_per_sec / 0.125e9;
+
+    println!(
+        "time taken to send {} {}-byte eth frames: {:.3} secs",
+        config.num_frames_to_send, sent_eth_frame_size, elapsed_secs
+    );
+    println!(
+        "send throughput: {:.3} Gbps (eth frames sent: {})",
+        gbps_sent, total_frames_sent
+    );
+    println!(
+        "recv throughout: {:.3} Gbps (eth frames rcvd: {})",
+        gbps_rcvd, total_frames_rcvd
+    );
+}
+
+/// Send ETH frames with payload size `msg_size` through dev2 to be received by dev1.
+/// Handle frame transmission and receipt in separate threads.
+fn dev2_to_dev1_multithreaded(
+    config: &Config,
+    mut dev1: SocketState<'static>,
+    mut dev2: SocketState<'static>,
+) {
+    // Extra 42 bytes is for the eth and IP headers
+    let sent_eth_frame_size = config.payload_size + 42;
+
+    // Make copies for the separate threads
+    let config1 = config.clone();
+    let config2 = config.clone();
+
+    let (d1_to_d2_tx, d1_to_d2_rx): (Sender<()>, Receiver<()>) = crossbeam_channel::bounded(1);
+
+    let start = Instant::now();
+
+    // Spawn the receiver thread
+    let rx_handle = thread::spawn(move || {
+        let dev1_frames = &mut dev1.frame_descs;
+
+        // Populate fill queue
+        let frames_filled = dev1
+            .fill_q
+            .produce_and_wakeup(
+                &dev1_frames[..config1.fill_q_size as usize],
+                dev1.rx_q.fd(),
+                config1.poll_ms_timeout,
+            )
+            .unwrap();
+
+        assert_eq!(frames_filled, config1.fill_q_size as usize);
+
+        if let Err(_) = d1_to_d2_tx.send(()) {
+            println!("sender thread has gone away");
+            return 0;
+        }
+
+        let mut total_frames_rcvd = 0;
+
+        while total_frames_rcvd < config1.num_frames_to_send {
+            match dev1
+                .rx_q
+                .poll_and_consume(&mut dev1_frames[..], config1.poll_ms_timeout)
+                .unwrap()
+            {
+                0 => {
+                    // No packets consumed, wake up fill queue if required
+                    if dev1.fill_q.needs_wakeup() {
+                        dev1.fill_q
+                            .wakeup(dev1.rx_q.fd(), config1.poll_ms_timeout)
+                            .unwrap();
+                    }
+
+                    // Or it might be that there are no packets left to receive
+                    if SENDER_DONE.load(Ordering::Relaxed) {
+                        return total_frames_rcvd;
+                    }
+                }
+                frames_rcvd => {
+                    total_frames_rcvd += frames_rcvd;
+
+                    // Add frames back to fill queue
+                    while dev1
+                        .fill_q
+                        .produce_and_wakeup(
+                            &dev1_frames[..frames_rcvd],
+                            dev1.rx_q.fd(),
+                            config1.poll_ms_timeout,
+                        )
+                        .unwrap()
+                        != frames_rcvd
+                    {
+                        // Loop until frames added to the fill ring.
+                    }
+                }
+            }
+        }
+
+        total_frames_rcvd
+    });
+
+    // Spawn the sender thread
+    let tx_handle = thread::spawn(move || {
+        let dev2_frames = &mut dev2.frame_descs;
+
+        // Populate tx queue.
+        let mut total_frames_consumed = 0;
+        let mut total_frames_sent = dev2.tx_q.produce(&dev2_frames[..config2.max_batch_size]);
+
+        assert_eq!(total_frames_sent, config2.max_batch_size);
+
+        // Let the receiver populate its fill queue first and wait for the go-ahead.
+        if let Err(_) = d1_to_d2_rx.recv() {
+            println!("receiver thread has gone away");
+            return 0;
+        }
+
+        while total_frames_consumed < config2.num_frames_to_send {
+            match dev2.comp_q.consume(&mut dev2_frames[..]) {
+                0 => {
+                    // In copy mode so need to make a syscall to actually send packets
+                    // despite having produced frames onto the fill ring.
+                    if dev2.tx_q.needs_wakeup() {
+                        dev2.tx_q.wakeup().unwrap();
+                    }
+                }
+                frames_rcvd => {
+                    total_frames_consumed += frames_rcvd;
+
+                    if total_frames_sent < config2.num_frames_to_send {
+                        // Data is still contained in the frames so just set the descriptor's length
+                        for desc in dev2_frames[..frames_rcvd].iter_mut() {
+                            desc.set_len(sent_eth_frame_size);
+                        }
+
+                        // Wait until we're ok to write
+                        while !socket::poll_write(dev2.tx_q.fd(), config2.poll_ms_timeout).unwrap()
+                        {
+                            continue;
+                        }
+
+                        let frames_to_send = cmp::min(
+                            cmp::min(frames_rcvd, config2.max_batch_size),
+                            config2.num_frames_to_send - total_frames_sent,
+                        );
+
+                        // Add consumed frames back to the tx queue
+                        while dev2
+                            .tx_q
+                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                            .unwrap()
+                            != frames_to_send
+                        {
+                            // Loop until frames added to the tx ring.
+                        }
+
+                        total_frames_sent += frames_to_send;
+                    }
+                }
+            }
+        }
+
+        // Mark sender as done so receiver knows when to return
+        SENDER_DONE.store(true, Ordering::Relaxed);
+
+        total_frames_consumed
+    });
+
+    let tx_res = tx_handle.join();
+    let rx_res = rx_handle.join();
+
+    if let (Ok(pkts_sent), Ok(pkts_rcvd)) = (&tx_res, &rx_res) {
+        let elapsed_secs = start.elapsed().as_secs_f64();
+
+        // Bytes sent per second is (number_of_packets * packet_size) / seconds_elapsed
+        let bytes_sent_per_sec: f64 =
+            (*pkts_sent as f64) * (sent_eth_frame_size as f64) / elapsed_secs;
+        let bytes_rcvd_per_sec: f64 =
+            (*pkts_rcvd as f64) * (sent_eth_frame_size as f64) / elapsed_secs;
+
+        // 1 bit/second = 1e-9 Gbps
+        // gbps_sent = (bytes_sent_per_sec * 8) / 1e9 = bytes_sent_per_sec / 0.125e9
+        let gbps_sent = bytes_sent_per_sec / 0.125e9;
+        let gbps_rcvd = bytes_rcvd_per_sec / 0.125e9;
+
+        println!(
+            "time taken to send {} {}-byte eth frames: {:.3} secs",
+            config.num_frames_to_send, sent_eth_frame_size, elapsed_secs
+        );
+        println!(
+            "send throughput: {:.3} Gbps (eth frames sent: {})",
+            gbps_sent, pkts_sent
+        );
+        println!(
+            "recv throughout: {:.3} Gbps (eth frames rcvd: {})",
+            gbps_rcvd, pkts_rcvd
+        );
+    } else {
+        println!("error (tx_res: {:?}) (rx_res: {:?})", tx_res, rx_res);
+    }
 }
 
 fn build_socket_and_umem(
@@ -57,12 +429,12 @@ fn build_socket_and_umem(
 ) -> SocketState<'static> {
     let (mut umem, fill_q, comp_q, frame_descs) = Umem::builder(umem_config)
         .create_mmap()
-        .expect(format!("Failed to create mmap area for {}", if_name).as_str())
+        .expect(format!("failed to create mmap area for {}", if_name).as_str())
         .create_umem()
-        .expect(format!("Failed to create umem for {}", if_name).as_str());
+        .expect(format!("failed to create umem for {}", if_name).as_str());
 
     let (tx_q, rx_q) = Socket::new(socket_config, &mut umem, &if_name, queue_id)
-        .expect(format!("Failed to build socket for {}", if_name).as_str());
+        .expect(format!("failed to build socket for {}", if_name).as_str());
 
     SocketState {
         umem,
@@ -74,373 +446,35 @@ fn build_socket_and_umem(
     }
 }
 
-fn generate_random_bytes(len: u32) -> Vec<u8> {
-    (0..len).map(|_| rand::random::<u8>()).collect()
-}
-
-fn generate_eth_frame(veth_config: &VethConfig, payload_len: u32) -> Vec<u8> {
-    let builder = PacketBuilder::ethernet2(
-        veth_config.dev1_addr().clone(), // src mac
-        veth_config.dev2_addr().clone(), // dst mac
-    )
-    .ipv4(
-        veth_config.dev1_ip_addr().octets(), // src ip
-        veth_config.dev2_ip_addr().octets(), // dst ip
-        20,                                  // time to live
-    )
-    .udp(
-        1234, // src port
-        1234, // dst port
-    );
-
-    let payload = generate_random_bytes(payload_len);
-
-    let mut result = Vec::<u8>::with_capacity(builder.size(payload.len()));
-
-    builder.write(&mut result, &payload).unwrap();
-
-    result
-}
-
-// Generate random messages of size `MSG_SIZE` and send them through dev2 to be received by dev1
-// This is single threaded so will handle the send and receive process alternately
-fn dev2_to_dev1_single_thread(mut dev1: SocketState, mut dev2: SocketState, msg_size: u32) {
-    let dev1_frames = &mut dev1.frame_descs;
-    let dev2_frames = &mut dev2.frame_descs;
-
-    let start = Instant::now();
-
-    // Populate fill queue
-    let frames_filled = dev1
-        .fill_q
-        .produce_and_wakeup(
-            &dev1_frames[..FILL_Q_SIZE as usize],
-            dev1.rx_q.fd(),
-            MS_TIMEOUT,
-        )
-        .unwrap();
-
-    assert_eq!(frames_filled, FILL_Q_SIZE as usize);
-
-    // Populate tx queue
-    let mut total_pkts_sent = dev2.tx_q.produce(&dev2_frames[..MAX_BATCH_SIZE]);
-
-    assert_eq!(total_pkts_sent, MAX_BATCH_SIZE);
-
-    let mut total_pkts_rcvd = 0;
-    let mut total_pkts_consumed = 0;
-
-    while total_pkts_sent < NUM_PACKETS_TO_SEND
-        || total_pkts_rcvd < total_pkts_sent
-        || total_pkts_consumed < total_pkts_sent
-    {
-        while total_pkts_rcvd < total_pkts_sent {
-            // In copy mode tx is driven by a syscall, so we need to wakeup the kernel
-            // with a call to either sendto() or poll() (wakeup() below uses sendto()).
-            if dev2.tx_q.needs_wakeup() {
-                dev2.tx_q.wakeup().unwrap();
-            }
-
-            // Handle rx
-            match dev1
-                .rx_q
-                .poll_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
-                .unwrap()
-            {
-                0 => {
-                    // No packets consumed, wake up fill queue if required
-                    if dev1.fill_q.needs_wakeup() {
-                        dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
-                    }
-                }
-                pkts_rcvd => {
-                    // Add frames back to fill queue
-                    while dev1
-                        .fill_q
-                        .produce_and_wakeup(&dev1_frames[..pkts_rcvd], dev1.rx_q.fd(), MS_TIMEOUT)
-                        .unwrap()
-                        != pkts_rcvd
-                    {
-                        // Loop until frames added to the fill ring.
-                    }
-
-                    total_pkts_rcvd += pkts_rcvd;
-                }
-            }
-        }
-
-        if total_pkts_sent < NUM_PACKETS_TO_SEND || total_pkts_consumed < total_pkts_sent {
-            // Handle tx
-            match dev2.comp_q.consume(&mut dev2_frames[..]) {
-                0 => {
-                    if dev2.tx_q.needs_wakeup() {
-                        dev2.tx_q.wakeup().unwrap();
-                    }
-                }
-                pkts_sent => {
-                    total_pkts_consumed += pkts_sent;
-
-                    if total_pkts_sent < NUM_PACKETS_TO_SEND {
-                        // Data is still contained in the frames so just set the descriptor's length
-                        for desc in dev2_frames[..pkts_sent].iter_mut() {
-                            desc.set_len(msg_size);
-                        }
-
-                        // Wait until we're ok to write
-                        while !socket::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
-                            continue;
-                        }
-
-                        let pkts_to_send = cmp::min(
-                            MAX_BATCH_SIZE,
-                            cmp::min(pkts_sent, NUM_PACKETS_TO_SEND - total_pkts_sent),
-                        );
-
-                        // Add consumed frames back to the tx queue
-                        while dev2
-                            .tx_q
-                            .produce_and_wakeup(&dev2_frames[..pkts_to_send])
-                            .unwrap()
-                            != pkts_to_send
-                        {
-                            // Loop until frames added to the tx ring.
-                        }
-
-                        total_pkts_sent += pkts_to_send;
-                    }
-                }
-            }
-        }
-    }
-
-    let elapsed_secs = start.elapsed().as_secs_f64();
-
-    // Bytes sent per second is (number_of_packets * packet_size) / seconds_elapsed
-    let bytes_sent_per_sec: f64 = (total_pkts_sent as f64) * (msg_size as f64) / elapsed_secs;
-    let bytes_rcvd_per_sec: f64 = (total_pkts_rcvd as f64) * (msg_size as f64) / elapsed_secs;
-
-    // 1 bit/second = 1e-9 Gbps
-    // gbps_sent = (bytes_sent_per_sec * 8) / 1e9 = bytes_sent_per_sec / 0.125e9
-    let gbps_sent = bytes_sent_per_sec / 0.125e9;
-    let gbps_rcvd = bytes_rcvd_per_sec / 0.125e9;
-
-    println!(
-        "time taken to send {} {}-byte messages: {:.3} secs",
-        NUM_PACKETS_TO_SEND, msg_size, elapsed_secs
-    );
-    println!(
-        "send throughput: {:.3} Gbps (msgs sent: {})",
-        gbps_sent, total_pkts_sent
-    );
-    println!(
-        "recv throughout: {:.3} Gbps (msgs rcvd: {})",
-        gbps_rcvd, total_pkts_rcvd
-    );
-}
-
-fn dev2_to_dev1_multithreaded(
-    mut dev1: SocketState<'static>,
-    mut dev2: SocketState<'static>,
-    msg_size: u32,
-) {
-    let (d1_to_d2_tx, d1_to_d2_rx): (Sender<()>, Receiver<()>) = mpsc::channel();
-
-    let start = Instant::now();
-
-    // Spawn the receiver thread
-    let rx_handle = thread::spawn(move || {
-        let dev1_frames = &mut dev1.frame_descs;
-        let fill_q_size: usize = FILL_Q_SIZE.try_into().unwrap();
-
-        // Populate fill queue
-        let frames_filled = dev1
-            .fill_q
-            .produce_and_wakeup(&dev1_frames[..fill_q_size], dev1.rx_q.fd(), MS_TIMEOUT)
-            .unwrap();
-
-        assert_eq!(frames_filled, fill_q_size);
-
-        if let Err(_) = d1_to_d2_tx.send(()) {
-            println!("sender thread has gone away");
-            return 0;
-        }
-
-        let mut total_pkts_rcvd = 0;
-        let mut pkts_rcvd_this_batch = 0;
-
-        let fill_q_size: usize = FILL_Q_SIZE.try_into().unwrap();
-        let fill_q_refill_thresh = fill_q_size / 3;
-
-        while total_pkts_rcvd < NUM_PACKETS_TO_SEND {
-            match dev1
-                .rx_q
-                .poll_and_consume(&mut dev1_frames[..], MS_TIMEOUT)
-                .unwrap()
-            {
-                0 => {
-                    // No packets consumed, wake up fill queue if required
-                    if dev1.fill_q.needs_wakeup() {
-                        dev1.fill_q.wakeup(dev1.rx_q.fd(), MS_TIMEOUT).unwrap();
-                    }
-
-                    // Or it might be that there are no packets left to receive
-                    if SENDER_DONE.load(Ordering::SeqCst) {
-                        return total_pkts_rcvd;
-                    }
-                }
-                npkts => {
-                    total_pkts_rcvd += npkts;
-                    pkts_rcvd_this_batch += npkts;
-
-                    if pkts_rcvd_this_batch > fill_q_refill_thresh {
-                        let nframes_to_produce = cmp::min(fill_q_size, pkts_rcvd_this_batch);
-
-                        // Add frames back to fill queue
-                        while dev1
-                            .fill_q
-                            .produce_and_wakeup(
-                                &dev1_frames[..nframes_to_produce],
-                                dev1.rx_q.fd(),
-                                MS_TIMEOUT,
-                            )
-                            .unwrap()
-                            != nframes_to_produce
-                        {
-                            // Loop until frames added to the fill ring.
-                        }
-
-                        pkts_rcvd_this_batch -= nframes_to_produce;
-                    }
-                }
-            }
-        }
-
-        total_pkts_rcvd
-    });
-
-    // Spawn the sender thread
-    let tx_handle = thread::spawn(move || {
-        let dev2_frames = &mut dev2.frame_descs;
-
-        // Populate tx queue.
-        let mut total_pkts_sent = 0;
-        let mut total_pkts_submitted = dev2.tx_q.produce(&dev2_frames[..MAX_BATCH_SIZE]);
-
-        assert_eq!(total_pkts_submitted, MAX_BATCH_SIZE);
-
-        // Let the receiver populate its fill queue first and wait for the go-ahead.
-        if let Err(_) = d1_to_d2_rx.recv() {
-            println!("receiver thread has gone away");
-            return 0;
-        }
-
-        while total_pkts_sent < NUM_PACKETS_TO_SEND {
-            // Let sent packets catch up with submitted packets
-            let mut pkts_sent = 0;
-
-            while pkts_sent < total_pkts_submitted - total_pkts_sent {
-                match dev2.comp_q.consume(&mut dev2_frames[pkts_sent..]) {
-                    0 => {
-                        // In copy mode so need to make a syscall to actually send packets
-                        // despite having produced frames onto the fill ring.
-                        if dev2.tx_q.needs_wakeup() {
-                            dev2.tx_q.wakeup().unwrap();
-                        }
-                    }
-                    npkts => {
-                        pkts_sent += npkts;
-                    }
-                }
-            }
-
-            total_pkts_sent += pkts_sent;
-
-            if total_pkts_submitted < NUM_PACKETS_TO_SEND {
-                // Data is still contained in the frames so just set the descriptor's length
-                for desc in dev2_frames[..pkts_sent].iter_mut() {
-                    desc.set_len(msg_size);
-                }
-
-                // Wait until we're ok to write
-                while !socket::poll_write(dev2.tx_q.fd(), MS_TIMEOUT).unwrap() {
-                    continue;
-                }
-
-                let pkts_to_submit =
-                    cmp::min(pkts_sent, NUM_PACKETS_TO_SEND - total_pkts_submitted);
-
-                let pkts_to_submit = cmp::min(pkts_to_submit, MAX_BATCH_SIZE);
-
-                // Add consumed frames back to the tx queue
-                while dev2
-                    .tx_q
-                    .produce_and_wakeup(&dev2_frames[..pkts_to_submit])
-                    .unwrap()
-                    != pkts_to_submit
-                {
-                    // Loop until frames added to the tx ring.
-                }
-
-                total_pkts_submitted += pkts_to_submit;
-            }
-        }
-
-        // Mark sender as done so receiver knows when to return
-        SENDER_DONE.store(true, Ordering::SeqCst);
-
-        total_pkts_sent
-    });
-
-    let tx_res = tx_handle.join();
-    let rx_res = rx_handle.join();
-
-    if let (Ok(pkts_sent), Ok(pkts_rcvd)) = (&tx_res, &rx_res) {
-        let elapsed_secs = start.elapsed().as_secs_f64();
-
-        // Bytes sent per second is (number_of_packets * packet_size) / seconds_elapsed
-        let bytes_sent_per_sec: f64 = (*pkts_sent as f64) * (msg_size as f64) / elapsed_secs;
-        let bytes_rcvd_per_sec: f64 = (*pkts_rcvd as f64) * (msg_size as f64) / elapsed_secs;
-
-        // 1 bit/second = 1e-9 Gbps
-        // gbps_sent = (bytes_sent_per_sec * 8) / 1e9 = bytes_sent_per_sec / 0.125e9
-        let gbps_sent = bytes_sent_per_sec / 0.125e9;
-        let gbps_rcvd = bytes_rcvd_per_sec / 0.125e9;
-
-        println!(
-            "time taken to send {} {}-byte messages: {:.3} secs",
-            NUM_PACKETS_TO_SEND, msg_size, elapsed_secs
-        );
-        println!(
-            "send throughput: {:.3} Gbps (msgs sent: {})",
-            gbps_sent, pkts_sent
-        );
-        println!(
-            "recv throughout: {:.3} Gbps (msgs rcvd: {})",
-            gbps_rcvd, pkts_rcvd
-        );
-    } else {
-        println!("error (tx_res: {:?}) (rx_res: {:?})", tx_res, rx_res);
-    }
-}
-
-fn run_example(veth_config: &VethConfig, use_multithreaded: bool) {
+fn run_example(config: &Config, veth_config: &VethConfig) {
     // Create umem and socket configs
+    let frame_count = config.fill_q_size + config.comp_q_size;
+
     let umem_config = UmemConfig::new(
-        NonZeroU32::new(FRAME_COUNT).unwrap(),
-        NonZeroU32::new(FRAME_SIZE).unwrap(),
-        FILL_Q_SIZE,
-        COMP_Q_SIZE,
+        NonZeroU32::new(frame_count).unwrap(),
+        NonZeroU32::new(config.frame_size).unwrap(),
+        config.fill_q_size,
+        config.comp_q_size,
         0,
         false,
     )
     .unwrap();
 
+    let mut bind_flags = BindFlags::empty();
+
+    if config.use_need_wakeup {
+        bind_flags |= BindFlags::XDP_USE_NEED_WAKEUP
+    }
+    if config.zerocopy {
+        bind_flags |= BindFlags::XDP_ZEROCOPY
+    }
+
     let socket_config = SocketConfig::new(
-        RX_Q_SIZE,
-        TX_Q_SIZE,
+        config.rx_q_size,
+        config.tx_q_size,
         LibbpfFlags::empty(),
         XdpFlags::empty(),
-        BindFlags::XDP_USE_NEED_WAKEUP,
+        bind_flags,
     )
     .unwrap();
 
@@ -454,46 +488,223 @@ fn run_example(veth_config: &VethConfig, use_multithreaded: bool) {
     let mut dev2 = build_socket_and_umem(umem_config, socket_config, veth_config.dev2_name(), 0);
 
     // Copy over some bytes to dev2s umem to transmit
-    let eth_frame = generate_eth_frame(veth_config, PAYLOAD_SIZE);
+    let eth_frame = setup::generate_eth_frame(veth_config, PAYLOAD_SIZE);
 
     for desc in dev2.frame_descs.iter_mut() {
         dev2.umem.copy_data_to_frame(desc, &eth_frame[..]).unwrap();
 
-        assert_eq!(desc.len(), eth_frame.len().try_into().unwrap());
+        assert_eq!(desc.len(), eth_frame.len() as u32);
     }
 
     // Send messages
-    if use_multithreaded {
+    if config.is_multithreaded {
         println!(
             "sending {} eth frames w/ {}-byte payload (total msg size: {} bytes) (multi-threaded)",
-            NUM_PACKETS_TO_SEND,
-            PAYLOAD_SIZE,
+            config.num_frames_to_send,
+            config.payload_size,
             eth_frame.len()
         );
-        dev2_to_dev1_multithreaded(dev1, dev2, eth_frame.len().try_into().unwrap());
+        dev2_to_dev1_multithreaded(config, dev1, dev2);
     } else {
         println!(
             "sending {} eth frames w/ {}-byte payload (total msg size: {} bytes) (single-threaded)",
-            NUM_PACKETS_TO_SEND,
-            PAYLOAD_SIZE,
+            config.num_frames_to_send,
+            config.payload_size,
             eth_frame.len()
         );
-        dev2_to_dev1_single_thread(dev1, dev2, eth_frame.len().try_into().unwrap());
+        dev2_to_dev1_single_thread(config, dev1, dev2);
     }
 }
 
-fn main() {
+fn parse_arg<T>(matches: &clap::ArgMatches, name: &str, err_msg: &str, default: T) -> T
+where
+    T: FromStr,
+    <T as FromStr>::Err: Debug,
+{
+    matches
+        .value_of(name)
+        .map(|s| s.parse().expect(err_msg))
+        .unwrap_or(default)
+}
+
+fn get_args() -> Config {
     let matches = App::new("dev1_to_dev2")
         .arg(
             Arg::with_name("multithreaded")
                 .short("m")
                 .long("multithreaded")
                 .required(false)
-                .takes_value(false),
+                .takes_value(false)
+                .help("Run sender and receiver in separate threads"),
+        )
+        .arg(
+            Arg::with_name("use_need_wakeup")
+                .short("w")
+                .long("wakeup")
+                .required(false)
+                .takes_value(false)
+                .help("Use XDP_USE_NEED_WAKEUP bind flag (recommended)"),
+        )
+        .arg(
+            Arg::with_name("zerocopy")
+                .short("z")
+                .long("zerocopy")
+                .required(false)
+                .takes_value(false)
+                .help("Use XDP_ZEROCOPY bind flag (must be supported by driver)"),
+        )
+        .arg(
+            Arg::with_name("tx_queue_size")
+                .short("t")
+                .long("tx-q-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set socket tx queue size"),
+        )
+        .arg(
+            Arg::with_name("rx_queue_size")
+                .short("r")
+                .long("rx-q-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set socket rx queue size"),
+        )
+        .arg(
+            Arg::with_name("comp_queue_size")
+                .short("c")
+                .long("comp-q-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set umem comp queue size"),
+        )
+        .arg(
+            Arg::with_name("fill_queue_size")
+                .short("f")
+                .long("fill-q-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set umem fill q size"),
+        )
+        .arg(
+            Arg::with_name("frame_size")
+                .short("u")
+                .long("frame-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set umem frame size"),
+        )
+        .arg(
+            Arg::with_name("num_frames_to_send")
+                .short("n")
+                .long("num-frames-to-send")
+                .required(false)
+                .takes_value(true)
+                .help("Set total number of frames to send"),
+        )
+        .arg(
+            Arg::with_name("payload_size")
+                .short("s")
+                .long("payload-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set udp packet payload size"),
+        )
+        .arg(
+            Arg::with_name("max_batch_size")
+                .short("b")
+                .long("max-batch-size")
+                .required(false)
+                .takes_value(true)
+                .help("Set max number of frames possible to transmit at once"),
+        )
+        .arg(
+            Arg::with_name("poll_ms_timeout")
+                .short("p")
+                .long("poll-ms-timeout")
+                .required(false)
+                .takes_value(true)
+                .help("Set socket read/write poll timeout in milliseconds"),
         )
         .get_matches();
 
-    let use_multithreaded = matches.is_present("multithreaded");
+    let is_multithreaded = matches.is_present("multithreaded");
+    let use_need_wakeup = matches.is_present("use_need_wakeup");
+    let zerocopy = matches.is_present("zerocopy");
+    let rx_q_size = parse_arg(
+        &matches,
+        "rx_queue_size",
+        "failed to parse rx_queue_size arg",
+        RX_Q_SIZE,
+    );
+    let tx_q_size = parse_arg(
+        &matches,
+        "tx_queue_size",
+        "failed to parse tx_queue_size arg",
+        TX_Q_SIZE,
+    );
+    let comp_q_size = parse_arg(
+        &matches,
+        "comp_queue_size",
+        "failed to parse comp queue size arg",
+        COMP_Q_SIZE,
+    );
+    let fill_q_size = parse_arg(
+        &matches,
+        "fill_queue_size",
+        "failed to parse fill queue size arg",
+        FILL_Q_SIZE,
+    );
+    let frame_size = parse_arg(
+        &matches,
+        "frame_size",
+        "failed to parse frame size arg",
+        FRAME_SIZE,
+    );
+    let num_frames_to_send = parse_arg(
+        &matches,
+        "num_frames_to_send",
+        "failed to parse num frames to send arg",
+        NUM_PACKETS_TO_SEND,
+    );
+    let payload_size = parse_arg(
+        &matches,
+        "payload_size",
+        "failed to parse payload size arg",
+        PAYLOAD_SIZE,
+    );
+    let max_batch_size = parse_arg(
+        &matches,
+        "max_batch_size",
+        "failed to parse max batch size arg",
+        MAX_BATCH_SIZE,
+    );
+    let poll_ms_timeout = parse_arg(
+        &matches,
+        "poll_ms_timeout",
+        "failed to parse poll ms arg",
+        POLL_MS_TIMEOUT,
+    );
+
+    Config {
+        is_multithreaded,
+        use_need_wakeup,
+        zerocopy,
+        tx_q_size,
+        rx_q_size,
+        comp_q_size,
+        fill_q_size,
+        frame_size,
+        poll_ms_timeout,
+        payload_size,
+        max_batch_size,
+        num_frames_to_send,
+    }
+}
+
+fn main() {
+    env_logger::init();
+
+    let config = get_args();
 
     let veth_config = VethConfig::new(
         String::from("xsk_ex_dev1"),
@@ -506,10 +717,17 @@ fn main() {
 
     let veth_config_clone = veth_config.clone();
 
+    log::info!("{:#?}", config);
+    log::info!("{:#?}", veth_config);
+
     let (startup_w, mut startup_r) = oneshot::channel();
     let (shutdown_w, shutdown_r) = oneshot::channel();
 
-    // Create the veth link
+    // We'll keep track of ctrl+c events but not let them kill the process
+    // immediately as we may need to clean up the veth pair.
+    let ctrl_c_events = setup::ctrl_channel().unwrap();
+
+    // Create the veth pair
     let veth_handle = thread::spawn(move || {
         let mut runtime = Runtime::new().unwrap();
 
@@ -520,30 +738,40 @@ fn main() {
         ))
     });
 
+    // Wait for confirmation that it's set up and configured
     loop {
         match startup_r.try_recv() {
             Ok(_) => break,
             Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Closed) => panic!("Failed to set up veth link"),
+            Err(TryRecvError::Closed) => panic!("failed to set up veth pair"),
         }
     }
 
-    println!("veth setup complete, press enter to continue");
-
-    let mut input = String::new();
-    let _ = io::stdin().read_line(&mut input);
-
     // Run example in separate thread so that if it panics we can clean up here
-    let ex_handle = thread::spawn(move || run_example(&veth_config, use_multithreaded));
+    let (example_done_tx, example_done_rx) = crossbeam_channel::bounded(1);
+    let handle = thread::spawn(move || {
+        run_example(&config, &veth_config);
+        let _ = example_done_tx.send(());
+    });
 
-    let res = ex_handle.join();
+    // Wait for either the example to finish or for a ctrl+c event to occur
+    crossbeam_channel::select! {
+        recv(example_done_rx) -> _ => {
+            // Example done
+            if let Err(e) = handle.join() {
+                println!("error running example: {:?}", e);
+            }
+        },
+        recv(ctrl_c_events) -> _ => {
+            println!("deleting veth pair and exiting");
+            // Exit select
+        }
+    }
 
-    // Tell link to close
+    // Delete link
     if let Err(e) = shutdown_w.send(()) {
         eprintln!("veth link thread returned unexpectedly: {:?}", e);
     }
 
     veth_handle.join().unwrap();
-
-    res.unwrap();
 }

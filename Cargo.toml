@@ -7,7 +7,7 @@ description = "Rust bindings for Linux AF_XDP sockets"
 license = "MIT"
 repository = "https://github.com/DouglasGray/xsk-rs"
 readme = "README.md"
-keywords = ["af_xdp", "xsk", "ebpf", "xdp"]
+keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 
 [dependencies]
 bitflags = "1.2.1"
@@ -19,16 +19,15 @@ log = "0.4"
 anyhow = "1.0.32"
 clap = "2.33.3"
 criterion = "0.3.3"
+crossbeam-channel = "0.5.0"
+ctrlc = "3.1.7"
 etherparse = "0.9.0"
 futures = "0.3.5"
 rand = "0.7.3"
 rtnetlink = "0.3.0"
+env_logger = "0.8.2"
 
 [dev-dependencies.tokio]
 version = "0.2.22"
 default-features = false
-features =  ["rt-core", "macros", "test-util", "blocking", "sync"]
-
-[[bench]]
-name = "link1_to_link2"
-harness = false
+features =  ["rt-core", "macros", "test-util", "blocking", "sync", "signal"]

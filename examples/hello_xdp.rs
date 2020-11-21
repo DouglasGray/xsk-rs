@@ -9,12 +9,13 @@ use xsk_rs::{FillQueue, FrameDesc, RxQueue, Socket, SocketConfig, TxQueue, Umem,
 
 use setup::{LinkIpAddr, VethConfig};
 
+// Put umem at bottom so drop order is correct
 struct SocketState<'umem> {
-    umem: Umem<'umem>,
     fill_q: FillQueue<'umem>,
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
     frame_descs: Vec<FrameDesc>,
+    umem: Umem<'umem>,
 }
 
 fn build_socket_and_umem<'a, 'umem>(
@@ -25,12 +26,12 @@ fn build_socket_and_umem<'a, 'umem>(
 ) -> SocketState {
     let (mut umem, fill_q, _comp_q, frame_descs) = Umem::builder(umem_config)
         .create_mmap()
-        .expect(format!("Failed to create mmap area for {}", if_name).as_str())
+        .expect(format!("failed to create mmap area for {}", if_name).as_str())
         .create_umem()
-        .expect(format!("Failed to create umem for {}", if_name).as_str());
+        .expect(format!("failed to create umem for {}", if_name).as_str());
 
     let (tx_q, rx_q) = Socket::new(socket_config, &mut umem, if_name, queue_id)
-        .expect(format!("Failed to build socket for {}", if_name).as_str());
+        .expect(format!("failed to build socket for {}", if_name).as_str());
 
     SocketState {
         umem,
@@ -73,7 +74,7 @@ fn hello_xdp(veth_config: &VethConfig) {
     let send_frame = &mut dev1_frames[0];
     let data = "Hello, world!".as_bytes();
 
-    println!("Sending: {:?}", str::from_utf8(&data).unwrap());
+    println!("sending: {:?}", str::from_utf8(&data).unwrap());
 
     // Copy the data to the frame
     dev1.umem.copy_data_to_frame(send_frame, &data).unwrap();
@@ -98,7 +99,7 @@ fn hello_xdp(veth_config: &VethConfig) {
             // Check contents match
             if frame_ref[..data.len()] == data[..] {
                 println!(
-                    "Received: {:?}",
+                    "received: {:?}",
                     str::from_utf8(&frame_ref[..data.len()]).unwrap()
                 );
                 return;
@@ -106,7 +107,7 @@ fn hello_xdp(veth_config: &VethConfig) {
         }
     }
 
-    panic!("No matching packets received")
+    panic!("no matching frames received")
 }
 
 fn main() {
@@ -124,6 +125,10 @@ fn main() {
 
     let veth_config_clone = veth_config.clone();
 
+    // We'll keep track of ctrl+c events but not let them kill the process
+    // immediately as we may need to clean up the veth pair.
+    let ctrl_c_events = setup::ctrl_channel().unwrap();
+
     let veth_handle = thread::spawn(move || {
         let mut runtime = Runtime::new().unwrap();
 
@@ -138,21 +143,35 @@ fn main() {
         match startup_r.try_recv() {
             Ok(_) => break,
             Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Closed) => panic!("Failed to set up veth link"),
+            Err(TryRecvError::Closed) => panic!("failed to set up veth pair"),
         }
     }
 
     // Run example in separate thread so that if it panics we can clean up here
-    let ex_handle = thread::spawn(move || hello_xdp(&veth_config));
+    let (example_done_tx, example_done_rx) = crossbeam_channel::bounded(1);
 
-    let res = ex_handle.join();
+    let handle = thread::spawn(move || {
+        hello_xdp(&veth_config);
+        let _ = example_done_tx.send(());
+    });
 
-    // Tell link to close
+    // Wait for either the example to finish or for a ctrl+c event to occur
+    crossbeam_channel::select! {
+        recv(example_done_rx) -> _ => {
+            // Example done
+            if let Err(e) = handle.join() {
+                println!("error running example: {:?}", e);
+            }
+        },
+        recv(ctrl_c_events) -> _ => {
+            // Exit select
+        }
+    }
+
+    // Delete link
     if let Err(e) = shutdown_w.send(()) {
         eprintln!("veth link thread returned unexpectedly: {:?}", e);
     }
 
     veth_handle.join().unwrap();
-
-    res.unwrap();
 }

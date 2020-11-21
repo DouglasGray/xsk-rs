@@ -19,7 +19,7 @@ async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
         .execute()
         .try_next()
         .await?
-        .expect(format!("No link with name {} found", name).as_str())
+        .expect(format!("no link with name {} found", name).as_str())
         .header
         .index)
 }
@@ -66,7 +66,7 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 
     let dev1_index = get_link_index(&handle, dev1_if_name).await.expect(
         format!(
-            "Failed to retrieve index for dev1. Remove link manually: 'sudo ip link del {}'",
+            "failed to retrieve index for dev1. Remove link manually: 'sudo ip link del {}'",
             dev1_if_name
         )
         .as_str(),
@@ -74,7 +74,7 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 
     let dev2_index = get_link_index(&handle, dev2_if_name).await.expect(
         format!(
-            "Failed to retrieve index for dev2. Remove link manually: 'sudo ip link del {}'",
+            "failed to retrieve index for dev2. Remove link manually: 'sudo ip link del {}'",
             dev1_if_name
         )
         .as_str(),
@@ -130,7 +130,7 @@ pub async fn run_veth_link(
     async fn delete_link_with_context(handle: &Handle, index: u32, if_name: &str) {
         delete_link(handle, index).await.expect(
             format!(
-                "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
+                "failed to delete link. May need to remove manually: 'sudo ip link del {}'",
                 if_name
             )
             .as_str(),
@@ -142,7 +142,7 @@ pub async fn run_veth_link(
         .unwrap();
 
     if let Err(e) = configure_veth_link(&veth_link, &veth_config).await {
-        eprintln!("Error setting up veth link: {}", e);
+        eprintln!("error setting up veth pair: {}", e);
 
         delete_link_with_context(
             &veth_link.handle,
