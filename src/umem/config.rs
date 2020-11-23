@@ -84,7 +84,7 @@ impl Config {
         Config {
             frame_count: frame_count.get(),
             frame_size: XSK_UMEM__DEFAULT_FRAME_SIZE,
-            fill_queue_size: XSK_RING_PROD__DEFAULT_NUM_DESCS * 2,
+            fill_queue_size: XSK_RING_PROD__DEFAULT_NUM_DESCS,
             comp_queue_size: XSK_RING_CONS__DEFAULT_NUM_DESCS,
             frame_headroom: XSK_UMEM__DEFAULT_FRAME_HEADROOM,
             use_huge_pages,
