@@ -17,3 +17,6 @@ git clone https://github.com/DouglasGray/xsk-rs.git
 # Go to the benchmark crate and compile
 cd xsk-rs/bench
 cargo build --release
+
+# Mark scripts as execute
+chmod +x scripts/*.sh

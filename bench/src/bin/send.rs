@@ -161,11 +161,11 @@ fn get_args() -> (Config, NetConfig) {
 
     let if_name = matches.value_of("if_name").unwrap();
     let if_queue = util::parse_arg_with_default(&matches, "if_queue", 0).unwrap();
-    let use_need_wakeup = util::parse_arg_with_default(&matches, "use_need_wakeup", false).unwrap();
-    let zerocopy = util::parse_arg_with_default(&matches, "zerocopy", false).unwrap();
-    let drv_mode = util::parse_arg_with_default(&matches, "drv_mode", false).unwrap();
+    let use_need_wakeup = matches.is_present("use_need_wakup");
+    let zerocopy = matches.is_present("zerocopy");
+    let drv_mode = matches.is_present("drv_mode");
     let num_frames_to_process =
-        util::parse_arg_with_default(&matches, "num_frames_to_process", 5_050_000).unwrap();
+        util::parse_arg_with_default(&matches, "num_frames_to_process", 10_500_000).unwrap();
 
     let src_mac = util::parse_mac_addr(matches.value_of("src_mac").unwrap()).unwrap();
     let dst_mac = util::parse_mac_addr(matches.value_of("dst_mac").unwrap()).unwrap();
