@@ -1,11 +1,9 @@
 #!/bin/bash
 
-apt update
-apt install -y ethtool
-apt install -y emacs
-apt install -y git
-apt install -y build-essential
-apt install -y libelf-dev
+yum -y update
+yum -y groupinstall "Development Tools"
+yum -y install elfutils-libelf-devel
+yum -y install emacs
 
 # Install rust
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

@@ -24,14 +24,20 @@ fn recv(config: &Config, mut xsk: XskState, mut frame_descs: Vec<FrameDesc>) -> 
             .unwrap()
         {
             0 => {
+                log::debug!("xsk.rx_q.poll_and_consume() consumed 0 frames");
                 // No packets consumed, wake up fill queue if required
                 if xsk.fill_q().needs_wakeup() {
+                    log::debug!("waking up xsk.fill_q");
                     xsk.fill_q()
                         .wakeup(&mut fd, *config.poll_ms_timeout())
                         .unwrap();
                 }
             }
             frames_rcvd => {
+                log::debug!(
+                    "xsk.rx_q.poll_and_consume() consumed {} frames",
+                    frames_rcvd
+                );
                 // Add frames back to fill queue
                 while xsk
                     .fill_q()
@@ -44,9 +50,11 @@ fn recv(config: &Config, mut xsk: XskState, mut frame_descs: Vec<FrameDesc>) -> 
                     != frames_rcvd
                 {
                     // Loop until frames added to the fill ring.
+                    log::debug!("xsk.fill_q.produce_and_wakeup() failed to allocate");
                 }
 
                 total_frames_rcvd += frames_rcvd;
+                log::debug!("total frames received: {}", total_frames_rcvd);
             }
         }
     }
@@ -108,7 +116,7 @@ fn get_args() -> Config {
 
     let if_name = matches.value_of("if_name").unwrap();
     let if_queue = util::parse_arg_with_default(&matches, "if_queue", 0).unwrap();
-    let use_need_wakeup = matches.is_present("use_need_wakup");
+    let use_need_wakeup = matches.is_present("use_need_wakeup");
     let zerocopy = matches.is_present("zerocopy");
     let drv_mode = matches.is_present("drv_mode");
     let num_frames_to_process =
@@ -125,6 +133,8 @@ fn get_args() -> Config {
 }
 
 fn main() {
+    env_logger::init();
+
     let config = get_args();
 
     let (umem_config, xsk_config) = util::build_xsk_configs(&config).unwrap();

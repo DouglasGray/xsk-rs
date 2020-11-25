@@ -161,7 +161,7 @@ fn get_args() -> (Config, NetConfig) {
 
     let if_name = matches.value_of("if_name").unwrap();
     let if_queue = util::parse_arg_with_default(&matches, "if_queue", 0).unwrap();
-    let use_need_wakeup = matches.is_present("use_need_wakup");
+    let use_need_wakeup = matches.is_present("use_need_wakeup");
     let zerocopy = matches.is_present("zerocopy");
     let drv_mode = matches.is_present("drv_mode");
     let num_frames_to_process =
