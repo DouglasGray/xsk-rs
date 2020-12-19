@@ -15,7 +15,7 @@ use xsk_rs::{BindFlags, FrameDesc, LibbpfFlags, Socket, SocketConfig, Umem, Umem
 use super::{Config, Role, XskState};
 
 pub fn handle_sync(role: Role) -> anyhow::Result<()> {
-    let sync_file_path = "/tmp/xsk_rs_bench_xnf83mff83b.pipe";
+    let sync_file_path = "/tmp/xsk_rs_bench_12345.pipe";
 
     // TX is in charge of setting up its write end
     match role {

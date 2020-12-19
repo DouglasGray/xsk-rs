@@ -29,7 +29,7 @@ const COMP_Q_SIZE: u32 = 4096;
 const FILL_Q_SIZE: u32 = 4096 * 4;
 const FRAME_SIZE: u32 = 2048;
 const POLL_MS_TIMEOUT: i32 = 100;
-const PAYLOAD_SIZE: u32 = 64;
+const PAYLOAD_SIZE: u32 = 32;
 const MAX_BATCH_SIZE: usize = 64;
 const NUM_PACKETS_TO_SEND: usize = 5_000_000;
 

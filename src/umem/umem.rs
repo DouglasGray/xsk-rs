@@ -20,17 +20,17 @@ use super::{config::Config, mmap::MmapArea};
 /// of bytes the user should read from the UMEM.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameDesc {
-    addr: u64,
-    len: u32,
+    addr: usize,
+    len: usize,
     options: u32,
 }
 
 impl FrameDesc {
-    pub fn addr(&self) -> u64 {
+    pub fn addr(&self) -> usize {
         self.addr
     }
 
-    pub fn len(&self) -> u32 {
+    pub fn len(&self) -> usize {
         self.len
     }
 
@@ -38,7 +38,7 @@ impl FrameDesc {
         self.options
     }
 
-    pub(crate) fn set_addr(&mut self, addr: u64) {
+    pub(crate) fn set_addr(&mut self, addr: usize) {
         self.addr = addr
     }
 
@@ -48,7 +48,7 @@ impl FrameDesc {
     /// address, they must update the respective `FrameDesc`'s length before
     /// handing it over to the kernel to be transmitted to ensure the
     /// correct number of bytes are sent.
-    pub fn set_len(&mut self, len: u32) {
+    pub fn set_len(&mut self, len: usize) {
         self.len = len
     }
 
@@ -75,16 +75,15 @@ pub struct Umem<'a> {
     mmap_area: MmapArea,
     frame_count: u32,
     frame_size: u32,
-    max_addr: u64,
-    frame_size_u64: u64,
+    max_addr: usize,
     frame_size_usize: usize,
     _marker: PhantomData<&'a ()>,
 }
 
 #[derive(Debug)]
 pub enum UmemAccessError {
-    AddrOutOfBounds { req_addr: u64, max_addr: u64 },
-    AddrNotAligned { req_addr: u64, frame_size: u32 },
+    AddrOutOfBounds { req_addr: usize, max_addr: usize },
+    AddrNotAligned { req_addr: usize, frame_size: u32 },
     DataLenOutOfBounds { data_len: usize, frame_size: u32 },
 }
 
@@ -197,16 +196,16 @@ impl<'a> UmemBuilderWithMmap {
             return Err(io::Error::from_raw_os_error(err));
         }
 
-        // Ok: usize <= u64
+        // Ok: size_of<usize> = size_of<u64>
         let mut frame_descs: Vec<FrameDesc> =
             Vec::with_capacity(self.config.frame_count().try_into().unwrap());
 
-        // Ok: upcasting u32 -> u64
-        let frame_size_u64: u64 = self.config.frame_size().try_into().unwrap();
-        let frame_count_u64: u64 = self.config.frame_count().try_into().unwrap();
+        // Ok: upcasting u32 -> size_of<usize> = size_of<u64>
+        let frame_size_usize = self.config.frame_size() as usize;
+        let frame_count_usize = self.config.frame_count() as usize;
 
-        for i in 0..frame_count_u64 {
-            let addr = i * frame_size_u64;
+        for i in 0..frame_count_usize {
+            let addr = i * frame_size_usize;
             let len = 0;
             let options = 0;
 
@@ -220,8 +219,7 @@ impl<'a> UmemBuilderWithMmap {
             mmap_area: self.mmap_area,
             frame_count: self.config.frame_count(),
             frame_size: self.config.frame_size(),
-            max_addr: (frame_count_u64 - 1) * frame_size_u64,
-            frame_size_u64,
+            max_addr: (frame_count_usize - 1) * frame_size_usize,
             frame_size_usize: self.config.frame_size().try_into().unwrap(),
             _marker: PhantomData,
         };
@@ -259,7 +257,7 @@ impl Umem<'_> {
         self.inner.as_mut()
     }
 
-    fn check_frame_addr_valid(&self, addr: &u64) -> Result<(), UmemAccessError> {
+    fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), UmemAccessError> {
         // Check frame address is within bounds
         if *addr > self.max_addr {
             return Err(UmemAccessError::AddrOutOfBounds {
@@ -269,7 +267,7 @@ impl Umem<'_> {
         }
 
         // Check frame address is aligned
-        if *addr % self.frame_size_u64 != 0 {
+        if *addr % self.frame_size_usize != 0 {
             return Err(UmemAccessError::AddrNotAligned {
                 req_addr: *addr,
                 frame_size: self.frame_size,
@@ -295,15 +293,26 @@ impl Umem<'_> {
     ///
     /// `addr` references the first byte of a frame and must therefore be
     /// a multiple of the frame size.
-    pub fn frame_ref(&self, addr: &u64) -> Result<&[u8], UmemAccessError> {
+    ///
+    /// This function is unsafe as it cannot be guranteed that the memory
+    /// referenced is not being written to by the kernel.
+    pub unsafe fn frame_ref(&self, addr: &usize) -> Result<&[u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
-
-        let offset: usize = (*addr).try_into().unwrap();
 
         Ok(self
             .mmap_area
-            .mem_range(offset, self.frame_size_usize)
+            .mem_range(*addr, self.frame_size_usize)
             .unwrap())
+    }
+
+    /// Return a reference to the frame at a given address, without first
+    /// checking if the address is valid.
+    ///
+    /// See `frame_ref` for further details.
+    pub unsafe fn frame_ref_unchecked(&self, addr: &usize) -> &[u8] {
+        self.mmap_area
+            .mem_range(*addr, self.frame_size_usize)
+            .unwrap()
     }
 
     /// Return a mutable reference to the frame at a given address. Can be used
@@ -315,15 +324,26 @@ impl Umem<'_> {
     /// Remember that if you write data to a frame, you must update the length on
     /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting to
     /// the [TxQueue](struct.TxQueue.html).
-    pub fn frame_ref_mut(&mut self, addr: &u64) -> Result<&mut [u8], UmemAccessError> {
+    ///
+    /// This function is unsafe as it cannot be guaranteed that the kernel isn't
+    /// writing to or reading from the same memory that is being accessed.
+    pub unsafe fn frame_ref_mut(&mut self, addr: &usize) -> Result<&mut [u8], UmemAccessError> {
         self.check_frame_addr_valid(&addr)?;
-
-        let offset: usize = (*addr).try_into().unwrap();
 
         Ok(self
             .mmap_area
-            .mem_range_mut(offset, self.frame_size_usize)
+            .mem_range_mut(*addr, self.frame_size_usize)
             .unwrap())
+    }
+
+    /// Return a mutable reference to the frame at a given address, without first
+    /// checking if the address provided is valid.
+    ///
+    /// See `frame_ref_unchecked` for further details.
+    pub unsafe fn frame_ref_mut_unchecked(&mut self, addr: &usize) -> &mut [u8] {
+        self.mmap_area
+            .mem_range_mut(*addr, self.frame_size_usize)
+            .unwrap()
     }
 
     /// Copy `data` into the frame at `addr`. Consider using
@@ -337,9 +357,9 @@ impl Umem<'_> {
     /// been written to a frame, you must update the length on
     /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting
     /// to the [TxQueue](struct.TxQueue.html).
-    pub fn copy_data_to_frame_at_addr(
+    pub(crate) unsafe fn copy_data_to_frame_at_addr(
         &mut self,
-        addr: &u64,
+        addr: &usize,
         data: &[u8],
     ) -> Result<usize, UmemAccessError> {
         if data.len() == 0 {
@@ -361,7 +381,7 @@ impl Umem<'_> {
     /// on `frame_desc` if copying the data was successful, thereby
     /// avoiding having to remember to set it yourself. The length of
     /// `data` must be less than or equal to the frame size.
-    pub fn copy_data_to_frame(
+    pub(crate) unsafe fn copy_data_to_frame(
         &mut self,
         frame_desc: &mut FrameDesc,
         data: &[u8],
@@ -406,8 +426,9 @@ impl FillQueue<'_> {
     /// Once the frames have been submitted they should not be used again until consumed again
     /// via the [RxQueue](struct.RxQueue.html)
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
-        let nb: u64 = descs.len().try_into().unwrap();
+        // 'as' conversions are ok as the crate's top level conditional compilation flags
+        // guarantee that size_of<usize> = size_of<u64>
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -420,7 +441,8 @@ impl FillQueue<'_> {
         if cnt > 0 {
             for desc in descs.iter().take(cnt.try_into().unwrap()) {
                 unsafe {
-                    *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = desc.addr;
+                    *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) =
+                        desc.addr as u64;
                 }
                 idx += 1;
             }
@@ -467,7 +489,9 @@ impl CompQueue<'_> {
     /// Free frames should be added back on to either the [FillQueue](struct.FillQueue.html)
     /// for data receipt or the [TxQueue](struct.TxQueue.html) for data transmission.
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
-        let nb: u64 = descs.len().try_into().unwrap();
+        // 'as' conversions are ok as the crate's top level conditional compilation flags
+        // guarantee that size_of<usize> = size_of<u64>
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -479,10 +503,10 @@ impl CompQueue<'_> {
 
         if cnt > 0 {
             for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
-                let addr =
+                let addr: u64 =
                     unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
 
-                desc.set_addr(addr);
+                desc.set_addr(addr as usize);
                 desc.set_len(0);
                 desc.set_options(0);
 
