@@ -115,9 +115,11 @@ impl Config {
         self.use_huge_pages
     }
 
-    pub fn umem_len(&self) -> u64 {
-        (self.frame_count as u64)
-            .checked_mul(self.frame_size as u64)
+    pub fn umem_len(&self) -> usize {
+        // Know size_of<usize> = size_of<u64> due to compilation
+        // flags so 'as' upcast from u32 is ok
+        (self.frame_count as usize)
+            .checked_mul(self.frame_size as usize)
             .unwrap()
     }
 }

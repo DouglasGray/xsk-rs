@@ -115,7 +115,7 @@ impl Socket<'_> {
 
         if err != 0 {
             return Err(SocketCreateError::OsError {
-                context: "Failed to create AF_XDP socket",
+                context: "failed to create AF_XDP socket via xsk_socket__create()",
                 io_err: io::Error::from_raw_os_error(err),
             });
         }
@@ -128,7 +128,7 @@ impl Socket<'_> {
             }
 
             return Err(SocketCreateError::OsError {
-                context: "Could not retrieve AF_XDP socket file descriptor",
+                context: "could not retrieve AF_XDP socket file descriptor via xsk_socket__fd()",
                 io_err: io::Error::from_raw_os_error(err),
             });
         }
@@ -148,7 +148,7 @@ impl Socket<'_> {
 
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
-            fd: fd,
+            fd,
             _socket: socket,
         };
 
@@ -176,8 +176,9 @@ impl RxQueue<'_> {
     /// required, the frames should be added back on to either the
     /// [FillQueue](struct.FillQueue.html) or the [TxQueue](struct.TxQueue.html).
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
-        // usize -> u64 ok
-        let nb: u64 = descs.len().try_into().unwrap();
+        // usize <-> u64 'as' conversions are ok as the crate's top level conditional
+        // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -194,8 +195,8 @@ impl RxQueue<'_> {
                     let recv_pkt_desc =
                         libbpf_sys::_xsk_ring_cons__rx_desc(self.inner.as_mut(), idx);
 
-                    desc.set_addr((*recv_pkt_desc).addr);
-                    desc.set_len((*recv_pkt_desc).len);
+                    desc.set_addr((*recv_pkt_desc).addr as usize);
+                    desc.set_len((*recv_pkt_desc).len as usize);
                     desc.set_options((*recv_pkt_desc).options);
                 }
                 idx += 1;
@@ -241,7 +242,8 @@ impl TxQueue<'_> {
     /// Once the frames have been submitted they should not be used again until consumed again
     /// via the [CompQueue](struct.CompQueue.html)
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        // Assuming 64-bit architecture so usize -> u64 / u32 -> u64 should be fine
+        // usize <-> u64 'as' conversions are ok as the crate's top level conditional
+        // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
         let nb: u64 = descs.len().try_into().unwrap();
 
         if nb == 0 {
@@ -258,8 +260,8 @@ impl TxQueue<'_> {
                     let send_pkt_desc =
                         libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
-                    (*send_pkt_desc).addr = desc.addr();
-                    (*send_pkt_desc).len = desc.len();
+                    (*send_pkt_desc).addr = desc.addr() as u64;
+                    (*send_pkt_desc).len = desc.len() as u32; // Ok as desc.len() = frame_size: u32
                     (*send_pkt_desc).options = desc.options();
                 }
 

@@ -9,15 +9,14 @@ pub enum MmapAccessError {
 }
 
 pub struct MmapArea {
-    len: u64,
+    len: usize,
     mem_ptr: *mut libc::c_void,
-    len_usize: usize,
 }
 
 unsafe impl Send for MmapArea {}
 
 impl MmapArea {
-    pub fn new(len: u64, use_huge_pages: bool) -> io::Result<Self> {
+    pub fn new(len: usize, use_huge_pages: bool) -> io::Result<Self> {
         let addr = ptr::null_mut();
         let prot = PROT_READ | PROT_WRITE;
         let file = -1;
@@ -29,20 +28,12 @@ impl MmapArea {
             flags |= MAP_HUGETLB;
         }
 
-        // Assuming 64-bit architecure to u64 -> usize should work
-        let len_usize: usize = len.try_into().unwrap();
-
-        let mem_ptr =
-            unsafe { libc::mmap(addr, len_usize, prot, flags, file, offset as libc::off_t) };
+        let mem_ptr = unsafe { libc::mmap(addr, len, prot, flags, file, offset as libc::off_t) };
 
         if mem_ptr == MAP_FAILED {
             Err(io::Error::last_os_error())
         } else {
-            Ok(MmapArea {
-                len,
-                mem_ptr,
-                len_usize,
-            })
+            Ok(MmapArea { len, mem_ptr })
         }
     }
 
@@ -75,25 +66,25 @@ impl MmapArea {
     }
 
     fn check_bounds(&self, offset: usize, len: usize) -> Result<(), MmapAccessError> {
-        if offset >= self.len_usize {
+        if offset >= self.len {
             return Err(MmapAccessError::OffsetOutOfBounds);
-        } else if offset + len > self.len_usize {
+        } else if offset + len > self.len {
             return Err(MmapAccessError::MemRangeOutOfBounds);
         }
         Ok(())
     }
 
-    pub fn len(&self) -> u64 {
+    pub fn len(&self) -> usize {
         self.len
     }
 }
 
 impl Drop for MmapArea {
     fn drop(&mut self) {
-        let err = unsafe { libc::munmap(self.mem_ptr, self.len_usize) };
+        let err = unsafe { libc::munmap(self.mem_ptr, self.len) };
 
         if err != 0 {
-            error!("munmap failed: {}", err);
+            error!("munmap() failed: {}", err);
         }
     }
 }
