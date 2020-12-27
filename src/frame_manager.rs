@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, io};
 
-use crate::{CompQueue, FillQueue, FrameDesc, RxQueue, TxQueue, Umem, UmemAccessError};
+use crate::{CompQueue, DataError, FillQueue, FrameDesc, RxQueue, TxQueue, Umem};
 
 struct Xsk<'umem> {
     tx_q: TxQueue<'umem>,
@@ -28,10 +28,7 @@ impl<'umem> FrameManager<'umem> {
     /// Try and copy `data` into the next available UMEM frame. Returns `None` if
     /// there are no free frames available to write to, otherwise will return `Some`
     /// to indicate that copying was successful.
-    pub fn write_to_next_available_frame(
-        &mut self,
-        data: &[u8],
-    ) -> Result<Option<()>, UmemAccessError> {
+    pub fn write_to_next_available_frame(&mut self, data: &[u8]) -> Result<Option<()>, DataError> {
         if data.len() == 0 {
             return Ok(Some(()));
         }

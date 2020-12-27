@@ -80,23 +80,23 @@ pub struct Umem<'a> {
     _marker: PhantomData<&'a ()>,
 }
 
+/// Frame address related errors
 #[derive(Debug)]
-pub enum UmemAccessError {
-    AddrOutOfBounds { req_addr: usize, max_addr: usize },
-    AddrNotAligned { req_addr: usize, frame_size: u32 },
-    DataLenOutOfBounds { data_len: usize, frame_size: u32 },
+pub enum AddrError {
+    OutOfBounds { req_addr: usize, max_addr: usize },
+    NotAligned { req_addr: usize, frame_size: u32 },
 }
 
-impl fmt::Display for UmemAccessError {
+impl fmt::Display for AddrError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use UmemAccessError::*;
+        use AddrError::*;
         match self {
-            AddrOutOfBounds { req_addr, max_addr } => write!(
+            OutOfBounds { req_addr, max_addr } => write!(
                 f,
                 "frame address {} is out of bounds, max address is {}",
                 req_addr, max_addr
             ),
-            AddrNotAligned {
+            NotAligned {
                 req_addr,
                 frame_size,
             } => write!(
@@ -104,7 +104,23 @@ impl fmt::Display for UmemAccessError {
                 "frame address {} must be a multiple of the frame size ({})",
                 req_addr, frame_size
             ),
-            DataLenOutOfBounds {
+        }
+    }
+}
+
+impl Error for AddrError {}
+
+/// Data related errors
+#[derive(Debug)]
+pub enum DataError {
+    ExceedsFrameSize { data_len: usize, frame_size: u32 },
+}
+
+impl fmt::Display for DataError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use DataError::*;
+        match self {
+            ExceedsFrameSize {
                 data_len,
                 frame_size,
             } => write!(
@@ -116,7 +132,26 @@ impl fmt::Display for UmemAccessError {
     }
 }
 
-impl Error for UmemAccessError {}
+impl Error for DataError {}
+
+/// Errors that may occur when writing data to a specified address
+#[derive(Debug)]
+pub enum WriteError {
+    Addr(AddrError),
+    Data(DataError),
+}
+
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use WriteError::*;
+        match self {
+            Addr(addr_err) => write!(f, "{}", addr_err),
+            Data(data_err) => write!(f, "{}", data_err),
+        }
+    }
+}
+
+impl Error for WriteError {}
 
 /// Used to transfer ownership of UMEM frames from kernel-space to user-space.
 ///
@@ -262,10 +297,10 @@ impl Umem<'_> {
     }
 
     /// Check if `address` is valid, i.e. is within bounds and aligned to the start of some frame.
-    pub fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), UmemAccessError> {
+    pub fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), AddrError> {
         // Check frame address is within bounds
         if *addr > self.max_addr {
-            return Err(UmemAccessError::AddrOutOfBounds {
+            return Err(AddrError::OutOfBounds {
                 max_addr: self.max_addr,
                 req_addr: *addr,
             });
@@ -273,7 +308,7 @@ impl Umem<'_> {
 
         // Check frame address is aligned
         if *addr % (self.frame_size as usize) != 0 {
-            return Err(UmemAccessError::AddrNotAligned {
+            return Err(AddrError::NotAligned {
                 req_addr: *addr,
                 frame_size: self.frame_size,
             });
@@ -283,10 +318,10 @@ impl Umem<'_> {
     }
 
     /// Check if `data` is valid, i.e. is at most the size of a single frame.
-    pub fn check_data_valid(&self, data: &[u8]) -> Result<(), UmemAccessError> {
+    pub fn check_data_valid(&self, data: &[u8]) -> Result<(), DataError> {
         // Check that data fits within a frame
         if data.len() > (self.frame_size as usize) {
-            return Err(UmemAccessError::DataLenOutOfBounds {
+            return Err(DataError::ExceedsFrameSize {
                 data_len: data.len(),
                 frame_size: self.frame_size,
             });
@@ -302,7 +337,7 @@ impl Umem<'_> {
     ///
     /// This function is unsafe as it cannot be guranteed that the memory
     /// referenced is not being written to by the kernel.
-    pub unsafe fn frame_ref_at_addr(&self, addr: &usize) -> Result<&[u8], UmemAccessError> {
+    pub unsafe fn frame_ref_at_addr(&self, addr: &usize) -> Result<&[u8], AddrError> {
         self.check_frame_addr_valid(&addr)?;
 
         Ok(self
@@ -334,10 +369,7 @@ impl Umem<'_> {
     ///
     /// This function is unsafe as it cannot be guaranteed that the kernel isn't
     /// writing to or reading from the same memory that is being accessed.
-    pub unsafe fn frame_ref_at_addr_mut(
-        &mut self,
-        addr: &usize,
-    ) -> Result<&mut [u8], UmemAccessError> {
+    pub unsafe fn frame_ref_at_addr_mut(&mut self, addr: &usize) -> Result<&mut [u8], AddrError> {
         self.check_frame_addr_valid(&addr)?;
 
         Ok(self
@@ -373,14 +405,17 @@ impl Umem<'_> {
         &mut self,
         addr: &usize,
         data: &[u8],
-    ) -> Result<usize, UmemAccessError> {
+    ) -> Result<usize, WriteError> {
         if data.len() == 0 {
             return Ok(0);
         }
 
-        self.check_data_valid(data)?;
+        self.check_data_valid(data)
+            .map_err(|e| WriteError::Data(e))?;
 
-        let frame_ref = self.frame_ref_at_addr_mut(addr)?;
+        let frame_ref = self
+            .frame_ref_at_addr_mut(addr)
+            .map_err(|e| WriteError::Addr(e))?;
 
         frame_ref[..data.len()].copy_from_slice(data);
 
@@ -422,15 +457,18 @@ impl Umem<'_> {
         &mut self,
         frame_desc: &mut FrameDesc,
         data: &[u8],
-    ) -> Result<(), UmemAccessError> {
+    ) -> Result<(), WriteError> {
         if data.len() == 0 {
             frame_desc.set_len(0);
             return Ok(());
         }
 
-        self.check_data_valid(data)?;
+        self.check_data_valid(data)
+            .map_err(|e| WriteError::Data(e))?;
 
-        let frame_ref = self.frame_ref_at_addr_mut(&frame_desc.addr())?;
+        let frame_ref = self
+            .frame_ref_at_addr_mut(&frame_desc.addr())
+            .map_err(|e| WriteError::Addr(e))?;
 
         frame_ref[..data.len()].copy_from_slice(data);
 
