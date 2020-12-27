@@ -19,13 +19,14 @@ use super::{config::Config, mmap::MmapArea};
 /// the `len` field will be set by the kernel and dictates the number
 /// of bytes the user should read from the UMEM.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FrameDesc {
+pub struct FrameDesc<'umem> {
     addr: usize,
     len: usize,
     options: u32,
+    _marker: PhantomData<&'umem ()>,
 }
 
-impl FrameDesc {
+impl FrameDesc<'_> {
     pub fn addr(&self) -> usize {
         self.addr
     }
@@ -167,7 +168,7 @@ impl<'a> UmemBuilderWithMmap {
     /// and [CompQueue](struct.CompQueue.html).
     pub fn create_umem(
         mut self,
-    ) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>)> {
+    ) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>)> {
         let umem_create_config = xsk_umem_config {
             fill_size: self.config.fill_queue_size(),
             comp_size: self.config.comp_queue_size(),
@@ -208,7 +209,12 @@ impl<'a> UmemBuilderWithMmap {
             let len = 0;
             let options = 0;
 
-            let frame_desc = FrameDesc { addr, len, options };
+            let frame_desc = FrameDesc {
+                addr,
+                len,
+                options,
+                _marker: PhantomData,
+            };
 
             frame_descs.push(frame_desc);
         }
@@ -255,7 +261,8 @@ impl Umem<'_> {
         self.inner.as_mut()
     }
 
-    fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), UmemAccessError> {
+    /// Check if `address` is valid, i.e. is within bounds and aligned to the start of some frame.
+    pub fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), UmemAccessError> {
         // Check frame address is within bounds
         if *addr > self.max_addr {
             return Err(UmemAccessError::AddrOutOfBounds {
@@ -275,7 +282,8 @@ impl Umem<'_> {
         Ok(())
     }
 
-    fn check_data_valid(&self, data: &[u8]) -> Result<(), UmemAccessError> {
+    /// Check if `data` is valid, i.e. is at most the size of a single frame.
+    pub fn check_data_valid(&self, data: &[u8]) -> Result<(), UmemAccessError> {
         // Check that data fits within a frame
         if data.len() > (self.frame_size as usize) {
             return Err(UmemAccessError::DataLenOutOfBounds {
@@ -306,22 +314,23 @@ impl Umem<'_> {
     /// Return a reference to the frame at a given address, without first
     /// checking if the address is valid.
     ///
-    /// See `frame_ref` for further details.
+    /// See `frame_ref_at_addr` for further details.
     pub unsafe fn frame_ref_at_addr_unchecked(&self, addr: &usize) -> &[u8] {
         self.mmap_area
             .mem_range(*addr, self.frame_size as usize)
             .unwrap()
     }
 
-    /// Return a mutable reference to the frame at a given address. Can be used
-    /// if writing to the UMEM, for example before transmitting a packet.
+    /// Return a mutable reference to the frame at a given address. Use to write
+    /// to the UMEM, for example before transmitting a packet.
+    ///
+    /// Remember that if you write data to a frame, you MUST update the length on the
+    /// corresponding [FrameDesc](struct.FrameDesc.html) for `addr` before submitting to
+    /// the [TxQueue](struct.TxQueue.html). Use `copy_data_to_frame` to avoid the
+    /// overhead of updating the frame descriptor.
     ///
     /// `addr` references the first byte of a frame and must therefore be
     /// a multiple of the frame size.
-    ///
-    /// Remember that if you write data to a frame, you must update the length on
-    /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting to
-    /// the [TxQueue](struct.TxQueue.html).
     ///
     /// This function is unsafe as it cannot be guaranteed that the kernel isn't
     /// writing to or reading from the same memory that is being accessed.
@@ -340,24 +349,23 @@ impl Umem<'_> {
     /// Return a mutable reference to the frame at a given address, without first
     /// checking if the address provided is valid.
     ///
-    /// See `frame_ref_unchecked` for further details.
+    /// See `frame_ref_at_addr_mut` for further details.
     pub unsafe fn frame_ref_at_addr_mut_unchecked(&mut self, addr: &usize) -> &mut [u8] {
         self.mmap_area
             .mem_range_mut(*addr, self.frame_size as usize)
             .unwrap()
     }
 
-    /// Copy `data` into the frame at `addr`. Consider using
-    /// `copy_data_into_frame` instead as less book-keeping required.
+    /// Copy `data` into the frame at `addr`, returning the number of bytes copied.
+    ///
+    /// Remember that once data has been written to a frame, you MUST update the length on
+    /// the corresponding [FrameDesc](struct.FrameDesc.html) for `addr` before submitting
+    /// it to the [TxQueue](struct.TxQueue.html). Use `copy_data_to_frame` to avoid the
+    /// overhead of updating the frame descriptor.
     ///
     /// `addr` references the first byte of a frame and must therefore be
     /// a multiple of the frame size. The length of `data` must be less
     /// than or equal to the frame size.
-    ///
-    /// Returns the number of bytes copied. Remember that once data has
-    /// been written to a frame, you must update the length on
-    /// the corresponding [FrameDesc](struct.FrameDesc.html) before submitting
-    /// to the [TxQueue](struct.TxQueue.html).
     ///
     /// Marked unsafe as there is no guarantee at this level that the kernel
     /// isn't writing to/reading from the chosen frame at the same time.
@@ -379,8 +387,7 @@ impl Umem<'_> {
         Ok(data.len())
     }
 
-    /// Copy data into the the frame at `addr` but without first
-    /// validating arguments.
+    /// Copy data into the the frame at `addr` but without validating arguments.
     ///
     /// See `copy_data_to_frame_at_addr` for more info.
     pub unsafe fn copy_data_to_frame_at_addr_unchecked(
@@ -403,8 +410,11 @@ impl Umem<'_> {
     ///
     /// Similar to `copy_data_to_frame_at_addr` but it sets the length
     /// on `frame_desc` if copying the data was successful, thereby
-    /// avoiding having to remember to set it yourself. The length of
-    /// `data` must be less than or equal to the frame size.
+    /// avoiding having to remember to set it yourself.
+    ///
+    /// The length of `data` must be less than or equal to the frame size
+    /// and `addr` must also be a valid, i.e. within bounds and referencing
+    /// the first byte of a frame.
     ///
     /// Marked unsafe as there is no guarantee at this level that the kernel
     /// isn't writing to/reading from the chosen frame at the same time.
@@ -429,8 +439,7 @@ impl Umem<'_> {
         Ok(())
     }
 
-    /// Copy `data` into the frame specified by `frame_desc` but without
-    /// first validating arguments.
+    /// Copy `data` into the frame specified by `frame_desc` but without validating arguments.
     ///
     /// See `copy_data_to_frame` for more info.
     pub unsafe fn copy_data_to_frame_unchecked(&mut self, frame_desc: &mut FrameDesc, data: &[u8]) {

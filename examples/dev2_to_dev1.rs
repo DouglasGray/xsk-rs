@@ -44,7 +44,7 @@ struct SocketState<'umem> {
     rx_q: RxQueue<'umem>,
     fill_q: FillQueue<'umem>,
     comp_q: CompQueue<'umem>,
-    frame_descs: Vec<FrameDesc>,
+    frame_descs: Vec<FrameDesc<'umem>>,
     umem: Umem<'umem>,
 }
 
