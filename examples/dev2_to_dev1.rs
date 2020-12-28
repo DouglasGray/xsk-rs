@@ -29,7 +29,7 @@ const COMP_Q_SIZE: u32 = 4096;
 const FILL_Q_SIZE: u32 = 4096 * 4;
 const FRAME_SIZE: u32 = 2048;
 const POLL_MS_TIMEOUT: i32 = 100;
-const PAYLOAD_SIZE: u32 = 32;
+const PAYLOAD_SIZE: usize = 32;
 const MAX_BATCH_SIZE: usize = 64;
 const NUM_PACKETS_TO_SEND: usize = 5_000_000;
 
@@ -59,7 +59,7 @@ struct Config {
     fill_q_size: u32,
     frame_size: u32,
     poll_ms_timeout: i32,
-    payload_size: u32,
+    payload_size: usize,
     max_batch_size: usize,
     num_frames_to_send: usize,
 }
@@ -532,9 +532,11 @@ fn run_example(config: &Config, veth_config: &VethConfig) {
     let eth_frame = setup::generate_eth_frame(veth_config, PAYLOAD_SIZE);
 
     for desc in dev2.frame_descs.iter_mut() {
-        dev2.umem.copy_data_to_frame(desc, &eth_frame[..]).unwrap();
+        unsafe {
+            dev2.umem.copy_data_to_frame(desc, &eth_frame[..]).unwrap();
+        }
 
-        assert_eq!(desc.len(), eth_frame.len() as u32);
+        assert_eq!(desc.len(), eth_frame.len());
     }
 
     // Send messages

@@ -90,11 +90,11 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
             &dev1_tx_q_frames[2..4]
                 .iter()
                 .map(|f| f.addr())
-                .collect::<Vec<u64>>(),
+                .collect::<Vec<usize>>(),
             &dev1_comp_q_frames[..2]
                 .iter()
                 .map(|f| f.addr())
-                .collect::<Vec<u64>>(),
+                .collect::<Vec<usize>>(),
         );
     }
 

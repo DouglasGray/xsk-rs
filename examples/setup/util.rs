@@ -12,12 +12,12 @@ pub fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
     Ok(rx)
 }
 
-fn generate_random_bytes(len: u32) -> Vec<u8> {
+fn generate_random_bytes(len: usize) -> Vec<u8> {
     (0..len).map(|_| rand::random::<u8>()).collect()
 }
 
 // Generate an ETH frame w/ UDP as transport layer and payload size `payload_len`
-pub fn generate_eth_frame(veth_config: &VethConfig, payload_len: u32) -> Vec<u8> {
+pub fn generate_eth_frame(veth_config: &VethConfig, payload_len: usize) -> Vec<u8> {
     let builder = PacketBuilder::ethernet2(
         veth_config.dev1_addr().clone(), // src mac
         veth_config.dev2_addr().clone(), // dst mac

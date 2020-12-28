@@ -71,7 +71,7 @@ impl SocketConfigBuilder {
 
 fn build_umem<'a>(
     umem_config: Option<UmemConfig>,
-) -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>) {
+) -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>) {
     let config = match umem_config {
         Some(cfg) => cfg,
         None => UmemConfigBuilder::default().build(),
@@ -79,9 +79,9 @@ fn build_umem<'a>(
 
     Umem::builder(config)
         .create_mmap()
-        .expect("Failed to create mmap area")
+        .expect("failed to create mmap area")
         .create_umem()
-        .expect("Failed to create umem")
+        .expect("failed to create umem")
 }
 
 pub fn build_socket_and_umem<'a, 'umem>(
@@ -94,7 +94,7 @@ pub fn build_socket_and_umem<'a, 'umem>(
         Umem<'umem>,
         FillQueue<'umem>,
         CompQueue<'umem>,
-        Vec<FrameDesc>,
+        Vec<FrameDesc<'umem>>,
     ),
     (TxQueue<'umem>, RxQueue<'umem>),
 ) {
@@ -106,7 +106,7 @@ pub fn build_socket_and_umem<'a, 'umem>(
     let (mut umem, fill_q, comp_q, frame_descs) = build_umem(umem_config);
 
     let (tx_q, rx_q) =
-        Socket::new(socket_config, &mut umem, if_name, queue_id).expect("Failed to build socket");
+        Socket::new(socket_config, &mut umem, if_name, queue_id).expect("failed to build socket");
 
     ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q))
 }

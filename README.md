@@ -17,16 +17,18 @@ in `hello_xdp.rs`, while a slightly more complex example of sending and receivin
 
 ### Running tests / examples
 
-It may be that root permissions are required to run the tests or examples, since they require a veth pair to be set up. 
-If that's the case try:
+Root permissions may be required to run the tests or examples, since they require a veth pair to be set up.
+However to avoid running cargo under `root` it's best to first build the tests/examples and run the binaries directly.
 
 ```
 # tests
-sudo env PATH=$PATH cargo test
+cargo build --tests
+sudo run_all_tests.sh
 
 # examples
-sudo env PATH=$PATH cargo run --example hello_xdp
-sudo env PATH=$PATH cargo run --example dev2_to_dev1 -- [FLAGS] [OPTIONS]
+cargo build --examples --release
+sudo ./target/release/examples/hello_xdp
+sudo ./target/release/examples/dev2_to_dev1 -- [FLAGS] [OPTIONS]
 ```
 
 ### Compatibility

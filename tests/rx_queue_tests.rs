@@ -100,9 +100,11 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 
         assert_eq!(d2_tx_q_frames[0].len(), 0);
 
-        dev2.umem
-            .copy_data_to_frame(&mut d2_tx_q_frames[0], &pkt[..])
-            .unwrap();
+        unsafe {
+            dev2.umem
+                .copy_data_to_frame(&mut d2_tx_q_frames[0], &pkt[..])
+                .unwrap();
+        }
 
         assert_eq!(d2_tx_q_frames[0].len(), 5);
 
@@ -117,7 +119,11 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
         assert_eq!(d1_rx_q_frames[0].len(), 5);
 
         // Check that the frame data is correct
-        let frame_ref = dev1.umem.frame_ref(&d1_rx_q_frames[0].addr()).unwrap();
+        let frame_ref = unsafe {
+            dev1.umem
+                .frame_ref_at_addr(&d1_rx_q_frames[0].addr())
+                .unwrap()
+        };
 
         assert_eq!(frame_ref[..5], pkt[..]);
     }
