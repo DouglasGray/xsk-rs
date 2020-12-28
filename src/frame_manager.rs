@@ -2,6 +2,20 @@ use std::{collections::VecDeque, io};
 
 use crate::{CompQueue, DataError, FillQueue, FrameDesc, RxQueue, TxQueue, Umem};
 
+pub trait FrameManager {
+    fn num_free_frames(&self) -> usize;
+    fn write_to_next_available_frame(&mut self, data: &[u8]) -> Option<Result<(), DataError>>;
+    fn send_pending_tx(&mut self, nb: usize) -> io::Result<()>;
+    fn send_all_pending_tx(&mut self) -> io::Result<usize>;
+    fn clear_completed_tx(&mut self) -> usize;
+    fn submit_frames_for_rx(&mut self, nb: usize) -> Option<io::Result<()>>;
+    fn submit_all_frames_for_rx(&mut self) -> io::Result<usize>;
+    fn check_for_rx(&mut self) -> usize;
+    fn read_from_next_available_frame<F, R, E>(&mut self, reader: F) -> Option<Result<R, E>>
+    where
+        F: FnMut(&[u8]) -> Result<R, E>;
+}
+
 struct Xsk<'umem> {
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
@@ -10,7 +24,7 @@ struct Xsk<'umem> {
     umem: Umem<'umem>,
 }
 
-pub struct FrameManager<'umem> {
+pub struct FrameManagerImpl<'umem> {
     free_frames: Vec<FrameDesc<'umem>>,
     tx_pending_submission: Vec<FrameDesc<'umem>>,
     tx_pending_completion: VecDeque<FrameDesc<'umem>>,
@@ -19,7 +33,7 @@ pub struct FrameManager<'umem> {
     xsk: Xsk<'umem>,
 }
 
-impl<'umem> FrameManager<'umem> {
+impl<'umem> FrameManagerImpl<'umem> {
     /// The number of free frames available to be used for either sending or receiving packets.
     pub fn num_free_frames(&self) -> usize {
         self.free_frames.len()
@@ -28,18 +42,19 @@ impl<'umem> FrameManager<'umem> {
     /// Try and copy `data` into the next available UMEM frame. Returns `None` if
     /// there are no free frames available to write to, otherwise will return `Some`
     /// to indicate that copying was successful.
-    pub fn write_to_next_available_frame(&mut self, data: &[u8]) -> Result<Option<()>, DataError> {
+    pub fn write_to_next_available_frame(&mut self, data: &[u8]) -> Option<Result<(), DataError>> {
         if data.len() == 0 {
-            return Ok(Some(()));
-        }
-
-        if let Err(e) = self.xsk.umem.check_data_valid(data) {
-            return Err(e);
+            return Some(Ok(()));
         }
 
         match self.free_frames.pop() {
-            None => Ok(None),
+            None => None,
             Some(mut frame_desc) => {
+                if let Err(e) = self.xsk.umem.check_data_valid(data) {
+                    self.free_frames.push(frame_desc);
+                    return Some(Err(e));
+                }
+
                 unsafe {
                     self.xsk
                         .umem
@@ -48,7 +63,7 @@ impl<'umem> FrameManager<'umem> {
 
                 self.tx_pending_submission.push(frame_desc);
 
-                Ok(Some(()))
+                Some(Ok(()))
             }
         }
     }
@@ -160,23 +175,28 @@ impl<'umem> FrameManager<'umem> {
 
     /// Apply `reader` to the next readable frame in the completion ring.
     /// Once `reader` is done, the contents of the read frame will be discarded.
-    /// `None` will be passed to the function if there are no frames to read.
-    pub fn read_from_next_available_frame<F>(&mut self, reader: &mut F)
+    /// Returns `None` if there are no frames to read.
+    pub fn read_from_next_available_frame<F, R, E>(
+        &mut self,
+        reader: &mut F,
+    ) -> Option<Result<R, E>>
     where
-        F: FnMut(Option<&[u8]>),
+        F: FnMut(&[u8]) -> Result<R, E>,
     {
         match self.rx_fill_completed.pop_front() {
-            None => reader(None),
+            None => None,
             Some(frame_desc) => {
-                let data = Some(unsafe {
+                let data = unsafe {
                     self.xsk
                         .umem
                         .frame_ref_at_addr_unchecked(&frame_desc.addr())
-                });
+                };
+
+                let res = reader(data);
 
                 self.free_frames.push(frame_desc);
 
-                reader(data);
+                Some(res)
             }
         }
     }
