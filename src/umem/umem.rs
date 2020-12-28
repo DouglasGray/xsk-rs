@@ -5,7 +5,7 @@ use crate::socket::{self, Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
-/// Describes a UMEM frame's location and current contents.
+/// Describes a UMEM frame's address and size of its currenct contents.
 ///
 /// The `addr` field identifies the particular UMEM frame and
 /// the `len` field describes the length (in bytes) of any data
@@ -297,6 +297,7 @@ impl Umem<'_> {
     }
 
     /// Check if `address` is valid, i.e. is within bounds and aligned to the start of some frame.
+    #[inline]
     pub fn check_frame_addr_valid(&self, addr: &usize) -> Result<(), AddrError> {
         // Check frame address is within bounds
         if *addr > self.max_addr {
@@ -318,6 +319,7 @@ impl Umem<'_> {
     }
 
     /// Check if `data` is valid, i.e. is at most the size of a single frame.
+    #[inline]
     pub fn check_data_valid(&self, data: &[u8]) -> Result<(), DataError> {
         // Check that data fits within a frame
         if data.len() > (self.frame_size as usize) {
@@ -369,6 +371,7 @@ impl Umem<'_> {
     ///
     /// This function is unsafe as it cannot be guaranteed that the kernel isn't
     /// writing to or reading from the same memory that is being accessed.
+    #[inline]
     pub unsafe fn frame_ref_at_addr_mut(&mut self, addr: &usize) -> Result<&mut [u8], AddrError> {
         self.check_frame_addr_valid(&addr)?;
 
@@ -516,6 +519,7 @@ impl FillQueue<'_> {
     ///
     /// Once the frames have been submitted they should not be used again until consumed again
     /// via the [RxQueue](struct.RxQueue.html)
+    #[inline]
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
         // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
@@ -544,6 +548,7 @@ impl FillQueue<'_> {
         cnt.try_into().unwrap()
     }
 
+    #[inline]
     pub fn produce_and_wakeup(
         &mut self,
         descs: &[FrameDesc],
@@ -559,11 +564,13 @@ impl FillQueue<'_> {
         Ok(cnt)
     }
 
+    #[inline]
     pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
         socket::poll_read(fd, poll_timeout)?;
         Ok(())
     }
 
+    #[inline]
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 }
     }
@@ -638,7 +645,7 @@ mod tests {
         .unwrap()
     }
 
-    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc>) {
+    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>) {
         let config = umem_config();
 
         Umem::builder(config)
@@ -733,35 +740,35 @@ mod tests {
         assert!(umem.check_frame_addr_valid(&0).is_ok());
 
         // Max possible address ok
-        let max_addr = (FRAME_COUNT as u64 - 1) * (FRAME_SIZE as u64);
+        let max_addr = (FRAME_COUNT as usize - 1) * (FRAME_SIZE as usize);
 
         assert!(umem.check_frame_addr_valid(&max_addr).is_ok());
 
         // Another frame ok
-        let frame_addr = 2 * FRAME_SIZE as u64;
+        let frame_addr = 2 * FRAME_SIZE as usize;
         assert!(umem.check_frame_addr_valid(&(frame_addr)).is_ok());
 
         // Max address + 1 fails
         assert!(umem.check_frame_addr_valid(&(max_addr + 1)).is_err());
 
         // Next valid address after maximum also fails
-        let max_addr_next = (FRAME_COUNT as u64) * (FRAME_SIZE as u64);
+        let max_addr_next = (FRAME_COUNT as usize) * (FRAME_SIZE as usize);
 
         assert!(matches!(
             umem.check_frame_addr_valid(&max_addr_next),
-            Err(UmemAccessError::AddrOutOfBounds { .. })
+            Err(AddrError::OutOfBounds { .. })
         ));
 
         // Misaligned address fails
         assert!(matches!(
             umem.check_frame_addr_valid(&1),
-            Err(UmemAccessError::AddrNotAligned { .. })
+            Err(AddrError::NotAligned { .. })
         ));
 
         // Misaligned address fails
         assert!(matches!(
             umem.check_frame_addr_valid(&(frame_addr + 13)),
-            Err(UmemAccessError::AddrNotAligned { .. })
+            Err(AddrError::NotAligned { .. })
         ));
     }
 
@@ -789,7 +796,7 @@ mod tests {
 
         assert!(matches!(
             umem.check_data_valid(&data),
-            Err(UmemAccessError::DataLenOutOfBounds { .. })
+            Err(DataError::ExceedsFrameSize { .. })
         ));
     }
 
@@ -800,9 +807,11 @@ mod tests {
         let addr = 0;
         let data = [b'H', b'e', b'l', b'l', b'o'];
 
-        umem.copy_data_to_frame_at_addr(&addr, &data[..]).unwrap();
+        unsafe {
+            umem.copy_data_to_frame_at_addr(&addr, &data[..]).unwrap();
+        }
 
-        let frame_ref = umem.frame_ref_at_addr(&addr).unwrap();
+        let frame_ref = unsafe { umem.frame_ref_at_addr(&addr).unwrap() };
 
         assert_eq!(data, frame_ref[..data.len()]);
     }
@@ -813,8 +822,10 @@ mod tests {
 
         let data = [];
 
-        umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
-            .unwrap();
+        unsafe {
+            umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
+                .unwrap();
+        }
 
         assert_eq!(frame_descs[0].len(), 0);
     }
@@ -825,12 +836,14 @@ mod tests {
 
         let data = [b'H', b'e', b'l', b'l', b'o'];
 
-        umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
-            .unwrap();
+        unsafe {
+            umem.copy_data_to_frame(&mut frame_descs[0], &data[..])
+                .unwrap();
+        }
 
         assert_eq!(frame_descs[0].len(), 5);
 
-        let frame_ref = umem.frame_ref_at_addr(&frame_descs[0].addr()).unwrap();
+        let frame_ref = unsafe { umem.frame_ref_at_addr(&frame_descs[0].addr()).unwrap() };
 
         assert_eq!(data, frame_ref[..data.len()]);
     }
@@ -841,20 +854,22 @@ mod tests {
 
         // Create random data and write to adjacent frames
         let fst_addr = 0;
-        let snd_addr = FRAME_SIZE as u64;
+        let snd_addr = FRAME_SIZE as usize;
 
         let fst_data = generate_random_bytes(FRAME_SIZE);
         let snd_data = generate_random_bytes(FRAME_SIZE);
 
-        umem.copy_data_to_frame_at_addr(&fst_addr, &fst_data)
-            .unwrap();
-        umem.copy_data_to_frame_at_addr(&snd_addr, &snd_data)
-            .unwrap();
+        unsafe {
+            umem.copy_data_to_frame_at_addr(&fst_addr, &fst_data)
+                .unwrap();
+            umem.copy_data_to_frame_at_addr(&snd_addr, &snd_data)
+                .unwrap();
+        }
 
-        let fst_frame_ref = umem.frame_ref_at_addr(&fst_addr).unwrap();
-        let snd_frame_ref = umem.frame_ref_at_addr(&snd_addr).unwrap();
+        let fst_frame_ref = unsafe { umem.frame_ref_at_addr(&fst_addr).unwrap() };
+        let snd_frame_ref = unsafe { umem.frame_ref_at_addr(&snd_addr).unwrap() };
 
-        // Check that they are indeed the same
+        // Check that they are indeed the samelet fst_frame_ref = umem.frame_ref_at_addr(&fst_addr).unwrap();
         assert_eq!(fst_data[..], fst_frame_ref[..fst_data.len()]);
         assert_eq!(snd_data[..], snd_frame_ref[..snd_data.len()]);
 

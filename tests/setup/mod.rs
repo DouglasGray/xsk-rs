@@ -10,12 +10,12 @@ pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
 pub struct SocketState<'a> {
     pub if_name: String,
-    pub umem: Umem<'a>,
     pub fill_q: FillQueue<'a>,
     pub comp_q: CompQueue<'a>,
     pub tx_q: TxQueue<'a>,
     pub rx_q: RxQueue<'a>,
-    pub frame_descs: Vec<FrameDesc>,
+    pub frame_descs: Vec<FrameDesc<'a>>,
+    pub umem: Umem<'a>,
 }
 
 pub async fn run_test<F>(
@@ -38,12 +38,12 @@ pub async fn run_test<F>(
 
         let dev1_socket = SocketState {
             if_name: dev1_if_name,
-            umem,
             fill_q,
             comp_q,
             tx_q,
             rx_q,
             frame_descs,
+            umem,
         };
 
         let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
@@ -55,12 +55,12 @@ pub async fn run_test<F>(
 
         let dev2_socket = SocketState {
             if_name: dev2_if_name,
-            umem,
             fill_q,
             comp_q,
             tx_q,
             rx_q,
             frame_descs,
+            umem,
         };
 
         test(dev1_socket, dev2_socket)

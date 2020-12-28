@@ -80,9 +80,7 @@ impl<'umem> FrameManager<'umem> {
 
     /// Clear the completion ring of any frames that have finished transmitting.
     pub fn clear_any_completed_tx(&mut self) -> usize {
-        let nframes_pending_completion = self.tx_pending_completion.len();
-
-        if nframes_pending_completion == 0 {
+        if self.tx_pending_completion.len() == 0 {
             return 0;
         }
 

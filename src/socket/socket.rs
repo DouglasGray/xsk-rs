@@ -175,6 +175,7 @@ impl RxQueue<'_> {
     /// Once the contents of the consumed frames have been dealt with and are no longer
     /// required, the frames should be added back on to either the
     /// [FillQueue](struct.FillQueue.html) or the [TxQueue](struct.TxQueue.html).
+    #[inline]
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
         // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
@@ -209,6 +210,7 @@ impl RxQueue<'_> {
     }
 
     /// Same as `consume` but poll first to check if there is anything to read beforehand.
+    #[inline]
     pub fn poll_and_consume(
         &mut self,
         descs: &mut [FrameDesc],
@@ -224,6 +226,7 @@ impl RxQueue<'_> {
     ///
     /// Required for [poll_read](socket/poll/fn.poll_read.html)
     /// or [poll_write](socket/poll/fn.poll_write.html).
+    #[inline]
     pub fn fd(&mut self) -> &mut Fd {
         &mut self.fd
     }
@@ -241,6 +244,7 @@ impl TxQueue<'_> {
     ///
     /// Once the frames have been submitted they should not be used again until consumed again
     /// via the [CompQueue](struct.CompQueue.html)
+    #[inline]
     pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
         // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
@@ -278,6 +282,7 @@ impl TxQueue<'_> {
     /// produced frames (if required).
     ///
     /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
+    #[inline]
     pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);
 
@@ -291,6 +296,7 @@ impl TxQueue<'_> {
     /// Wake up the kernel to continue processing produced frames.
     ///
     /// See `produce_and_wakeup` for link to docs with further explanation.
+    #[inline]
     pub fn wakeup(&self) -> io::Result<()> {
         let ret =
             unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
@@ -310,6 +316,7 @@ impl TxQueue<'_> {
     /// continue processing produced frames.
     ///
     /// See `produce_and_wakeup` for link to docs with further explanation.
+    #[inline]
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 }
     }
@@ -318,6 +325,7 @@ impl TxQueue<'_> {
     ///
     /// Required for [poll_read](socket/poll/fn.poll_read.html)
     /// or [poll_write](socket/poll/fn.poll_write.html).
+    #[inline]
     pub fn fd(&mut self) -> &mut Fd {
         &mut self.fd
     }
