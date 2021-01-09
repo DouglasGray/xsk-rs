@@ -2,14 +2,17 @@ use std::{collections::VecDeque, io};
 
 use crate::{CompQueue, DataError, FillQueue, FrameDesc, RxQueue, TxQueue, Umem};
 
-pub trait FrameManager {
-    fn num_free_frames(&self) -> usize;
+pub trait TxManager {
+    fn available_frames_for_tx(&self) -> usize;
     fn write_to_next_available_frame(&mut self, data: &[u8]) -> Option<Result<(), DataError>>;
     fn send_pending_tx(&mut self, nb: usize) -> io::Result<()>;
     fn send_all_pending_tx(&mut self) -> io::Result<usize>;
     fn clear_completed_tx(&mut self) -> usize;
+}
+
+pub trait RxManager {
+    fn available_frames_for_rx(&self) -> usize;
     fn submit_frames_for_rx(&mut self, nb: usize) -> Option<io::Result<()>>;
-    fn submit_all_frames_for_rx(&mut self) -> io::Result<usize>;
     fn check_for_rx(&mut self) -> usize;
     fn read_from_next_available_frame<F, R, E>(&mut self, reader: F) -> Option<Result<R, E>>
     where
@@ -24,7 +27,7 @@ struct Xsk<'umem> {
     umem: Umem<'umem>,
 }
 
-pub struct FrameManagerImpl<'umem> {
+pub struct FrameManager<'umem> {
     free_frames: Vec<FrameDesc<'umem>>,
     tx_pending_submission: Vec<FrameDesc<'umem>>,
     tx_pending_completion: VecDeque<FrameDesc<'umem>>,
@@ -33,7 +36,50 @@ pub struct FrameManagerImpl<'umem> {
     xsk: Xsk<'umem>,
 }
 
-impl<'umem> FrameManagerImpl<'umem> {
+impl<'umem> TxManager for FrameManager<'umem> {
+    fn available_frames_for_tx(&self) -> usize {
+        todo!()
+    }
+
+    fn write_to_next_available_frame(&mut self, _data: &[u8]) -> Option<Result<(), DataError>> {
+        todo!()
+    }
+
+    fn send_pending_tx(&mut self, _nb: usize) -> io::Result<()> {
+        todo!()
+    }
+
+    fn send_all_pending_tx(&mut self) -> io::Result<usize> {
+        todo!()
+    }
+
+    fn clear_completed_tx(&mut self) -> usize {
+        todo!()
+    }
+}
+
+impl<'umem> RxManager for FrameManager<'umem> {
+    fn available_frames_for_rx(&self) -> usize {
+        todo!()
+    }
+
+    fn submit_frames_for_rx(&mut self, _nb: usize) -> Option<io::Result<()>> {
+        todo!()
+    }
+
+    fn check_for_rx(&mut self) -> usize {
+        todo!()
+    }
+
+    fn read_from_next_available_frame<F, R, E>(&mut self, _reader: F) -> Option<Result<R, E>>
+    where
+        F: FnMut(&[u8]) -> Result<R, E>,
+    {
+        todo!()
+    }
+}
+
+impl<'umem> FrameManager<'umem> {
     /// The number of free frames available to be used for either sending or receiving packets.
     pub fn num_free_frames(&self) -> usize {
         self.free_frames.len()
@@ -77,11 +123,11 @@ impl<'umem> FrameManagerImpl<'umem> {
             return Ok(0);
         }
 
-        while self
-            .xsk
-            .tx_q
-            .produce_and_wakeup(&self.tx_pending_submission[..])?
-            != nb
+        while unsafe {
+            self.xsk
+                .tx_q
+                .produce_and_wakeup(&self.tx_pending_submission[..])?
+        } != nb
         {
             // Keep trying until all frames submitted
         }
@@ -128,11 +174,13 @@ impl<'umem> FrameManagerImpl<'umem> {
 
         let offset = nfree - nb;
 
-        while self.xsk.fill_q.produce_and_wakeup(
-            &mut self.free_frames[offset..],
-            self.xsk.rx_q.fd(),
-            100,
-        )? != nb
+        while unsafe {
+            self.xsk.fill_q.produce_and_wakeup(
+                &mut self.free_frames[offset..],
+                self.xsk.rx_q.fd(),
+                100,
+            )?
+        } != nb
         {
             // Keep trying until `nb` frames added
         }

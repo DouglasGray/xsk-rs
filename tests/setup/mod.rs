@@ -8,7 +8,7 @@ mod xsk_setup;
 
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
-pub struct SocketState<'a> {
+pub struct Xsk<'a> {
     pub if_name: String,
     pub fill_q: FillQueue<'a>,
     pub comp_q: CompQueue<'a>,
@@ -25,7 +25,7 @@ pub async fn run_test<F>(
     dev2_socket_config: Option<SocketConfig>,
     test: F,
 ) where
-    F: Fn(SocketState, SocketState) + Send + 'static,
+    F: Fn(Xsk, Xsk) + Send + 'static,
 {
     let inner = move |dev1_if_name: String, dev2_if_name: String| {
         // Create the socket for the first interfaace
@@ -36,7 +36,7 @@ pub async fn run_test<F>(
             0,
         );
 
-        let dev1_socket = SocketState {
+        let dev1_socket = Xsk {
             if_name: dev1_if_name,
             fill_q,
             comp_q,
@@ -53,7 +53,7 @@ pub async fn run_test<F>(
             0,
         );
 
-        let dev2_socket = SocketState {
+        let dev2_socket = Xsk {
             if_name: dev2_if_name,
             fill_q,
             comp_q,

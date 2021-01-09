@@ -243,9 +243,12 @@ impl TxQueue<'_> {
     /// `descs` or `0`.
     ///
     /// Once the frames have been submitted they should not be used again until consumed again
-    /// via the [CompQueue](struct.CompQueue.html)
+    /// via the [CompQueue](struct.CompQueue.html).
+    ///
+    /// This function is marked unsafe as it is possible to cause a data race by simultaneously
+    /// submitting the same frame descriptor to the Tx ring and the fill ring, for example.
     #[inline]
-    pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
+    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
         // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
         let nb: u64 = descs.len().try_into().unwrap();
@@ -256,34 +259,32 @@ impl TxQueue<'_> {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
+        let cnt = libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx);
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt.try_into().unwrap()) {
-                unsafe {
-                    let send_pkt_desc =
-                        libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
+                let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
 
-                    (*send_pkt_desc).addr = desc.addr() as u64;
-                    (*send_pkt_desc).len = desc.len() as u32; // Ok as desc.len() = frame_size: u32
-                    (*send_pkt_desc).options = desc.options();
-                }
+                (*send_pkt_desc).addr = desc.addr() as u64;
+                (*send_pkt_desc).len = desc.len() as u32; // Ok as desc.len() = frame_size: u32
+                (*send_pkt_desc).options = desc.options();
 
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
+            libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt);
         }
 
         cnt.try_into().unwrap()
     }
 
-    /// Same as `produce` but wake up the kernel to continue processing
-    /// produced frames (if required).
+    /// Same as `produce` but wake up the kernel to continue processing produced frames (if required).
     ///
     /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
+    ///
+    /// This function is marked unsafe for the same reasons that `produce` is unsafe.
     #[inline]
-    pub fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
+    pub unsafe fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);
 
         if self.needs_wakeup() {

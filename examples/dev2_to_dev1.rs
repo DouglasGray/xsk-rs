@@ -23,23 +23,13 @@ use xsk_rs::{
 
 use setup::{LinkIpAddr, VethConfig};
 
-const RX_Q_SIZE: u32 = 4096;
-const TX_Q_SIZE: u32 = 4096;
-const COMP_Q_SIZE: u32 = 4096;
-const FILL_Q_SIZE: u32 = 4096 * 4;
-const FRAME_SIZE: u32 = 2048;
-const POLL_MS_TIMEOUT: i32 = 100;
-const PAYLOAD_SIZE: usize = 32;
-const MAX_BATCH_SIZE: usize = 64;
-const NUM_PACKETS_TO_SEND: usize = 5_000_000;
-
 // Reqd for the multithreaded case to signal when all packets have been sent
 static SENDER_DONE: AtomicBool = AtomicBool::new(false);
 
 // Umem has to go last to maintain correct drop order!
 // If, for example, we tried to drop the umem before the queues
 // then the destructor would fail as the memory is still in use.
-struct SocketState<'umem> {
+struct Xsk<'umem> {
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
     fill_q: FillQueue<'umem>,
@@ -51,8 +41,6 @@ struct SocketState<'umem> {
 #[derive(Clone, Debug)]
 struct Config {
     is_multithreaded: bool,
-    use_need_wakeup: bool,
-    zerocopy: bool,
     tx_q_size: u32,
     rx_q_size: u32,
     comp_q_size: u32,
@@ -66,7 +54,7 @@ struct Config {
 
 /// Send ETH frames with payload size `msg_size` through dev2 to be received by dev1.
 /// This is single threaded so will handle the send and receive process alternately.
-fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: SocketState) {
+fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
     // Extra 42 bytes is for the eth and IP headers
     let sent_eth_frame_size = config.payload_size + 42;
 
@@ -76,15 +64,16 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
     let start = Instant::now();
 
     // Populate fill queue
-    let frames_filled = dev1
-        .fill_q
-        .produce(&dev1_frames[..config.fill_q_size as usize]);
+    let frames_filled = unsafe {
+        dev1.fill_q
+            .produce(&dev1_frames[..config.fill_q_size as usize])
+    };
 
     assert_eq!(frames_filled, config.fill_q_size as usize);
     log::debug!("init frames added to dev1.fill_q: {}", frames_filled);
 
     // Populate tx queue
-    let mut total_frames_sent = dev2.tx_q.produce(&dev2_frames[..config.max_batch_size]);
+    let mut total_frames_sent = unsafe { dev2.tx_q.produce(&dev2_frames[..config.max_batch_size]) };
 
     assert_eq!(total_frames_sent, config.max_batch_size);
     log::debug!("init frames added to dev2.tx_q: {}", total_frames_sent);
@@ -125,15 +114,15 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
                         frames_rcvd
                     );
                     // Add frames back to fill queue
-                    while dev1
-                        .fill_q
-                        .produce_and_wakeup(
-                            &dev1_frames[..frames_rcvd],
-                            dev1.rx_q.fd(),
-                            config.poll_ms_timeout,
-                        )
-                        .unwrap()
-                        != frames_rcvd
+                    while unsafe {
+                        dev1.fill_q
+                            .produce_and_wakeup(
+                                &dev1_frames[..frames_rcvd],
+                                dev1.rx_q.fd(),
+                                config.poll_ms_timeout,
+                            )
+                            .unwrap()
+                    } != frames_rcvd
                     {
                         // Loop until frames added to the fill ring.
                         log::debug!("dev1.fill_q.produce_and_wakeup() failed to allocate");
@@ -186,11 +175,11 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
                         );
 
                         // Add consumed frames back to the tx queue
-                        while dev2
-                            .tx_q
-                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
-                            .unwrap()
-                            != frames_to_send
+                        while unsafe {
+                            dev2.tx_q
+                                .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                                .unwrap()
+                        } != frames_to_send
                         {
                             // Loop until frames added to the tx ring.
                             log::debug!("dev2.tx_q.produce_and_wakeup() failed to allocate");
@@ -223,6 +212,7 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
     let gbps_sent = bytes_sent_per_sec / 0.125e9;
     let gbps_rcvd = bytes_rcvd_per_sec / 0.125e9;
 
+    // Note that this is being
     println!(
         "time taken to send {} {}-byte eth frames: {:.3} secs",
         config.num_frames_to_send, sent_eth_frame_size, elapsed_secs
@@ -235,15 +225,15 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: SocketState, mut dev2: 
         "recv throughout: {:.3} Gbps (eth frames rcvd: {})",
         gbps_rcvd, total_frames_rcvd
     );
+    println!(
+        "Note that these numbers are not reflective of actual AF_XDP socket performance,
+since packets are being sent over a VETH pair, and so pass through the kernel"
+    );
 }
 
 /// Send ETH frames with payload size `msg_size` through dev2 to be received by dev1.
 /// Handle frame transmission and receipt in separate threads.
-fn dev2_to_dev1_multithreaded(
-    config: &Config,
-    mut dev1: SocketState<'static>,
-    mut dev2: SocketState<'static>,
-) {
+fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2: Xsk<'static>) {
     // Extra 42 bytes is for the eth and IP headers
     let sent_eth_frame_size = config.payload_size + 42;
 
@@ -260,14 +250,15 @@ fn dev2_to_dev1_multithreaded(
         let dev1_frames = &mut dev1.frame_descs;
 
         // Populate fill queue
-        let frames_filled = dev1
-            .fill_q
-            .produce_and_wakeup(
-                &dev1_frames[..config1.fill_q_size as usize],
-                dev1.rx_q.fd(),
-                config1.poll_ms_timeout,
-            )
-            .unwrap();
+        let frames_filled = unsafe {
+            dev1.fill_q
+                .produce_and_wakeup(
+                    &dev1_frames[..config1.fill_q_size as usize],
+                    dev1.rx_q.fd(),
+                    config1.poll_ms_timeout,
+                )
+                .unwrap()
+        };
 
         assert_eq!(frames_filled, config1.fill_q_size as usize);
         log::debug!("(dev1) init frames added to dev1.fill_q: {}", frames_filled);
@@ -306,15 +297,15 @@ fn dev2_to_dev1_multithreaded(
                         frames_rcvd
                     );
                     // Add frames back to fill queue
-                    while dev1
-                        .fill_q
-                        .produce_and_wakeup(
-                            &dev1_frames[..frames_rcvd],
-                            dev1.rx_q.fd(),
-                            config1.poll_ms_timeout,
-                        )
-                        .unwrap()
-                        != frames_rcvd
+                    while unsafe {
+                        dev1.fill_q
+                            .produce_and_wakeup(
+                                &dev1_frames[..frames_rcvd],
+                                dev1.rx_q.fd(),
+                                config1.poll_ms_timeout,
+                            )
+                            .unwrap()
+                    } != frames_rcvd
                     {
                         // Loop until frames added to the fill ring.
                         log::debug!("(dev1) dev1.fill_q.produce_and_wakeup() failed to allocate");
@@ -341,10 +332,11 @@ fn dev2_to_dev1_multithreaded(
 
         // Populate tx queue.
         let mut total_frames_consumed = 0;
-        let mut total_frames_sent = dev2
-            .tx_q
-            .produce_and_wakeup(&dev2_frames[..config2.max_batch_size])
-            .unwrap();
+        let mut total_frames_sent = unsafe {
+            dev2.tx_q
+                .produce_and_wakeup(&dev2_frames[..config2.max_batch_size])
+                .unwrap()
+        };
 
         assert_eq!(total_frames_sent, config2.max_batch_size);
         log::debug!(
@@ -396,11 +388,11 @@ fn dev2_to_dev1_multithreaded(
                         );
 
                         // Add consumed frames back to the tx queue
-                        while dev2
-                            .tx_q
-                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
-                            .unwrap()
-                            != frames_to_send
+                        while unsafe {
+                            dev2.tx_q
+                                .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                                .unwrap()
+                        } != frames_to_send
                         {
                             // Loop until frames added to the tx ring.
                             log::debug!("(dev2) dev2.tx_q.produce_and_wakeup() failed to allocate");
@@ -457,6 +449,10 @@ fn dev2_to_dev1_multithreaded(
             "recv throughout: {:.3} Gbps (eth frames rcvd: {})",
             gbps_rcvd, pkts_rcvd
         );
+        println!(
+            "Note that these numbers are not reflective of actual AF_XDP socket performance,
+since packets are being sent over a VETH pair, and so pass through the kernel"
+        );
     } else {
         println!("error (tx_res: {:?}) (rx_res: {:?})", tx_res, rx_res);
     }
@@ -467,7 +463,7 @@ fn build_socket_and_umem(
     socket_config: SocketConfig,
     if_name: &str,
     queue_id: u32,
-) -> SocketState<'static> {
+) -> Xsk<'static> {
     let (mut umem, fill_q, comp_q, frame_descs) = Umem::builder(umem_config)
         .create_mmap()
         .expect(format!("failed to create mmap area for {}", if_name).as_str())
@@ -477,7 +473,7 @@ fn build_socket_and_umem(
     let (tx_q, rx_q) = Socket::new(socket_config, &mut umem, &if_name, queue_id)
         .expect(format!("failed to build socket for {}", if_name).as_str());
 
-    SocketState {
+    Xsk {
         umem,
         fill_q,
         comp_q,
@@ -501,21 +497,12 @@ fn run_example(config: &Config, veth_config: &VethConfig) {
     )
     .unwrap();
 
-    let mut bind_flags = BindFlags::empty();
-
-    if config.use_need_wakeup {
-        bind_flags |= BindFlags::XDP_USE_NEED_WAKEUP
-    }
-    if config.zerocopy {
-        bind_flags |= BindFlags::XDP_ZEROCOPY
-    }
-
     let socket_config = SocketConfig::new(
         config.rx_q_size,
         config.tx_q_size,
         LibbpfFlags::empty(),
         XdpFlags::empty(),
-        bind_flags,
+        BindFlags::XDP_USE_NEED_WAKEUP,
     )
     .unwrap();
 
@@ -529,7 +516,7 @@ fn run_example(config: &Config, veth_config: &VethConfig) {
     let mut dev2 = build_socket_and_umem(umem_config, socket_config, veth_config.dev2_name(), 0);
 
     // Copy over some bytes to dev2s umem to transmit
-    let eth_frame = setup::generate_eth_frame(veth_config, PAYLOAD_SIZE);
+    let eth_frame = setup::generate_eth_frame(veth_config, config.payload_size);
 
     for desc in dev2.frame_descs.iter_mut() {
         unsafe {
@@ -571,6 +558,16 @@ where
 }
 
 fn get_args() -> Config {
+    let rx_q_size: u32 = 4096;
+    let tx_q_size: u32 = 4096;
+    let comp_q_size: u32 = 4096;
+    let fill_q_size: u32 = 4096 * 4;
+    let frame_size: u32 = 2048;
+    let poll_ms_timeout: i32 = 100;
+    let payload_size: usize = 32;
+    let max_batch_size: usize = 64;
+    let num_packets_to_send: usize = 5_000_000;
+
     let matches = App::new("dev1_to_dev2")
         .arg(
             Arg::with_name("multithreaded")
@@ -579,22 +576,6 @@ fn get_args() -> Config {
                 .required(false)
                 .takes_value(false)
                 .help("Run sender and receiver in separate threads"),
-        )
-        .arg(
-            Arg::with_name("use_need_wakeup")
-                .short("w")
-                .long("wakeup")
-                .required(false)
-                .takes_value(false)
-                .help("Use XDP_USE_NEED_WAKEUP bind flag (recommended)"),
-        )
-        .arg(
-            Arg::with_name("zerocopy")
-                .short("z")
-                .long("zerocopy")
-                .required(false)
-                .takes_value(false)
-                .help("Use XDP_ZEROCOPY bind flag (must be supported by driver)"),
         )
         .arg(
             Arg::with_name("tx_queue_size")
@@ -671,67 +652,63 @@ fn get_args() -> Config {
         .get_matches();
 
     let is_multithreaded = matches.is_present("multithreaded");
-    let use_need_wakeup = matches.is_present("use_need_wakeup");
-    let zerocopy = matches.is_present("zerocopy");
     let rx_q_size = parse_arg(
         &matches,
         "rx_queue_size",
         "failed to parse rx_queue_size arg",
-        RX_Q_SIZE,
+        rx_q_size,
     );
     let tx_q_size = parse_arg(
         &matches,
         "tx_queue_size",
         "failed to parse tx_queue_size arg",
-        TX_Q_SIZE,
+        tx_q_size,
     );
     let comp_q_size = parse_arg(
         &matches,
         "comp_queue_size",
         "failed to parse comp queue size arg",
-        COMP_Q_SIZE,
+        comp_q_size,
     );
     let fill_q_size = parse_arg(
         &matches,
         "fill_queue_size",
         "failed to parse fill queue size arg",
-        FILL_Q_SIZE,
+        fill_q_size,
     );
     let frame_size = parse_arg(
         &matches,
         "frame_size",
         "failed to parse frame size arg",
-        FRAME_SIZE,
+        frame_size,
     );
     let num_frames_to_send = parse_arg(
         &matches,
         "num_frames_to_send",
         "failed to parse num frames to send arg",
-        NUM_PACKETS_TO_SEND,
+        num_packets_to_send,
     );
     let payload_size = parse_arg(
         &matches,
         "payload_size",
         "failed to parse payload size arg",
-        PAYLOAD_SIZE,
+        payload_size,
     );
     let max_batch_size = parse_arg(
         &matches,
         "max_batch_size",
         "failed to parse max batch size arg",
-        MAX_BATCH_SIZE,
+        max_batch_size,
     );
     let poll_ms_timeout = parse_arg(
         &matches,
         "poll_ms_timeout",
         "failed to parse poll ms arg",
-        POLL_MS_TIMEOUT,
+        poll_ms_timeout,
     );
 
     Config {
         is_multithreaded,
-        use_need_wakeup,
-        zerocopy,
         tx_q_size,
         rx_q_size,
         comp_q_size,

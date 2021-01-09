@@ -11,14 +11,21 @@ Inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire
 
 ### Examples
 
-A couple can be found in the `examples` directory. A simple example of moving bytes between a veth pair can be found 
-in `hello_xdp.rs`, while a slightly more complex example of sending and receiving eth frames is in 
-`dev2_to_dev1.rs`, which includes a single-threaded and multi-threaded implementation.
+A couple can be found in the `examples` directory. A simple example of
+moving bytes between two sockets via a veth pair can be found in
+`hello_xdp.rs`, while a slightly more complex example of sending and
+receiving eth frames (also via a veth pair) is in `dev2_to_dev1.rs`,
+which includes a single-threaded and multi-threaded
+implementation. Note that neither example will be indicative of actual
+performance, since binding the sockets to the veth pair means that
+packets will pass through the kernel network stack.
 
 ### Running tests / examples
 
-Root permissions may be required to run the tests or examples, since they require a veth pair to be set up.
-However to avoid running cargo under `root` it's best to first build the tests/examples and run the binaries directly.
+Root permissions may be required to run the tests or examples, since 
+they require a veth pair to be set up. However to avoid running cargo 
+under `root` it's best to first build the tests/examples and run the 
+binaries directly.
 
 ```
 # tests

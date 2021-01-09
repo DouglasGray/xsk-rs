@@ -68,7 +68,10 @@ fn hello_xdp(veth_config: &VethConfig) {
     // 4. Read from dev2
 
     // 1. Add frames to dev2's FillQueue
-    assert_eq!(dev2.fill_q.produce(&dev2_frames[..]), dev2_frames.len());
+    assert_eq!(
+        unsafe { dev2.fill_q.produce(&dev2_frames[..]) },
+        dev2_frames.len()
+    );
 
     // 2. Update dev1's UMEM with the data we want to send and update the frame desc
     let send_frame = &mut dev1_frames[0];
@@ -82,7 +85,10 @@ fn hello_xdp(veth_config: &VethConfig) {
     assert_eq!(send_frame.len(), data.len());
 
     // 3. Hand over the frame to the kernel for transmission
-    assert_eq!(dev1.tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap(), 1);
+    assert_eq!(
+        unsafe { dev1.tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap() },
+        1
+    );
 
     // 4. Read from dev2
     let packets_recvd = dev2

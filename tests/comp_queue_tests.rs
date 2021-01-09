@@ -4,7 +4,7 @@ use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 
-use setup::{SocketConfigBuilder, SocketState, UmemConfigBuilder};
+use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -25,7 +25,7 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 
 #[tokio::test]
 async fn comp_queue_consumes_nothing_if_tx_q_unused() {
-    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let mut dev1_frames = dev1.frame_descs;
 
         assert_eq!(dev1.comp_q.consume(&mut dev1_frames[..4]), 0);
@@ -46,10 +46,13 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
 
 #[tokio::test]
 async fn num_frames_consumed_match_those_produced() {
-    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let mut dev1_frames = dev1.frame_descs;
 
-        assert_eq!(dev1.tx_q.produce_and_wakeup(&dev1_frames[..2]).unwrap(), 2);
+        assert_eq!(
+            unsafe { dev1.tx_q.produce_and_wakeup(&dev1_frames[..2]).unwrap() },
+            2
+        );
 
         // Wait briefly so we don't try to consume too early
         thread::sleep(Duration::from_millis(5));
@@ -72,13 +75,15 @@ async fn num_frames_consumed_match_those_produced() {
 
 #[tokio::test]
 async fn addr_of_frames_consumed_match_addr_of_those_produced() {
-    fn test_fn(mut dev1: SocketState, _dev2: SocketState) {
+    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let dev1_tx_q_frames = dev1.frame_descs;
         let mut dev1_comp_q_frames = dev1_tx_q_frames.clone();
 
-        dev1.tx_q
-            .produce_and_wakeup(&dev1_tx_q_frames[2..4])
-            .unwrap();
+        unsafe {
+            dev1.tx_q
+                .produce_and_wakeup(&dev1_tx_q_frames[2..4])
+                .unwrap()
+        };
 
         // Wait briefly so we don't try to consume too early
         thread::sleep(Duration::from_millis(5));

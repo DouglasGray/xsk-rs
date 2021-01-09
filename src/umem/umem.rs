@@ -5,7 +5,7 @@ use crate::socket::{self, Fd};
 
 use super::{config::Config, mmap::MmapArea};
 
-/// Describes a UMEM frame's address and size of its currenct contents.
+/// Describes a UMEM frame's address and size of its current contents.
 ///
 /// The `addr` field identifies the particular UMEM frame and
 /// the `len` field describes the length (in bytes) of any data
@@ -518,9 +518,12 @@ impl FillQueue<'_> {
     /// `descs` or `0`.
     ///
     /// Once the frames have been submitted they should not be used again until consumed again
-    /// via the [RxQueue](struct.RxQueue.html)
+    /// via the [RxQueue](struct.RxQueue.html).
+    ///
+    /// This function is marked unsafe as it is possible to cause a data race by simultaneously
+    /// submitting the same frame descriptor to the fill ring and the Tx ring, for example.
     #[inline]
-    pub fn produce(&mut self, descs: &[FrameDesc]) -> usize {
+    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
         // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
         let nb = descs.len() as u64;
@@ -531,25 +534,29 @@ impl FillQueue<'_> {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx) };
+        let cnt = libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx);
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt.try_into().unwrap()) {
-                unsafe {
-                    *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) =
-                        desc.addr as u64;
-                }
+                *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = desc.addr as u64;
+
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt) };
+            libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt);
         }
 
         cnt.try_into().unwrap()
     }
 
+    /// Same as `produce` but wake up the kernel (if required) to let it know there are
+    /// frames available that may be used to receive data.
+    ///
+    /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
+    ///
+    /// This function is marked unsafe for the same reasons that `produce` is unsafe.
     #[inline]
-    pub fn produce_and_wakeup(
+    pub unsafe fn produce_and_wakeup(
         &mut self,
         descs: &[FrameDesc],
         socket_fd: &mut Fd,
@@ -565,11 +572,20 @@ impl FillQueue<'_> {
     }
 
     #[inline]
+    /// Wake up the kernel to let it know it can continue using the fill ring
+    /// to process received data.
+    ///
+    /// See `produce_and_wakeup` for link to docs with further explanation.
     pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
         socket::poll_read(fd, poll_timeout)?;
         Ok(())
     }
 
+    /// Check if the libbpf `NEED_WAKEUP` flag is set on the fill ring.
+    /// If so then this means a call to `wakeup` will be required to
+    /// continue processing received data with the fill ring.
+    ///
+    /// See `produce_and_wakeup` for link to docs with further explanation.
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.inner.as_ref()) != 0 }
