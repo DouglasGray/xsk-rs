@@ -41,30 +41,66 @@ impl MmapArea {
         self.mem_ptr
     }
 
-    pub fn mem_range(&self, offset: usize, len: usize) -> Result<&[u8], MmapAccessError> {
+    /// Return a reference to memory at `offset` of length `len`.
+    ///
+    /// Marked `unsafe` as there is no guarantee that the kernel isn't
+    /// currently writing to or reading from the region (since it's
+    /// backing the UMEM).
+    #[inline]
+    pub unsafe fn mem_range_checked(
+        &self,
+        offset: usize,
+        len: usize,
+    ) -> Result<&[u8], MmapAccessError> {
         self.check_bounds(offset, len)?;
 
-        unsafe {
-            let ptr = self.mem_ptr.offset(offset.try_into().unwrap());
-
-            Ok(slice::from_raw_parts(ptr as *const u8, len))
-        }
+        Ok(self.mem_range(offset, len))
     }
 
-    pub fn mem_range_mut(
+    /// Return a reference to memory at `offset` of length `len`. Does
+    /// not perform a bounds check.
+    ///
+    /// Marked `unsafe` as there is no guarantee that the kernel isn't
+    /// currently writing to or reading from the region (since it's
+    /// backing the UMEM).
+    #[inline]
+    pub unsafe fn mem_range(&self, offset: usize, len: usize) -> &[u8] {
+        let ptr = self.mem_ptr.offset(offset.try_into().unwrap());
+
+        slice::from_raw_parts(ptr as *const u8, len)
+    }
+
+    /// Return a mutable reference to memory at `offset` of length
+    /// `len`.
+    ///
+    /// Marked `unsafe` as there is no guarantee that the kernel isn't
+    /// currently writing to or reading from the region (since it's
+    /// backing the UMEM).
+    #[inline]
+    pub unsafe fn mem_range_mut_checked(
         &mut self,
         offset: usize,
         len: usize,
     ) -> Result<&mut [u8], MmapAccessError> {
         self.check_bounds(offset, len)?;
 
-        unsafe {
-            let ptr = self.mem_ptr.offset(offset.try_into().unwrap());
-
-            Ok(slice::from_raw_parts_mut(ptr as *mut u8, len))
-        }
+        Ok(self.mem_range_mut(offset, len))
     }
 
+    /// Return a mutable reference to memory at `offset` of length
+    /// `len`. Does not perform a bounds check.
+    ///
+    /// Marked `unsafe` as there is no guarantee that the kernel isn't
+    /// currently writing to or reading from the region (since it's
+    /// backing the UMEM).
+    #[inline]
+    pub unsafe fn mem_range_mut(&mut self, offset: usize, len: usize) -> &mut [u8] {
+        let ptr = self.mem_ptr.offset(offset.try_into().unwrap());
+
+        slice::from_raw_parts_mut(ptr as *mut u8, len)
+    }
+
+    #[inline]
     fn check_bounds(&self, offset: usize, len: usize) -> Result<(), MmapAccessError> {
         if offset >= self.len {
             return Err(MmapAccessError::OffsetOutOfBounds);
@@ -74,6 +110,7 @@ impl MmapArea {
         Ok(())
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }

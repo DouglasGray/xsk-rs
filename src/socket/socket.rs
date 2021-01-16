@@ -165,7 +165,7 @@ impl Drop for Socket<'_> {
 }
 
 impl RxQueue<'_> {
-    /// Populate `descs` with information on packets received on the Rx ring.
+    /// Populate `descs` with information on packets received on the rx ring.
     ///
     /// The number of entries updated will be less than or equal to the length of `descs`.
     /// Entries will be updated sequentially from the start of `descs` until the end.
@@ -173,7 +173,7 @@ impl RxQueue<'_> {
     /// packet information, namely their frame address and length.
     ///
     /// Once the contents of the consumed frames have been dealt with and are no longer
-    /// required, the frames should be added back on to either the
+    /// required, the frames should eventually be added back on to either the
     /// [FillQueue](struct.FillQueue.html) or the [TxQueue](struct.TxQueue.html).
     #[inline]
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
@@ -235,18 +235,17 @@ impl RxQueue<'_> {
 impl TxQueue<'_> {
     /// Let the kernel know that the contents of frames in `descs` are ready to be transmitted.
     ///
+    /// This function is marked unsafe as it is possible to cause a data race by simultaneously
+    /// submitting the same frame descriptor to the tx ring and the fill ring, for example.
+    /// Once any frames have been submitted they should not be used again until consumed via the
+    /// [CompQueue](struct.CompQueue.html).
+    ///
     /// Note that if the length of `descs` is greater than the number of available spaces on the
     /// underlying ring buffer then no frames at all will be submitted for transmission.
     ///
     /// This function returns the number of frames submitted to the kernel for transmission. Due
     /// to the constraint mentioned in the above paragraph, this should always be the length of
     /// `descs` or `0`.
-    ///
-    /// Once the frames have been submitted they should not be used again until consumed again
-    /// via the [CompQueue](struct.CompQueue.html).
-    ///
-    /// This function is marked unsafe as it is possible to cause a data race by simultaneously
-    /// submitting the same frame descriptor to the Tx ring and the fill ring, for example.
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
@@ -280,9 +279,9 @@ impl TxQueue<'_> {
 
     /// Same as `produce` but wake up the kernel to continue processing produced frames (if required).
     ///
-    /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
-    ///
     /// This function is marked unsafe for the same reasons that `produce` is unsafe.
+    ///
+    /// For more details see the [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
     #[inline]
     pub unsafe fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);
@@ -312,7 +311,7 @@ impl TxQueue<'_> {
         Ok(())
     }
 
-    /// Check if the libbpf `NEED_WAKEUP` flag is set on the Tx ring.
+    /// Check if the libbpf `NEED_WAKEUP` flag is set on the tx ring.
     /// If so then this means a call to `wakeup` will be required to
     /// continue processing produced frames.
     ///

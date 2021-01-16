@@ -8,9 +8,6 @@
 //! Some simple examples may be found in the `examples` directory in the GitHub repo.
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod frame_manager;
-
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
 pub mod socket;
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]

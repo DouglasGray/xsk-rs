@@ -29,11 +29,19 @@ impl Error for ConfigError {}
 
 /// Config for a [Umem](struct.Umem.html) instance.
 ///
-/// `fill_queue_size` and `comp_queue_size` must be powers of two and frame size
-/// must not be less than `2048`.
+/// `fill_queue_size` and `comp_queue_size` must be powers of two and
+/// frame size must not be less than `2048`. If you have set
+/// `use_huge_pages` as `true` but are getting errors, check that the
+/// `HugePages_Total` setting is non-zero when you run `cat
+/// /proc/meminfo`.
 ///
-/// If you have set `use_huge_pages` as `true` but are getting errors, check that
-/// the `HugePages_Total` setting is non-zero when you run `cat /proc/meminfo`.
+/// It's worth noting that the specified `frame_size` is not
+/// necessarily the buffer size that will be available to write data
+/// into. Some of this will be eaten up by `XDP_PACKET_HEADROOM` and
+/// any non-zero `frame_headroom`, so make sure to check that
+/// `frame_size` is large enough to hold the data you with to transmit
+/// (e.g. an ETH frame) plus `XDP_PACKET_HEADROOM + frame_headroom`
+/// bytes.
 #[derive(Debug, Clone)]
 pub struct Config {
     frame_count: u32,
