@@ -1,0 +1,4 @@
+- be able to retrieve `xdp_statistics`
+- clean up tests:
+  - use a single veth pair and share between tests
+  - handle ctrl+c signal
