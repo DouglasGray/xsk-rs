@@ -34,8 +34,8 @@ sudo run_all_tests.sh
 
 # examples
 cargo build --examples --release
-sudo ./target/release/examples/hello_xdp
-sudo ./target/release/examples/dev2_to_dev1 -- [FLAGS] [OPTIONS]
+sudo target/release/examples/hello_xdp
+sudo target/release/examples/dev2_to_dev1 -- [FLAGS] [OPTIONS]
 ```
 
 ### Compatibility
