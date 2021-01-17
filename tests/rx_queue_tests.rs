@@ -1,3 +1,4 @@
+use libbpf_sys::XDP_PACKET_HEADROOM;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
@@ -24,15 +25,32 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     (Some(umem_config), Some(socket_config))
 }
 
+fn default_config_builders() -> (UmemConfigBuilder, SocketConfigBuilder) {
+    let umem_config_builder = UmemConfigBuilder {
+        frame_count: 8,
+        frame_size: 2048,
+        fill_queue_size: 4,
+        comp_queue_size: 4,
+        ..UmemConfigBuilder::default()
+    };
+
+    let socket_config_builder = SocketConfigBuilder {
+        tx_queue_size: 4,
+        rx_queue_size: 4,
+        ..SocketConfigBuilder::default()
+    };
+
+    (umem_config_builder, socket_config_builder)
+}
+
 #[tokio::test]
 async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let mut d1_rx_q_frames = dev1.frame_descs;
+        assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..2]), 0);
 
-        assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..2]), 0);
         assert_eq!(
             dev1.rx_q
-                .poll_and_consume(&mut d1_rx_q_frames[..2], 100)
+                .poll_and_consume(&mut dev1.frame_descs[..2], 100)
                 .unwrap(),
             0
         );
@@ -54,18 +72,20 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
 #[tokio::test]
 async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
-        let mut d1_rx_q_frames = dev1.frame_descs;
-        let d2_tx_q_frames = dev2.frame_descs;
-
         assert_eq!(
-            unsafe { dev2.tx_q.produce_and_wakeup(&d2_tx_q_frames[..4]).unwrap() },
+            unsafe {
+                dev2.tx_q
+                    .produce_and_wakeup(&dev2.frame_descs[..4])
+                    .unwrap()
+            },
             4
         );
 
-        assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..4]), 0);
+        assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..4]), 0);
+
         assert_eq!(
             dev1.rx_q
-                .poll_and_consume(&mut d1_rx_q_frames[..4], 100)
+                .poll_and_consume(&mut dev1.frame_descs[..4], 100)
                 .unwrap(),
             0
         );
@@ -87,48 +107,110 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
 #[tokio::test]
 async fn rx_queue_consumes_frame_correctly_after_tx() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
-        let d1_fill_q_frames = dev1.frame_descs;
-        let mut d1_rx_q_frames = d1_fill_q_frames.clone();
-
-        let mut d2_tx_q_frames = dev2.frame_descs;
-
         // Add a frame in the dev1 fill queue ready to receive
-        assert_eq!(unsafe { dev1.fill_q.produce(&d1_fill_q_frames[1..2]) }, 1);
+        assert_eq!(unsafe { dev1.fill_q.produce(&dev1.frame_descs[0..1]) }, 1);
 
-        // Send data from dev2
+        // Data to send from dev2
         let pkt = vec![b'H', b'e', b'l', b'l', b'o'];
 
-        assert_eq!(d2_tx_q_frames[0].len(), 0);
-
+        // Write data to UMEM
         unsafe {
             dev2.umem
-                .write_to_umem_checked(&mut d2_tx_q_frames[0], &pkt[..])
+                .write_to_umem_checked(&mut dev2.frame_descs[0], &pkt[..])
                 .unwrap();
         }
 
-        assert_eq!(d2_tx_q_frames[0].len(), 5);
+        assert_eq!(dev2.frame_descs[0].len(), 5);
 
+        // Transmit data
         assert_eq!(
-            unsafe { dev2.tx_q.produce_and_wakeup(&d2_tx_q_frames[0..1]).unwrap() },
+            unsafe {
+                dev2.tx_q
+                    .produce_and_wakeup(&dev2.frame_descs[0..1])
+                    .unwrap()
+            },
             1
         );
 
-        // Now read on dev1
-        assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..]), 1);
-        assert_eq!(d1_rx_q_frames[0].len(), 5);
+        // Read on dev1
+        assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..]), 1);
 
-        // Check that the frame data is correct
-        let frame_ref = unsafe {
+        assert_eq!(dev1.frame_descs[0].len(), 5);
+
+        // Check that the data is correct
+        let recvd = unsafe {
             dev1.umem
-                .read_from_umem_checked(&d1_rx_q_frames[0].addr(), &d1_rx_q_frames[0].len())
+                .read_from_umem_checked(&dev1.frame_descs[0].addr(), &dev1.frame_descs[0].len())
                 .unwrap()
         };
 
-        assert_eq!(frame_ref[..5], pkt[..]);
+        assert_eq!(recvd[..5], pkt[..]);
     }
 
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
+
+    setup::run_test(
+        dev1_umem_config,
+        dev1_socket_config,
+        dev2_umem_config,
+        dev2_socket_config,
+        test_fn,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
+    fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
+        // Add a frame in the dev1 fill queue ready to receive
+        assert_eq!(unsafe { dev1.fill_q.produce(&dev1.frame_descs[0..1]) }, 1);
+
+        // Data to send from dev2
+        let pkt = vec![b'H', b'e', b'l', b'l', b'o'];
+
+        // Write data to UMEM
+        unsafe {
+            dev2.umem
+                .write_to_umem_checked(&mut dev2.frame_descs[0], &pkt[..])
+                .unwrap();
+        }
+
+        assert_eq!(dev2.frame_descs[0].len(), 5);
+
+        // Transmit data
+        assert_eq!(
+            unsafe {
+                dev2.tx_q
+                    .produce_and_wakeup(&dev2.frame_descs[0..1])
+                    .unwrap()
+            },
+            1
+        );
+
+        // Read on dev1
+        assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..]), 1);
+
+        assert_eq!(dev1.frame_descs[0].len(), 5);
+
+        // Check addr starts where we expect
+        assert_eq!(
+            dev1.frame_descs[0].addr(),
+            (XDP_PACKET_HEADROOM + 512) as usize
+        );
+    }
+
+    let (dev1_umem_config_builder, dev1_socket_config_builder) = default_config_builders();
+    let (dev2_umem_config, dev2_socket_config) = build_configs();
+
+    // Add to the frame headroom
+    let dev1_umem_config_builder = UmemConfigBuilder {
+        frame_headroom: 512,
+        ..dev1_umem_config_builder
+    };
+
+    let dev1_umem_config = Some(dev1_umem_config_builder.build());
+    let dev1_socket_config = Some(dev1_socket_config_builder.build());
 
     setup::run_test(
         dev1_umem_config,

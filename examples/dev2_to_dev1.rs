@@ -226,7 +226,7 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
         gbps_rcvd, total_frames_rcvd
     );
     println!(
-        "Note that these numbers are not reflective of actual AF_XDP socket performance,
+        "note that these numbers are not reflective of actual AF_XDP socket performance,
 since packets are being sent over a VETH pair, and so pass through the kernel"
     );
 }
@@ -450,7 +450,7 @@ fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2:
             gbps_rcvd, pkts_rcvd
         );
         println!(
-            "Note that these numbers are not reflective of actual AF_XDP socket performance,
+            "note that these numbers are not reflective of actual AF_XDP socket performance,
 since packets are being sent over a VETH pair, and so pass through the kernel"
         );
     } else {
