@@ -520,7 +520,9 @@ fn run_example(config: &Config, veth_config: &VethConfig) {
 
     for desc in dev2.frame_descs.iter_mut() {
         unsafe {
-            dev2.umem.copy_data_to_frame(desc, &eth_frame[..]).unwrap();
+            dev2.umem
+                .write_to_umem_checked(desc, &eth_frame[..])
+                .unwrap();
         }
 
         assert_eq!(desc.len(), eth_frame.len());

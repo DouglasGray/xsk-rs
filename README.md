@@ -40,4 +40,4 @@ sudo ./target/release/examples/dev2_to_dev1 -- [FLAGS] [OPTIONS]
 
 ### Compatibility
 
-Tested on a 64-bit machine running Linux kernel version 5.7.1.
+Tested on a 64-bit machine running Linux kernel version 5.8.0.

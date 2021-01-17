@@ -80,7 +80,7 @@ fn hello_xdp(veth_config: &VethConfig) {
     println!("sending: {:?}", str::from_utf8(&data).unwrap());
 
     // Copy the data to the frame
-    unsafe { dev1.umem.copy_data_to_frame(send_frame, &data).unwrap() };
+    unsafe { dev1.umem.write_to_umem_checked(send_frame, &data).unwrap() };
 
     assert_eq!(send_frame.len(), data.len());
 
@@ -98,7 +98,11 @@ fn hello_xdp(veth_config: &VethConfig) {
 
     // Check that one of the packets we received matches what we expect.
     for recv_frame in dev2_frames.iter().take(packets_recvd) {
-        let frame_ref = unsafe { dev2.umem.frame_ref_at_addr(&recv_frame.addr()).unwrap() };
+        let frame_ref = unsafe {
+            dev2.umem
+                .read_from_umem_checked(&recv_frame.addr(), &recv_frame.len())
+                .unwrap()
+        };
 
         // Check lengths match
         if recv_frame.len() == data.len() {

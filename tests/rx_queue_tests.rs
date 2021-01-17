@@ -92,42 +92,35 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 
         let mut d2_tx_q_frames = dev2.frame_descs;
 
-        // Add a frame in the fill queue ready for the rx path to fill in
+        // Add a frame in the dev1 fill queue ready to receive
         assert_eq!(unsafe { dev1.fill_q.produce(&d1_fill_q_frames[1..2]) }, 1);
 
-        // Pretend we're sending some data from dev2
+        // Send data from dev2
         let pkt = vec![b'H', b'e', b'l', b'l', b'o'];
 
         assert_eq!(d2_tx_q_frames[0].len(), 0);
 
         unsafe {
             dev2.umem
-                .copy_data_to_frame(&mut d2_tx_q_frames[0], &pkt[..])
+                .write_to_umem_checked(&mut d2_tx_q_frames[0], &pkt[..])
                 .unwrap();
         }
 
         assert_eq!(d2_tx_q_frames[0].len(), 5);
 
-        // Send the frame
         assert_eq!(
             unsafe { dev2.tx_q.produce_and_wakeup(&d2_tx_q_frames[0..1]).unwrap() },
             1
         );
 
-        println!("frame 0 addr before: {}", d1_rx_q_frames[0].addr());
-        println!("frame 1 addr before: {}", d1_rx_q_frames[1].addr());
-
         // Now read on dev1
         assert_eq!(dev1.rx_q.consume(&mut d1_rx_q_frames[..]), 1);
         assert_eq!(d1_rx_q_frames[0].len(), 5);
 
-        println!("frame 0 addr after: {}", d1_rx_q_frames[0].addr());
-        println!("frame 1 addr after: {}", d1_rx_q_frames[1].addr());
-
         // Check that the frame data is correct
         let frame_ref = unsafe {
             dev1.umem
-                .frame_ref_at_addr(&d1_rx_q_frames[0].addr())
+                .read_from_umem_checked(&d1_rx_q_frames[0].addr(), &d1_rx_q_frames[0].len())
                 .unwrap()
         };
 

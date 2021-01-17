@@ -2,12 +2,6 @@ use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_
 use log::error;
 use std::{convert::TryInto, io, ptr, slice};
 
-#[derive(Debug)]
-pub enum MmapAccessError {
-    OffsetOutOfBounds,
-    MemRangeOutOfBounds,
-}
-
 pub struct MmapArea {
     len: usize,
     mem_ptr: *mut libc::c_void,
@@ -41,22 +35,6 @@ impl MmapArea {
         self.mem_ptr
     }
 
-    /// Return a reference to memory at `offset` of length `len`.
-    ///
-    /// Marked `unsafe` as there is no guarantee that the kernel isn't
-    /// currently writing to or reading from the region (since it's
-    /// backing the UMEM).
-    #[inline]
-    pub unsafe fn mem_range_checked(
-        &self,
-        offset: usize,
-        len: usize,
-    ) -> Result<&[u8], MmapAccessError> {
-        self.check_bounds(offset, len)?;
-
-        Ok(self.mem_range(offset, len))
-    }
-
     /// Return a reference to memory at `offset` of length `len`. Does
     /// not perform a bounds check.
     ///
@@ -71,43 +49,16 @@ impl MmapArea {
     }
 
     /// Return a mutable reference to memory at `offset` of length
-    /// `len`.
-    ///
-    /// Marked `unsafe` as there is no guarantee that the kernel isn't
-    /// currently writing to or reading from the region (since it's
-    /// backing the UMEM).
-    #[inline]
-    pub unsafe fn mem_range_mut_checked(
-        &mut self,
-        offset: usize,
-        len: usize,
-    ) -> Result<&mut [u8], MmapAccessError> {
-        self.check_bounds(offset, len)?;
-
-        Ok(self.mem_range_mut(offset, len))
-    }
-
-    /// Return a mutable reference to memory at `offset` of length
     /// `len`. Does not perform a bounds check.
     ///
     /// Marked `unsafe` as there is no guarantee that the kernel isn't
     /// currently writing to or reading from the region (since it's
     /// backing the UMEM).
     #[inline]
-    pub unsafe fn mem_range_mut(&mut self, offset: usize, len: usize) -> &mut [u8] {
-        let ptr = self.mem_ptr.offset(offset.try_into().unwrap());
+    pub unsafe fn mem_range_mut(&mut self, offset: &usize, len: &usize) -> &mut [u8] {
+        let ptr = self.mem_ptr.offset((*offset).try_into().unwrap());
 
-        slice::from_raw_parts_mut(ptr as *mut u8, len)
-    }
-
-    #[inline]
-    fn check_bounds(&self, offset: usize, len: usize) -> Result<(), MmapAccessError> {
-        if offset >= self.len {
-            return Err(MmapAccessError::OffsetOutOfBounds);
-        } else if offset + len > self.len {
-            return Err(MmapAccessError::MemRangeOutOfBounds);
-        }
-        Ok(())
+        slice::from_raw_parts_mut(ptr as *mut u8, *len)
     }
 
     #[inline]
