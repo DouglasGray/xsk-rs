@@ -23,12 +23,13 @@ use xsk_rs::{
 
 use setup::{LinkIpAddr, VethConfig};
 
-// Reqd for the multithreaded case to signal when all packets have been sent
+// Reqd for the multithreaded case to signal when all packets have
+// been sent
 static SENDER_DONE: AtomicBool = AtomicBool::new(false);
 
-// Umem has to go last to maintain correct drop order!
-// If, for example, we tried to drop the umem before the queues
-// then the destructor would fail as the memory is still in use.
+// Umem has to go last to maintain correct drop order!  If, for
+// example, we tried to drop the umem before the queues then the
+// destructor would fail as the memory is still in use.
 struct Xsk<'umem> {
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
@@ -85,8 +86,9 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
         || total_frames_rcvd < config.num_frames_to_send
     {
         while total_frames_rcvd < total_frames_sent {
-            // In copy mode tx is driven by a syscall, so we need to wakeup the kernel
-            // with a call to either sendto() or poll() (wakeup() below uses sendto()).
+            // In copy mode tx is driven by a syscall, so we need to
+            // wakeup the kernel with a call to either sendto() or
+            // poll() (wakeup() below uses sendto()).
             if dev2.tx_q.needs_wakeup() {
                 log::debug!("waking up dev2.tx_q");
                 dev2.tx_q.wakeup().unwrap();
@@ -155,7 +157,8 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
                     total_frames_consumed += frames_rcvd;
 
                     if total_frames_sent < config.num_frames_to_send {
-                        // Data is still contained in the frames so just set the descriptor's length
+                        // Data is still contained in the frames so
+                        // just set the descriptor's length
                         for desc in dev2_frames[..frames_rcvd].iter_mut() {
                             desc.set_len(sent_eth_frame_size);
                         }
@@ -370,7 +373,8 @@ fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2:
                     total_frames_consumed += frames_rcvd;
 
                     if total_frames_sent < config2.num_frames_to_send {
-                        // Data is still contained in the frames so just set the descriptor's length
+                        // Data is still contained in the frames so
+                        // just set the descriptor's length
                         for desc in dev2_frames[..frames_rcvd].iter_mut() {
                             desc.set_len(sent_eth_frame_size);
                         }
@@ -745,8 +749,8 @@ fn main() {
     let (startup_w, mut startup_r) = oneshot::channel();
     let (shutdown_w, shutdown_r) = oneshot::channel();
 
-    // We'll keep track of ctrl+c events but not let them kill the process
-    // immediately as we may need to clean up the veth pair.
+    // We'll keep track of ctrl+c events but not let them kill the
+    // process immediately as we may need to clean up the veth pair.
     let ctrl_c_events = setup::ctrl_channel().unwrap();
 
     // Create the veth pair
@@ -769,7 +773,8 @@ fn main() {
         }
     }
 
-    // Run example in separate thread so that if it panics we can clean up here
+    // Run example in separate thread so that if it panics we can
+    // clean up here
     let (example_done_tx, example_done_rx) = crossbeam_channel::bounded(1);
     let handle = thread::spawn(move || {
         run_example(&config, &veth_config);

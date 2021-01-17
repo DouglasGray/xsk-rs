@@ -17,7 +17,8 @@ impl PollFd {
     }
 }
 
-/// Wrapper struct around some useful helper data for managing the socket.
+/// Wrapper struct around some useful helper data for managing the
+/// socket.
 #[derive(Clone)]
 pub struct Fd {
     id: i32,
