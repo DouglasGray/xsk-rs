@@ -244,7 +244,7 @@ impl TxQueue<'_> {
     /// Let the kernel know that the contents of frames in `descs` are
     /// ready to be transmitted.
     ///
-    /// This function is marked unsafe as it is possible to cause a
+    /// This function is marked `unsafe` as it is possible to cause a
     /// data race by simultaneously submitting the same frame
     /// descriptor to the tx ring and the fill ring, for example.
     /// Once any frames have been submitted they should not be used
@@ -293,8 +293,8 @@ impl TxQueue<'_> {
     /// Same as `produce` but wake up the kernel to continue
     /// processing produced frames (if required).
     ///
-    /// This function is marked unsafe for the same reasons that
-    /// `produce` is unsafe.
+    /// This function is marked `unsafe` for the same reasons that
+    /// `produce` is `unsafe.`
     ///
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
