@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ## [0.2.0] - 2021-01-17
+Breaking change
+
 ### Changed
 - Changed the APIs for the UMEM and socket to be `unsafe` where
   required. It's possible in a number of locations to get into a race
