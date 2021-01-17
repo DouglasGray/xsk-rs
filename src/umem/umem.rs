@@ -784,6 +784,27 @@ mod tests {
     }
 
     #[test]
+    fn mtu_is_correct() {
+        let config = Config::new(
+            NonZeroU32::new(1).unwrap(),
+            NonZeroU32::new(2048).unwrap(),
+            4,
+            4,
+            512,
+            false,
+        )
+        .unwrap();
+
+        let (umem, _fq, _cq, _frame_descs) = Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+
+        assert_eq!(umem.mtu(), (2048 - XDP_PACKET_HEADROOM - 512) as usize);
+    }
+
+    #[test]
     fn umem_access_checks_ok() {
         let (umem, _fq, _cq, _frame_descs) = umem();
 
