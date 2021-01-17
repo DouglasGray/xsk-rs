@@ -598,12 +598,12 @@ impl FillQueue<'_> {
         Ok(cnt)
     }
 
-    #[inline]
     /// Wake up the kernel to let it know it can continue using the
     /// fill ring to process received data.
     ///
     /// See `produce_and_wakeup` for link to docs with further
     /// explanation.
+    #[inline]
     pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
         socket::poll_read(fd, poll_timeout)?;
         Ok(())
