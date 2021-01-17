@@ -27,14 +27,17 @@ pub struct FrameDesc<'umem> {
 }
 
 impl FrameDesc<'_> {
+    #[inline]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
+    #[inline]
     pub fn options(&self) -> u32 {
         self.options
     }
@@ -42,12 +45,13 @@ impl FrameDesc<'_> {
     /// Set the frame descriptor's address. This determines where in
     /// the UMEM it references.
     ///
-    /// This shouldn't be required and manual setting is likely best
+    /// Manual setting shouldn't generally be required is likely best
     /// avoided since the setting of addresses is handled by the
     /// library, however it may be needed if writing straight to a
     /// region in UMEM via
     /// [umem_region_mut](struct.Umem.html#method.umem_region_mut) or
     /// [umem_region_mut_checked](struct.Umem.html#method.umem_region_mut_checked)
+    #[inline]
     pub fn set_addr(&mut self, addr: usize) {
         self.addr = addr
     }
@@ -60,18 +64,22 @@ impl FrameDesc<'_> {
     /// handing it over to the kernel to be transmitted to ensure the
     /// correct number of bytes are sent.
     ///
-    /// Easiest to avoid having to set this manually by using
+    /// Manual setting shouldn't generally be required and if copying
+    /// packets to UMEM it's better to use
     /// [write_to_umem](struct.Umem.html#method.write_to_umem) or
     /// [write_to_umem_checked](struct.Umem.html#method.write_to_umem_checked)
-    /// if copying packets, however it may be needed if writing to a
-    /// UMEM region manually (see `set_addr`) or if, for example, the
-    /// data you want to send is already at `addr` and just you need
-    /// to set the frame descriptor's length.
+    /// which will handle setting the frame descriptor length, however
+    /// it may be needed if writing to a UMEM region manually (see
+    /// `set_addr`) or if, for example, the data you want to send is
+    /// already at `addr` and you just need to set the length before
+    /// transmission.
+    #[inline]
     pub fn set_len(&mut self, len: usize) {
         self.len = len
     }
 
     /// Set the frame descriptor options.
+    #[inline]
     pub fn set_options(&mut self, options: u32) {
         self.options = options
     }
@@ -401,6 +409,7 @@ impl Umem<'_> {
     /// Apart from the memory considerations, this function is also
     /// `unsafe` as there is no guarantee the kernel isn't also
     /// reading from or writing to the same region.
+    #[inline]
     pub unsafe fn read_from_umem(&self, addr: &usize, len: &usize) -> &[u8] {
         self.mmap_area.mem_range(*addr, *len)
     }
@@ -408,6 +417,7 @@ impl Umem<'_> {
     /// Checked version of `umem_region_ref`. Ensures that the
     /// referenced region is contained within a single frame of the
     /// UMEM.
+    #[inline]
     pub unsafe fn read_from_umem_checked(
         &self,
         addr: &usize,
@@ -430,6 +440,7 @@ impl Umem<'_> {
     /// Apart from the considerations around writing to memory, this
     /// function is also `unsafe` as there is no guarantee the kernel
     /// isn't also reading from or writing to the same region.
+    #[inline]
     pub unsafe fn write_to_umem(&mut self, frame_desc: &mut FrameDesc, data: &[u8]) {
         let data_len = data.len();
 
@@ -445,6 +456,7 @@ impl Umem<'_> {
     /// Checked version of `write_to_umem_frame`. Ensures that a
     /// successful write is completely contained within a single frame
     /// of the UMEM.
+    #[inline]
     pub unsafe fn write_to_umem_checked(
         &mut self,
         frame_desc: &mut FrameDesc,
@@ -486,12 +498,14 @@ impl Umem<'_> {
     /// ensures the correct number of bytes are sent. Use
     /// `write_to_umem` or `write_to_umem_checked` to avoid the
     /// overhead of updating the frame descriptor.
+    #[inline]
     pub unsafe fn umem_region_mut(&mut self, addr: &usize, len: &usize) -> &mut [u8] {
         self.mmap_area.mem_range_mut(&addr, &len)
     }
 
     /// Checked version of `umem_region_mut`. Ensures the requested
     /// region lies within a single frame.
+    #[inline]
     pub unsafe fn umem_region_mut_checked(
         &mut self,
         addr: &usize,
@@ -621,6 +635,7 @@ impl CompQueue<'_> {
     /// Free frames should be added back on to either the
     /// [FillQueue](struct.FillQueue.html) for data receipt or the
     /// [TxQueue](struct.TxQueue.html) for data transmission.
+    #[inline]
     pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top
         // level conditional compilation flags (see lib.rs) guarantee

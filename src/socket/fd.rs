@@ -11,6 +11,7 @@ impl PollFd {
         PollFd { pollfd }
     }
 
+    #[inline]
     pub(crate) fn pollfd(&mut self) -> &mut libc::pollfd {
         &mut self.pollfd
     }
@@ -45,14 +46,17 @@ impl Fd {
         }
     }
 
+    #[inline]
     pub(crate) fn id(&self) -> i32 {
         self.id
     }
 
+    #[inline]
     pub(crate) fn pollin_fd(&mut self) -> &mut PollFd {
         &mut self.pollin_fd
     }
 
+    #[inline]
     pub(crate) fn pollout_fd(&mut self) -> &mut PollFd {
         &mut self.pollout_fd
     }
