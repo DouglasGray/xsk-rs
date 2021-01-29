@@ -20,7 +20,10 @@ use super::{config::Config, fd::Fd, poll};
 
 #[derive(Debug)]
 pub enum SocketCreateError {
+    /// Null byte found in the provided interface name.
     InvalidIfName(NulError),
+    /// `context` provides some more information at what point in the
+    /// socket build process the OS error occurred.
     OsError {
         context: &'static str,
         io_err: io::Error,

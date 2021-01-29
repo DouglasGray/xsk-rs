@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2020-01-29
+
+### Changed
+- bumped libbpf-sys version to 0.3
+- fixed docs, wasn't showing some stuff since the structs/enums
+  weren't exposed
+
 ## [0.2.0] - 2021-01-17
 Breaking change
 

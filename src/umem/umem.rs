@@ -91,8 +91,7 @@ pub struct UmemBuilder {
     config: Config,
 }
 
-/// Final step for building a UMEM, which is created from the `mmap`d
-/// region.
+/// Use the `mmap`'d region to create the UMEM.
 pub struct UmemBuilderWithMmap {
     config: Config,
     mmap_area: MmapArea,
@@ -111,88 +110,6 @@ pub struct Umem<'a> {
     _marker: PhantomData<&'a ()>,
 }
 
-/// UMEM access errors
-#[derive(Debug)]
-pub enum AccessError {
-    NullRegion,
-    RegionOutOfBounds {
-        addr: usize,
-        len: usize,
-        umem_len: usize,
-    },
-    CrossesFrameBoundary {
-        addr: usize,
-        len: usize,
-    },
-}
-
-impl fmt::Display for AccessError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use AccessError::*;
-        match self {
-            NullRegion => write!(f, "region has zero length"),
-            RegionOutOfBounds {
-                addr,
-                len,
-                umem_len,
-            } => write!(
-                f,
-                "UMEM region [{}, {}] is out of bounds (UMEM length is {})",
-                addr,
-                addr + (len - 1),
-                umem_len
-            ),
-            CrossesFrameBoundary { addr, len } => write!(
-                f,
-                "UMEM region [{}, {}] intersects with more then one frame",
-                addr,
-                addr + (len - 1),
-            ),
-        }
-    }
-}
-
-impl Error for AccessError {}
-
-/// Data related errors
-#[derive(Debug)]
-pub enum DataError {
-    SizeExceedsMtu { data_len: usize, mtu: usize },
-}
-
-impl fmt::Display for DataError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DataError::SizeExceedsMtu { data_len, mtu } => write!(
-                f,
-                "data length ({} bytes) cannot be greater than the MTU ({} bytes)",
-                data_len, mtu
-            ),
-        }
-    }
-}
-
-impl Error for DataError {}
-
-/// Errors that may occur when writing data to the UMEM.
-#[derive(Debug)]
-pub enum WriteError {
-    Access(AccessError),
-    Data(DataError),
-}
-
-impl fmt::Display for WriteError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use WriteError::*;
-        match self {
-            Access(access_err) => write!(f, "{}", access_err),
-            Data(data_err) => write!(f, "{}", data_err),
-        }
-    }
-}
-
-impl Error for WriteError {}
-
 /// Used to transfer ownership of UMEM frames from kernel-space to
 /// user-space.
 ///
@@ -206,8 +123,6 @@ pub struct CompQueue<'umem> {
     _marker: PhantomData<&'umem ()>,
 }
 
-unsafe impl Send for CompQueue<'_> {}
-
 /// Used to transfer ownership of UMEM frames from user-space to
 /// kernel-space.
 ///
@@ -220,8 +135,6 @@ pub struct FillQueue<'umem> {
     inner: Box<xsk_ring_prod>,
     _marker: PhantomData<&'umem ()>,
 }
-
-unsafe impl Send for FillQueue<'_> {}
 
 impl UmemBuilder {
     /// Allocate a memory region for the UMEM.
@@ -622,6 +535,8 @@ impl FillQueue<'_> {
     }
 }
 
+unsafe impl Send for FillQueue<'_> {}
+
 impl CompQueue<'_> {
     /// Update `descs` with frames whose contents have been sent
     /// (after submission via the [TxQueue](struct.TxQueue.html) and
@@ -668,6 +583,92 @@ impl CompQueue<'_> {
         cnt.try_into().unwrap()
     }
 }
+
+unsafe impl Send for CompQueue<'_> {}
+
+/// UMEM access errors
+#[derive(Debug)]
+pub enum AccessError {
+    /// Attempted to access a region with zero length.
+    NullRegion,
+    /// Attempted to access a region outside of the UMEM.
+    RegionOutOfBounds {
+        addr: usize,
+        len: usize,
+        umem_len: usize,
+    },
+    /// Attempted to access a region that intersects with two or more
+    /// frames.
+    CrossesFrameBoundary { addr: usize, len: usize },
+}
+
+impl fmt::Display for AccessError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use AccessError::*;
+        match self {
+            NullRegion => write!(f, "region has zero length"),
+            RegionOutOfBounds {
+                addr,
+                len,
+                umem_len,
+            } => write!(
+                f,
+                "UMEM region [{}, {}] is out of bounds (UMEM length is {})",
+                addr,
+                addr + (len - 1),
+                umem_len
+            ),
+            CrossesFrameBoundary { addr, len } => write!(
+                f,
+                "UMEM region [{}, {}] intersects with more then one frame",
+                addr,
+                addr + (len - 1),
+            ),
+        }
+    }
+}
+
+impl Error for AccessError {}
+
+/// Data related errors
+#[derive(Debug)]
+pub enum DataError {
+    /// Size of data written to UMEM for tx exceeds the MTU.
+    SizeExceedsMtu { data_len: usize, mtu: usize },
+}
+
+impl fmt::Display for DataError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DataError::SizeExceedsMtu { data_len, mtu } => write!(
+                f,
+                "data length ({} bytes) cannot be greater than the MTU ({} bytes)",
+                data_len, mtu
+            ),
+        }
+    }
+}
+
+impl Error for DataError {}
+
+/// Errors that may occur when writing data to the UMEM.
+#[derive(Debug)]
+pub enum WriteError {
+    Access(AccessError),
+    Data(DataError),
+}
+
+impl fmt::Display for WriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use WriteError::*;
+        match self {
+            Access(access_err) => write!(f, "{}", access_err),
+            Data(data_err) => write!(f, "{}", data_err),
+        }
+    }
+}
+
+impl Error for WriteError {}
 
 #[cfg(test)]
 mod tests {
