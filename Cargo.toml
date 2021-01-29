@@ -11,7 +11,7 @@ keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 
 [dependencies]
 bitflags = "1.2.1"
-libbpf-sys = "0.2.0-3"
+libbpf-sys = "0.3.0-1"
 libc = "0.2"
 log = "0.4"
 
