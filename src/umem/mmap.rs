@@ -65,15 +65,43 @@ impl MmapArea {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    fn mmap_from_raw_parts(ptr: *mut libc::c_void, len: usize) -> Self {
+        Self {
+            len: len,
+            mem_ptr: ptr,
+        }
+    }
+
+    pub(in crate::umem) fn split(self, offset: usize) -> (Self, Self) {
+        if offset > self.len() {
+            panic!("split mmap, offset > self.len()");
+        }
+
+        let len1 = self.len;
+        let len2 = self.len;
+
+        let ptr1 = self.mem_ptr;
+        let ptr2 = self.mem_ptr;
+
+        let mmap1 = Self::mmap_from_raw_parts(ptr1, len1);
+        let mmap2 = Self::mmap_from_raw_parts(ptr2, len2);
+
+        std::mem::forget(self);
+        (mmap1, mmap2)
+    }
 }
 
 impl Drop for MmapArea {
     fn drop(&mut self) {
+        /*
+        eprintln!("dropping mmap");
         let err = unsafe { libc::munmap(self.mem_ptr, self.len) };
 
         if err != 0 {
             error!("munmap() failed: {}", err);
         }
+        */
     }
 }
 

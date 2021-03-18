@@ -2,6 +2,8 @@ use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::task;
+use std::time;
+use std::thread::sleep;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -55,6 +57,7 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 }
 
 async fn set_up_veth_link(veth_link: &VethLink, dev2_if_name: &str) -> anyhow::Result<()> {
+    sleep(time::Duration::from_millis(50));
     let peer_index = get_link_index(&veth_link.handle, dev2_if_name).await?;
 
     set_link_up(&veth_link.handle, veth_link.dev1_index).await?;

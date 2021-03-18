@@ -1,4 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config, XDP_PACKET_HEADROOM};
+use std::sync::{Arc, Mutex};
 use std::{convert::TryInto, error::Error, fmt, io, marker::PhantomData, mem::MaybeUninit, ptr};
 
 use crate::socket::{self, Fd};
@@ -97,6 +98,18 @@ pub struct UmemBuilderWithMmap {
     mmap_area: MmapArea,
 }
 
+struct XskUmem(*mut xsk_umem);
+unsafe impl Send for XskUmem {}
+impl Drop for XskUmem {
+    fn drop(&mut self) {
+        let err = unsafe { libbpf_sys::xsk_umem__delete(self.0) };
+
+        if err != 0 {
+            log::error!("xsk_umem__delete() failed: {}", err);
+        }
+    }
+}
+
 /// A region of virtual contiguous memory divided into equal-sized
 /// frames.  It provides the underlying working memory for an AF_XDP
 /// socket.
@@ -105,7 +118,7 @@ pub struct Umem<'a> {
     frame_size: usize,
     umem_len: usize,
     mtu: usize,
-    inner: Box<xsk_umem>,
+    inner: Arc<Mutex<XskUmem>>,
     mmap_area: MmapArea,
     _marker: PhantomData<&'a ()>,
 }
@@ -187,7 +200,8 @@ impl<'a> UmemBuilderWithMmap {
         };
 
         if err != 0 {
-            return Err(io::Error::from_raw_os_error(err));
+            let e = errno::errno();
+            return Err(io::Error::from_raw_os_error(e.0));
         }
 
         // Upcasting u32 -> size_of<usize> = size_of<u64> is ok, the
@@ -222,7 +236,7 @@ impl<'a> UmemBuilderWithMmap {
             frame_size,
             umem_len: frame_count * frame_size,
             mtu,
-            inner: unsafe { Box::from_raw(umem_ptr) },
+            inner: unsafe { Arc::new(Mutex::new(XskUmem(umem_ptr))) },
             mmap_area: self.mmap_area,
             _marker: PhantomData,
         };
@@ -261,7 +275,7 @@ impl Umem<'_> {
     }
 
     pub(crate) fn as_mut_ptr(&mut self) -> *mut xsk_umem {
-        self.inner.as_mut()
+        self.inner.lock().expect("failed to lock").0
     }
 
     /// Check if trying to access the UMEM region bound by [`addr`,
@@ -428,15 +442,43 @@ impl Umem<'_> {
 
         Ok(self.mmap_area.mem_range_mut(&addr, &len))
     }
-}
 
-impl Drop for Umem<'_> {
-    fn drop(&mut self) {
-        let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
+    pub fn split(
+        self,
+        frame_desc: Vec<FrameDesc>,
+        tx_size: usize,
+    ) -> (Umem, Umem, Vec<FrameDesc>, Vec<FrameDesc>) {
+        let frames_tx = frame_desc[..tx_size].into();
+        let frames_rx = frame_desc[tx_size..].into();
 
-        if err != 0 {
-            log::error!("xsk_umem__delete() failed: {}", err);
-        }
+        let offset = (self.config.frame_size() as usize) * tx_size;
+        let (mut mmap_tx, mut mmap_rx) = self.mmap_area.split(offset);
+
+        eprintln!("offset = {}", offset);
+        eprintln!("mmap tx ptr = {:?}", mmap_tx.as_mut_ptr());
+        eprintln!("mmap rx ptr = {:?}", mmap_rx.as_mut_ptr());
+
+        let umem_tx = Umem {
+            config: self.config.clone(),
+            frame_size: self.frame_size,
+            umem_len: tx_size,
+            inner: self.inner.clone(),
+            mtu: self.mtu,
+            mmap_area: mmap_tx,
+            _marker: PhantomData,
+        };
+
+        let umem_rx = Umem {
+            config: self.config.clone(),
+            frame_size: self.frame_size,
+            umem_len: self.umem_len - tx_size,
+            inner: self.inner,
+            mtu: self.mtu,
+            mmap_area: mmap_rx,
+            _marker: PhantomData,
+        };
+
+        (umem_tx, umem_rx, frames_tx, frames_rx)
     }
 }
 
@@ -472,6 +514,7 @@ impl FillQueue<'_> {
         let mut idx: u32 = 0;
 
         let cnt = libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx);
+        eprintln!("xsk_ring_prod__reserve cnt = {}", cnt);
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt.try_into().unwrap()) {
@@ -705,6 +748,21 @@ mod tests {
             .expect("Failed to create mmap region")
             .create_umem()
             .expect("Failed to create UMEM")
+    }
+
+    #[test]
+    fn umem_create_split() {
+        let config = umem_config();
+
+        let (umem, fq, cq, frame_descs) = Umem::builder(config)
+            .create_mmap()
+            .expect("Failed to create mmap region")
+            .create_umem()
+            .expect("Failed to create UMEM");
+
+        let (umem_tx, umem_rx, frame_descs_tx, frame_descs_rx) = umem.split(frame_descs, 8);
+
+        assert!(false)
     }
 
     #[test]
