@@ -1,6 +1,8 @@
 use libbpf_sys::XDP_PACKET_HEADROOM;
+use rusty_fork::rusty_fork_test;
+use std::{thread, time::Duration};
+use tokio::runtime::Runtime;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
-use serial_test::serial;
 
 mod setup;
 
@@ -44,9 +46,9 @@ fn default_config_builders() -> (UmemConfigBuilder, SocketConfigBuilder) {
     (umem_config_builder, socket_config_builder)
 }
 
-#[tokio::test]
-#[serial]
-async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
+rusty_fork_test! {
+    #[test]
+fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..2]), 0);
 
@@ -61,6 +63,9 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -69,11 +74,13 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
         test_fn,
     )
     .await;
+            });
+}
 }
 
-#[tokio::test]
-#[serial]
-async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
+rusty_fork_test! {
+    #[test]
+fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         assert_eq!(
             unsafe {
@@ -97,6 +104,9 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -105,11 +115,13 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
         test_fn,
     )
     .await;
+            });
+}
 }
 
-#[tokio::test]
-#[serial]
-async fn rx_queue_consumes_frame_correctly_after_tx() {
+rusty_fork_test! {
+    #[test]
+ fn rx_queue_consumes_frame_correctly_after_tx() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         // Add a frame in the dev1 fill queue ready to receive
         assert_eq!(unsafe { dev1.fill_q.produce(&dev1.frame_descs[0..1]) }, 1);
@@ -119,9 +131,7 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 
         // Write data to UMEM
         unsafe {
-            dev2.umem
-                .write_to_umem_checked(&mut dev2.frame_descs[0], &pkt[..])
-                .unwrap();
+            dev2.frame_descs[0].write_to_umem_checked(&pkt[..]).unwrap();
         }
 
         assert_eq!(dev2.frame_descs[0].len(), 5);
@@ -136,15 +146,21 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
             1
         );
 
+
+
+        // Wait briefly so we don't try to consume too early
+        thread::sleep(Duration::from_millis(5));
+
         // Read on dev1
-        assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..]), 1);
+        let frames_consumed = dev1.rx_q.consume(&mut dev1.frame_descs[..]);
+        assert_eq!(frames_consumed, 1);
 
         assert_eq!(dev1.frame_descs[0].len(), 5);
 
         // Check that the data is correct
         let recvd = unsafe {
-            dev1.umem
-                .read_from_umem_checked(&dev1.frame_descs[0].addr(), &dev1.frame_descs[0].len())
+            dev1.frame_descs[0]
+                .read_from_umem_checked(dev1.frame_descs[0].len())
                 .unwrap()
         };
 
@@ -154,6 +170,9 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -162,11 +181,13 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
         test_fn,
     )
     .await;
+            });
+}
 }
 
-#[tokio::test]
-#[serial]
-async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
+rusty_fork_test! {
+    #[test]
+    fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         // Add a frame in the dev1 fill queue ready to receive
         assert_eq!(unsafe { dev1.fill_q.produce(&dev1.frame_descs[0..1]) }, 1);
@@ -176,9 +197,7 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
 
         // Write data to UMEM
         unsafe {
-            dev2.umem
-                .write_to_umem_checked(&mut dev2.frame_descs[0], &pkt[..])
-                .unwrap();
+            dev2.frame_descs[0].write_to_umem_checked(&pkt[..]).unwrap();
         }
 
         assert_eq!(dev2.frame_descs[0].len(), 5);
@@ -217,6 +236,9 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
     let dev1_umem_config = Some(dev1_umem_config_builder.build());
     let dev1_socket_config = Some(dev1_socket_config_builder.build());
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -225,4 +247,6 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
         test_fn,
     )
     .await;
+            });
+}
 }

@@ -1,5 +1,6 @@
+use rusty_fork::rusty_fork_test;
+use tokio::runtime::Runtime;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
-use serial_test::serial;
 
 mod setup;
 
@@ -16,9 +17,9 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     (Some(umem_config), None)
 }
 
-#[tokio::test]
-#[serial]
-async fn fill_queue_produce_tx_size_frames() {
+rusty_fork_test! {
+#[test]
+fn fill_queue_produce_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
 
@@ -28,6 +29,9 @@ async fn fill_queue_produce_tx_size_frames() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -36,11 +40,13 @@ async fn fill_queue_produce_tx_size_frames() {
         test_fn,
     )
     .await;
+            });
+}
 }
 
-#[tokio::test]
-#[serial]
-async fn fill_queue_produce_gt_tx_size_frames() {
+rusty_fork_test! {
+    #[test]
+fn fill_queue_produce_gt_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
 
@@ -50,6 +56,9 @@ async fn fill_queue_produce_gt_tx_size_frames() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -58,11 +67,13 @@ async fn fill_queue_produce_gt_tx_size_frames() {
         test_fn,
     )
     .await;
+            });
+}
 }
 
-#[tokio::test]
-#[serial]
-async fn fill_queue_produce_frames_until_full() {
+rusty_fork_test! {
+    #[test]
+fn fill_queue_produce_frames_until_full() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
 
@@ -75,6 +86,9 @@ async fn fill_queue_produce_frames_until_full() {
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
+        let mut rt = Runtime::new().unwrap();
+        rt.block_on(
+            async {
     setup::run_test(
         dev1_umem_config,
         dev1_socket_config,
@@ -83,4 +97,6 @@ async fn fill_queue_produce_frames_until_full() {
         test_fn,
     )
     .await;
+            });
+}
 }

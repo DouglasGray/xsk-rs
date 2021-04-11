@@ -1,7 +1,7 @@
 use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_WRITE};
-use log::error;
 use std::{convert::TryInto, io, ptr, slice};
 
+#[derive(Debug, PartialEq)]
 pub struct MmapArea {
     len: usize,
     mem_ptr: *mut libc::c_void,
@@ -55,10 +55,16 @@ impl MmapArea {
     /// currently writing to or reading from the region (since it's
     /// backing the UMEM).
     #[inline]
-    pub unsafe fn mem_range_mut(&mut self, offset: &usize, len: &usize) -> &mut [u8] {
+    pub unsafe fn mem_range_mut(&self, offset: &usize, len: &usize) -> &mut [u8] {
         let ptr = self.mem_ptr.offset((*offset).try_into().unwrap());
 
         slice::from_raw_parts_mut(ptr as *mut u8, *len)
+    }
+
+    pub unsafe fn owned_mem_range(&mut self, offset: &usize, len: &usize) -> Vec<u8> {
+        let ptr = self.mem_ptr.offset((*offset).try_into().unwrap());
+
+        Vec::from_raw_parts(ptr as *mut u8, *len, *len)
     }
 
     #[inline]

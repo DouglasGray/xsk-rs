@@ -1,9 +1,9 @@
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::task;
-use std::time;
 use std::thread::sleep;
+use std::time;
+use tokio::task;
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
