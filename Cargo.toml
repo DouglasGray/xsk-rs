@@ -34,3 +34,6 @@ rusty-fork = "0.3.0"
 version = "0.2.22"
 default-features = false
 features =  ["rt-core", "macros", "test-util", "blocking", "sync", "signal"]
+
+[profile.release]
+debug = true

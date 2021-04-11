@@ -8,6 +8,7 @@ pub struct MmapArea {
 }
 
 unsafe impl Send for MmapArea {}
+unsafe impl Sync for MmapArea {}
 
 impl MmapArea {
     pub fn new(len: usize, use_huge_pages: bool) -> io::Result<Self> {

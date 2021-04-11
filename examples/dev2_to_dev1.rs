@@ -35,7 +35,7 @@ struct Xsk<'umem> {
     rx_q: RxQueue<'umem>,
     fill_q: FillQueue<'umem>,
     comp_q: CompQueue<'umem>,
-    frame_descs: Vec<FrameDesc<'umem>>,
+    frames: Vec<FrameDesc<'umem>>,
     umem: Umem<'umem>,
 }
 
@@ -59,8 +59,8 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
     // Extra 42 bytes is for the eth and IP headers
     let sent_eth_frame_size = config.payload_size + 42;
 
-    let dev1_frames = &mut dev1.frame_descs;
-    let dev2_frames = &mut dev2.frame_descs;
+    let dev1_frames = &mut dev1.frames;
+    let dev2_frames = &mut dev2.frames;
 
     let start = Instant::now();
 
@@ -70,7 +70,6 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
             .produce(&dev1_frames[..config.fill_q_size as usize])
     };
 
-    assert_eq!(frames_filled, config.fill_q_size as usize);
     log::debug!("init frames added to dev1.fill_q: {}", frames_filled);
 
     // Populate tx queue
@@ -144,60 +143,61 @@ fn dev2_to_dev1_single_thread(config: &Config, mut dev1: Xsk, mut dev2: Xsk) {
             || total_frames_consumed < config.num_frames_to_send
         {
             // Handle tx
-            match dev2.comp_q.consume(&mut dev2_frames[..]) {
-                0 => {
-                    log::debug!("dev2.comp_q.consume() consumed 0 frames");
-                    if dev2.tx_q.needs_wakeup() {
-                        log::debug!("waking up dev2.tx_q");
-                        dev2.tx_q.wakeup().unwrap();
-                    }
+            let free_frames = dev2.comp_q.consume(dev2_frames.len() as u64);
+            if free_frames.len() == 0 {
+                log::debug!("dev2.comp_q.consume() consumed 0 frames");
+                if dev2.tx_q.needs_wakeup() {
+                    log::debug!("waking up dev2.tx_q");
+                    dev2.tx_q.wakeup().unwrap();
                 }
-                frames_rcvd => {
-                    log::debug!("dev2.comp_q.consume() consumed {} frames", frames_rcvd);
-                    total_frames_consumed += frames_rcvd;
+            } else {
+                log::debug!(
+                    "dev2.comp_q.consume() consumed {} frames",
+                    free_frames.len()
+                );
+                total_frames_consumed += free_frames.len();
 
-                    if total_frames_sent < config.num_frames_to_send {
-                        // Data is still contained in the frames so
-                        // just set the descriptor's length
-                        for desc in dev2_frames[..frames_rcvd].iter_mut() {
-                            desc.set_len(sent_eth_frame_size);
-                        }
-
-                        // Wait until we're ok to write
-                        while !socket::poll_write(dev2.tx_q.fd(), config.poll_ms_timeout).unwrap() {
-                            log::debug!("poll_write(dev2.tx_q) returned false");
-                            continue;
-                        }
-
-                        let frames_to_send = cmp::min(
-                            frames_rcvd,
-                            cmp::min(
-                                config.max_batch_size,
-                                config.num_frames_to_send - total_frames_sent,
-                            ),
-                        );
-
-                        // Add consumed frames back to the tx queue
-                        while unsafe {
-                            dev2.tx_q
-                                .produce_and_wakeup(&dev2_frames[..frames_to_send])
-                                .unwrap()
-                        } != frames_to_send
-                        {
-                            // Loop until frames added to the tx ring.
-                            log::debug!("dev2.tx_q.produce_and_wakeup() failed to allocate");
-                        }
-                        log::debug!(
-                            "dev2.tx_q.produce_and_wakeup() submitted {} frames",
-                            frames_to_send
-                        );
-
-                        total_frames_sent += frames_to_send;
+                if total_frames_sent < config.num_frames_to_send {
+                    // Data is still contained in the frames so
+                    // just set the descriptor's length
+                    for desc in dev2_frames[..free_frames.len()].iter_mut() {
+                        desc.set_len(sent_eth_frame_size);
                     }
 
-                    log::debug!("total frames consumed: {}", total_frames_consumed);
-                    log::debug!("total frames sent: {}", total_frames_sent);
+                    // Wait until we're ok to write
+                    while !socket::poll_write(dev2.tx_q.fd(), config.poll_ms_timeout).unwrap() {
+                        log::debug!("poll_write(dev2.tx_q) returned false");
+                        continue;
+                    }
+
+                    let frames_to_send = cmp::min(
+                        free_frames.len(),
+                        cmp::min(
+                            config.max_batch_size,
+                            config.num_frames_to_send - total_frames_sent,
+                        ),
+                    );
+
+                    // Add consumed frames back to the tx queue
+                    while unsafe {
+                        dev2.tx_q
+                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                            .unwrap()
+                    } != frames_to_send
+                    {
+                        // Loop until frames added to the tx ring.
+                        log::debug!("dev2.tx_q.produce_and_wakeup() failed to allocate");
+                    }
+                    log::debug!(
+                        "dev2.tx_q.produce_and_wakeup() submitted {} frames",
+                        frames_to_send
+                    );
+
+                    total_frames_sent += frames_to_send;
                 }
+
+                log::debug!("total frames consumed: {}", total_frames_consumed);
+                log::debug!("total frames sent: {}", total_frames_sent);
             }
         }
     }
@@ -250,7 +250,7 @@ fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2:
 
     // Spawn the receiver thread
     let rx_handle = thread::spawn(move || {
-        let dev1_frames = &mut dev1.frame_descs;
+        let dev1_frames = &mut dev1.frames;
 
         // Populate fill queue
         let frames_filled = unsafe {
@@ -331,7 +331,7 @@ fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2:
 
     // Spawn the sender thread
     let tx_handle = thread::spawn(move || {
-        let dev2_frames = &mut dev2.frame_descs;
+        let dev2_frames = &mut dev2.frames;
 
         // Populate tx queue.
         let mut total_frames_consumed = 0;
@@ -354,65 +354,62 @@ fn dev2_to_dev1_multithreaded(config: &Config, mut dev1: Xsk<'static>, mut dev2:
         }
 
         while total_frames_consumed < config2.num_frames_to_send {
-            match dev2.comp_q.consume(&mut dev2_frames[..]) {
-                0 => {
-                    log::debug!("(dev2) dev2.comp_q.consume() consumed 0 frames");
-                    // In copy mode so need to make a syscall to actually send packets
-                    // despite having produced frames onto the fill ring.
-                    if dev2.tx_q.needs_wakeup() {
-                        log::debug!("(dev2) waking up dev2.tx_q");
-                        dev2.tx_q.wakeup().unwrap();
-                    }
+            let free_frames = dev2.comp_q.consume(dev2_frames.len() as u64);
+            if free_frames.len() == 0 {
+                log::debug!("(dev2) dev2.comp_q.consume() consumed 0 frames");
+                // In copy mode so need to make a syscall to actually send packets
+                // despite having produced frames onto the fill ring.
+                if dev2.tx_q.needs_wakeup() {
+                    log::debug!("(dev2) waking up dev2.tx_q");
+                    dev2.tx_q.wakeup().unwrap();
                 }
-                frames_rcvd => {
-                    log::debug!(
-                        "(dev2) dev2.comp_q.consume() consumed {} frames",
-                        frames_rcvd
+            } else {
+                log::debug!(
+                    "(dev2) dev2.comp_q.consume() consumed {} frames",
+                    free_frames.len()
+                );
+
+                total_frames_consumed += free_frames.len();
+
+                if total_frames_sent < config2.num_frames_to_send {
+                    // Data is still contained in the frames so
+                    // just set the descriptor's length
+                    for desc in dev2_frames[..free_frames.len()].iter_mut() {
+                        desc.set_len(sent_eth_frame_size);
+                    }
+
+                    // Wait until we're ok to write
+                    while !socket::poll_write(dev2.tx_q.fd(), config2.poll_ms_timeout).unwrap() {
+                        log::debug!("(dev2) poll_write(dev2.tx_q) returned false");
+                        continue;
+                    }
+
+                    let frames_to_send = cmp::min(
+                        cmp::min(free_frames.len(), config2.max_batch_size),
+                        config2.num_frames_to_send - total_frames_sent,
                     );
 
-                    total_frames_consumed += frames_rcvd;
-
-                    if total_frames_sent < config2.num_frames_to_send {
-                        // Data is still contained in the frames so
-                        // just set the descriptor's length
-                        for desc in dev2_frames[..frames_rcvd].iter_mut() {
-                            desc.set_len(sent_eth_frame_size);
-                        }
-
-                        // Wait until we're ok to write
-                        while !socket::poll_write(dev2.tx_q.fd(), config2.poll_ms_timeout).unwrap()
-                        {
-                            log::debug!("(dev2) poll_write(dev2.tx_q) returned false");
-                            continue;
-                        }
-
-                        let frames_to_send = cmp::min(
-                            cmp::min(frames_rcvd, config2.max_batch_size),
-                            config2.num_frames_to_send - total_frames_sent,
-                        );
-
-                        // Add consumed frames back to the tx queue
-                        while unsafe {
-                            dev2.tx_q
-                                .produce_and_wakeup(&dev2_frames[..frames_to_send])
-                                .unwrap()
-                        } != frames_to_send
-                        {
-                            // Loop until frames added to the tx ring.
-                            log::debug!("(dev2) dev2.tx_q.produce_and_wakeup() failed to allocate");
-                        }
-
-                        log::debug!(
-                            "(dev2) dev2.tx_q.produce_and_wakeup() submitted {} frames",
-                            frames_to_send
-                        );
-
-                        total_frames_sent += frames_to_send;
+                    // Add consumed frames back to the tx queue
+                    while unsafe {
+                        dev2.tx_q
+                            .produce_and_wakeup(&dev2_frames[..frames_to_send])
+                            .unwrap()
+                    } != frames_to_send
+                    {
+                        // Loop until frames added to the tx ring.
+                        log::debug!("(dev2) dev2.tx_q.produce_and_wakeup() failed to allocate");
                     }
 
-                    log::debug!("(dev2) total frames consumed: {}", total_frames_consumed);
-                    log::debug!("(dev2) total frames sent: {}", total_frames_sent);
+                    log::debug!(
+                        "(dev2) dev2.tx_q.produce_and_wakeup() submitted {} frames",
+                        frames_to_send
+                    );
+
+                    total_frames_sent += frames_to_send;
                 }
+
+                log::debug!("(dev2) total frames consumed: {}", total_frames_consumed);
+                log::debug!("(dev2) total frames sent: {}", total_frames_sent);
             }
         }
 
@@ -483,7 +480,7 @@ fn build_socket_and_umem(
         comp_q,
         tx_q,
         rx_q,
-        frame_descs,
+        frames: frame_descs,
     }
 }
 
@@ -522,11 +519,9 @@ fn run_example(config: &Config, veth_config: &VethConfig) {
     // Copy over some bytes to dev2s umem to transmit
     let eth_frame = setup::generate_eth_frame(veth_config, config.payload_size);
 
-    for desc in dev2.frame_descs.iter_mut() {
+    for desc in dev2.frames.iter_mut() {
         unsafe {
-            dev2.umem
-                .write_to_umem_checked(desc, &eth_frame[..])
-                .unwrap();
+            desc.write_to_umem_checked(&eth_frame[..]).unwrap();
         }
 
         assert_eq!(desc.len(), eth_frame.len());

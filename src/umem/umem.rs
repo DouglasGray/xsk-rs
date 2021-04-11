@@ -291,8 +291,8 @@ impl<'a> UmemBuilderWithMmap {
         };
 
         let mut umem_ptr: *mut xsk_umem = ptr::null_mut();
-        let mut fq_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
-        let mut cq_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::uninit();
+        let mut fq_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::zeroed();
+        let mut cq_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::zeroed();
 
         let err = unsafe {
             libbpf_sys::xsk_umem__create(
@@ -534,8 +534,6 @@ impl CompQueue<'_> {
 
         let cnt =
             unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), n_frames, &mut idx) };
-
-        eprintln!("cons__peek idx = {}", idx);
 
         let mut free_frames = vec![];
         for i in 0..cnt {
