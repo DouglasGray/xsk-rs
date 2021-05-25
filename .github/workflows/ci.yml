@@ -45,7 +45,7 @@ jobs:
         with:
           command: build
           args: --tests
-      - run: sudo ./run_all_tests
+      - run: sudo ./run_all_tests.sh
 
   fmt:
     name: Rustfmt
@@ -68,6 +68,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+      - run: |
+          sudo apt update
+          sudo apt install libelf-dev
       - uses: actions-rs/toolchain@v1
         with:
           profile: minimal
