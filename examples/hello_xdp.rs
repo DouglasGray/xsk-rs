@@ -140,7 +140,7 @@ fn main() {
     let ctrl_c_events = setup::ctrl_channel().unwrap();
 
     let veth_handle = thread::spawn(move || {
-        let mut runtime = Runtime::new().unwrap();
+        let runtime = Runtime::new().unwrap();
 
         runtime.block_on(setup::run_veth_link(
             &veth_config_clone,

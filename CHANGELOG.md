@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2020-05-25
+
+## Changed
+- bumped lib versions, libbpf-sys specifically
+
 ## [0.2.1] - 2020-01-29
 
 ### Changed

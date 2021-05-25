@@ -1,6 +1,6 @@
 [package]
 name = "xsk-rs"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Douglas Gray <dbgray01@gmail.com>"]
 edition = "2018"
 description = "Rust bindings for Linux AF_XDP sockets"
@@ -10,23 +10,23 @@ readme = "README.md"
 keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 
 [dependencies]
-bitflags = "1.2.1"
-libbpf-sys = "0.3.0-1"
+bitflags = "1.2"
+libbpf-sys = "0.3.0-2"
 libc = "0.2"
 log = "0.4"
 
 [dev-dependencies]
-anyhow = "1.0.32"
-clap = "2.33.3"
-crossbeam-channel = "0.5.0"
-ctrlc = "3.1.7"
-etherparse = "0.9.0"
-futures = "0.3.5"
-rand = "0.7.3"
-rtnetlink = "0.3.0"
-env_logger = "0.8.2"
+anyhow = "1.0"
+clap = "2.33"
+crossbeam-channel = "0.5"
+ctrlc = "3.1"
+etherparse = "0.9"
+futures = "0.3"
+rand = "0.8.3"
+rtnetlink = "0.7"
+env_logger = "0.8"
 
 [dev-dependencies.tokio]
-version = "0.2.22"
+version = "1.6"
 default-features = false
-features =  ["rt-core", "macros", "test-util", "blocking", "sync", "signal"]
+features =  ["rt-multi-thread", "macros", "sync", "signal"]
