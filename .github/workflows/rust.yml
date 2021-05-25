@@ -19,7 +19,7 @@ jobs:
     - name: Install
       run: |
         sudo apt update
-        sudo apt install libbpf-dev
+        sudo apt install libelf-dev
     - name: Build
       run: cargo build --verbose
     - name: Run tests
