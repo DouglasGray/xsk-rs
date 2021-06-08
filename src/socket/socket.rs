@@ -106,7 +106,7 @@ impl Socket<'_> {
         let mut tx_q_ptr: MaybeUninit<xsk_ring_prod> = MaybeUninit::uninit();
         let mut rx_q_ptr: MaybeUninit<xsk_ring_cons> = MaybeUninit::uninit();
 
-        let if_name = CString::new(if_name).map_err(|e| SocketCreateError::InvalidIfName(e))?;
+        let if_name = CString::new(if_name).map_err(SocketCreateError::InvalidIfName)?;
 
         let err = unsafe {
             libbpf_sys::xsk_socket__create(
@@ -247,13 +247,6 @@ impl TxQueue<'_> {
     /// Let the kernel know that the contents of frames in `descs` are
     /// ready to be transmitted.
     ///
-    /// This function is marked `unsafe` as it is possible to cause a
-    /// data race by simultaneously submitting the same frame
-    /// descriptor to the tx ring and the fill ring, for example.
-    /// Once any frames have been submitted they should not be used
-    /// again until consumed via the
-    /// [CompQueue](struct.CompQueue.html).
-    ///
     /// Note that if the length of `descs` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be submitted for transmission.
@@ -262,6 +255,14 @@ impl TxQueue<'_> {
     /// kernel for transmission. Due to the constraint mentioned in
     /// the above paragraph, this should always be the length of
     /// `descs` or `0`.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` as it is possible to cause a data
+    /// race by simultaneously submitting the same frame descriptor to
+    /// the tx ring and the fill ring, for example.  Once any frames
+    /// have been submitted they should not be used again until
+    /// consumed via the [CompQueue](struct.CompQueue.html).
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top level conditional
@@ -296,11 +297,13 @@ impl TxQueue<'_> {
     /// Same as `produce` but wake up the kernel to continue
     /// processing produced frames (if required).
     ///
-    /// This function is marked `unsafe` for the same reasons that
-    /// `produce` is `unsafe.`
-    ///
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` for the same reasons that `produce`
+    /// is `unsafe.`
     #[inline]
     pub unsafe fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
         let cnt = self.produce(descs);

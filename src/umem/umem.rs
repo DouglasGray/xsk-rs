@@ -319,6 +319,8 @@ impl Umem<'_> {
     /// of potential misuse is referencing a region that extends
     /// beyond the end of the UMEM.
     ///
+    /// # Safety
+    ///
     /// Apart from the memory considerations, this function is also
     /// `unsafe` as there is no guarantee the kernel isn't also
     /// reading from or writing to the same region.
@@ -330,6 +332,11 @@ impl Umem<'_> {
     /// Checked version of `umem_region_ref`. Ensures that the
     /// referenced region is contained within a single frame of the
     /// UMEM.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` for the same reasons
+    /// `read_from_umem` is `unsafe`.
     #[inline]
     pub unsafe fn read_from_umem_checked(
         &self,
@@ -350,6 +357,8 @@ impl Umem<'_> {
     /// UMEM, or if `data` is large then potentially writing across
     /// frame boundaries.
     ///
+    /// # Safety
+    ///
     /// Apart from the considerations around writing to memory, this
     /// function is also `unsafe` as there is no guarantee the kernel
     /// isn't also reading from or writing to the same region.
@@ -369,6 +378,11 @@ impl Umem<'_> {
     /// Checked version of `write_to_umem_frame`. Ensures that a
     /// successful write is completely contained within a single frame
     /// of the UMEM.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` for the same reasons `write_to_umem`
+    /// is `unsafe`.
     #[inline]
     pub unsafe fn write_to_umem_checked(
         &mut self,
@@ -378,10 +392,10 @@ impl Umem<'_> {
         let data_len = data.len();
 
         if data_len > 0 {
-            self.is_data_valid(data).map_err(|e| WriteError::Data(e))?;
+            self.is_data_valid(data).map_err(WriteError::Data)?;
 
             self.is_access_valid(&frame_desc.addr(), &data_len)
-                .map_err(|e| WriteError::Access(e))?;
+                .map_err(WriteError::Access)?;
 
             let umem_region = self.mmap_area.mem_range_mut(&frame_desc.addr(), &data_len);
 
@@ -401,16 +415,18 @@ impl Umem<'_> {
     /// of potential misuse is referencing a region that extends
     /// beyond the end of the UMEM.
     ///
-    /// Apart from the memory considerations, this function is also
-    /// `unsafe` as there is no guarantee the kernel isn't also
-    /// reading from or writing to the same region.
-    ///
     /// If data is written to a frame, the length on the corresponding
     /// [FrameDesc](struct.FrameDesc.html) for `addr` must be updated
     /// before submitting to the [TxQueue](struct.TxQueue.html). This
     /// ensures the correct number of bytes are sent. Use
     /// `write_to_umem` or `write_to_umem_checked` to avoid the
     /// overhead of updating the frame descriptor.
+    ///
+    /// # Safety
+    ///
+    /// Apart from the memory considerations, this function is also
+    /// `unsafe` as there is no guarantee the kernel isn't also
+    /// reading from or writing to the same region.
     #[inline]
     pub unsafe fn umem_region_mut(&mut self, addr: &usize, len: &usize) -> &mut [u8] {
         self.mmap_area.mem_range_mut(&addr, &len)
@@ -418,6 +434,11 @@ impl Umem<'_> {
 
     /// Checked version of `umem_region_mut`. Ensures the requested
     /// region lies within a single frame.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` for the same reasons that
+    /// `umem_region_mut` is `unsafe`.
     #[inline]
     pub unsafe fn umem_region_mut_checked(
         &mut self,
@@ -444,13 +465,6 @@ impl FillQueue<'_> {
     /// Let the kernel know that the frames in `descs` may be used to
     /// receive data.
     ///
-    /// This function is marked `unsafe` as it is possible to cause a
-    /// data race by simultaneously submitting the same frame
-    /// descriptor to the fill ring and the Tx ring, for example.
-    /// Once the frames have been submitted they should not be used
-    /// again until consumed again via the
-    /// [RxQueue](struct.RxQueue.html).
-    ///
     /// Note that if the length of `descs` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be handed over to the kernel.
@@ -458,6 +472,14 @@ impl FillQueue<'_> {
     /// This returns the number of frames submitted to the kernel. Due
     /// to the constraint mentioned in the above paragraph, this
     /// should always be the length of `descs` or `0`.
+    ///
+    /// # Safety
+    ///
+    /// This function is `unsafe` as it is possible to cause a data
+    /// race by simultaneously submitting the same frame descriptor to
+    /// the fill ring and the Tx ring, for example.  Once the frames
+    /// have been submitted they should not be used again until
+    /// consumed again via the [RxQueue](struct.RxQueue.html).
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         // usize <-> u64 'as' conversions are ok as the crate's top
@@ -493,8 +515,10 @@ impl FillQueue<'_> {
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
     ///
-    /// This function is marked `unsafe` for the same reasons that
-    /// `produce` is `unsafe`.
+    /// # Safety
+    ///
+    /// This function is `unsafe` for the same reasons that `produce`
+    /// is `unsafe`.
     #[inline]
     pub unsafe fn produce_and_wakeup(
         &mut self,
