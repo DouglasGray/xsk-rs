@@ -47,8 +47,9 @@ impl Fd {
         }
     }
 
+    /// The inner file descriptor
     #[inline]
-    pub(crate) fn id(&self) -> i32 {
+    pub fn fd(&self) -> i32 {
         self.id
     }
 
