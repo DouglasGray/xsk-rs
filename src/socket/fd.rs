@@ -47,7 +47,7 @@ impl Fd {
         }
     }
 
-    /// The inner file descriptor
+    /// The inner file descriptor.
     ///
     /// May be required, for example, in the case where the default
     /// libbpf program has not been loaded (using the
