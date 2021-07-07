@@ -48,6 +48,12 @@ impl Fd {
     }
 
     /// The inner file descriptor
+    ///
+    /// May be required, for example, in the case where the default
+    /// libbpf program has not been loaded (using the
+    /// `XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD` flag) and the socket's
+    /// file descriptor must be available to register it in the
+    /// `XSKMAP`.
     #[inline]
     pub fn fd(&self) -> i32 {
         self.id
