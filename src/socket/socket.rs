@@ -322,7 +322,7 @@ impl TxQueue<'_> {
     #[inline]
     pub fn wakeup(&self) -> io::Result<()> {
         let ret =
-            unsafe { libc::sendto(self.fd.id(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
+            unsafe { libc::sendto(self.fd.fd(), ptr::null(), 0, MSG_DONTWAIT, ptr::null(), 0) };
 
         if ret < 0 {
             match util::get_errno() {
