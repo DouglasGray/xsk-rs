@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2021-07-10
+
+## Changes
+- expose the socket file descriptor on the `Fd` struct to make it
+  possible to register the socket manually
+- bump libbpf-sys to version 0.4
+
+## [0.2.3] - 2021-06-09
+
+## Changed
+- added CI, fixed docs
+
 ## [0.2.2] - 2020-05-25
 
 ## Changed
