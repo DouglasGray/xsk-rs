@@ -22,11 +22,11 @@ crossbeam-channel = "0.5"
 ctrlc = "3.1"
 etherparse = "0.9"
 futures = "0.3"
-rand = "0.8.3"
+rand = "0.8"
 rtnetlink = "0.7"
 env_logger = "0.8"
 
 [dev-dependencies.tokio]
 version = "1.6"
 default-features = false
-features =  ["rt-multi-thread", "macros", "sync", "signal"]
+features =  ["rt-multi-thread", "macros", "sync", "signal", "time"]

@@ -4,8 +4,8 @@ use xsk_rs::{
 };
 
 mod veth_setup;
-mod xsk_setup;
 
+mod xsk_setup;
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
 pub struct Xsk<'a> {
@@ -66,5 +66,5 @@ pub async fn run_test<F>(
         test(dev1_socket, dev2_socket)
     };
 
-    veth_setup::run_with_dev(inner).await;
+    veth_setup::run_with_dev(inner).await.unwrap();
 }

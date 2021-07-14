@@ -1,109 +1,163 @@
+use anyhow::{anyhow, Context};
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::task;
+use tokio::{
+    sync::mpsc::{self, UnboundedReceiver},
+    task,
+};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-struct VethLink {
-    handle: Handle,
-    dev1_index: u32,
+#[derive(Clone)]
+struct IfNames {
+    dev1: String,
+    dev2: String,
 }
 
-async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
-    Ok(handle
+struct LinkIndices {
+    dev1: u32,
+    dev2: u32,
+}
+
+fn _ctrl_channel() -> Result<UnboundedReceiver<()>, ctrlc::Error> {
+    let (tx, rx) = mpsc::unbounded_channel();
+    ctrlc::set_handler(move || {
+        let _ = tx.send(());
+    })?;
+
+    Ok(rx)
+}
+
+async fn get_link_index(conn_handle: &Handle, name: &str) -> anyhow::Result<u32> {
+    conn_handle
         .link()
         .get()
         .set_name_filter(name.into())
         .execute()
         .try_next()
         .await?
-        .expect(format!("No link with name {} found", name).as_str())
-        .header
-        .index)
+        .map(|link| link.header.index)
+        .ok_or(anyhow!("no index found for link {}", name))
 }
 
-async fn set_link_up(handle: &Handle, index: u32) -> anyhow::Result<()> {
-    Ok(handle.link().set(index).up().execute().await?)
+async fn delete_link(conn_handle: &Handle, index: u32) -> anyhow::Result<()> {
+    Ok(conn_handle.link().del(index).execute().await?)
 }
 
-async fn delete_link(handle: &Handle, index: u32) -> anyhow::Result<()> {
-    Ok(handle.link().del(index).execute().await?)
-}
-
-async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Result<VethLink> {
-    let (connection, handle, _) = rtnetlink::new_connection().unwrap();
-
-    tokio::spawn(connection);
-
-    handle
+async fn set_veth_link_up(conn_handle: &Handle, link_indices: &LinkIndices) -> anyhow::Result<()> {
+    conn_handle
         .link()
-        .add()
-        .veth(dev1_if_name.into(), dev2_if_name.into())
+        .set(link_indices.dev1)
+        .up()
         .execute()
         .await?;
 
-    let dev1_index = get_link_index(&handle, dev1_if_name).await.expect(
-        format!(
-            "Failed to retrieve index, this is not expected. Remove link manually: 'sudo ip link del {}'",
-            dev1_if_name
-        )
-        .as_str(),
-    );
-
-    Ok(VethLink { handle, dev1_index })
-}
-
-async fn set_up_veth_link(veth_link: &VethLink, dev2_if_name: &str) -> anyhow::Result<()> {
-    let peer_index = get_link_index(&veth_link.handle, dev2_if_name).await?;
-
-    set_link_up(&veth_link.handle, veth_link.dev1_index).await?;
-    set_link_up(&veth_link.handle, peer_index).await?;
+    conn_handle
+        .link()
+        .set(link_indices.dev2)
+        .up()
+        .execute()
+        .await?;
 
     Ok(())
 }
 
-pub async fn run_with_dev<F>(f: F)
+async fn get_link_indices(conn_handle: &Handle, if_names: &IfNames) -> anyhow::Result<LinkIndices> {
+    let dev1_index = get_link_index(&conn_handle, &if_names.dev1).await?;
+    let dev2_index = get_link_index(&conn_handle, &if_names.dev2).await?;
+
+    Ok(LinkIndices {
+        dev1: dev1_index,
+        dev2: dev2_index,
+    })
+}
+
+async fn add_veth_pair(conn_handle: &Handle, if_names: &IfNames) -> anyhow::Result<()> {
+    conn_handle
+        .link()
+        .add()
+        .veth(if_names.dev1.clone(), if_names.dev2.clone())
+        .execute()
+        .await?;
+
+    Ok(())
+}
+
+fn create_rtnetlink_connection() -> anyhow::Result<Handle> {
+    let (connection, handle, _) = rtnetlink::new_connection()?;
+
+    tokio::spawn(connection);
+
+    Ok(handle)
+}
+
+pub async fn run_with_dev<F>(f: F) -> anyhow::Result<()>
 where
     F: FnOnce(String, String) + Send + 'static,
 {
     let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
 
-    let dev1_if_name = format!("xsk_test_dev1_{}", ctr);
-    let dev2_if_name = format!("xsk_test_dev2_{}", ctr);
+    let if_names = IfNames {
+        dev1: format!("xsk_test_dev1_{}", ctr),
+        dev2: format!("xsk_test_dev2_{}", ctr),
+    };
 
-    let veth_link = build_veth_link(&dev1_if_name, &dev2_if_name).await.unwrap();
+    let conn_handle =
+        create_rtnetlink_connection().with_context(|| "failed to create RTNETLINK connection")?;
 
-    if let Err(e) = set_up_veth_link(&veth_link, &dev2_if_name).await {
-        eprintln!("Error setting up veth link: {}", e);
+    add_veth_pair(&conn_handle, &if_names)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to add veth pair {} and {}",
+                if_names.dev1, if_names.dev2
+            )
+        })?;
 
-        delete_link(&veth_link.handle, veth_link.dev1_index)
-            .await
-            .expect(
-                format!(
-                    "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
-                    dev1_if_name
-                )
-                .as_str(),
-            );
+    let link_indices = get_link_indices(&conn_handle, &if_names)
+        .await
+        .with_context(|| {
+            format!(
+                r#"
+failed to retrieve link indices
+you may need to delete the link manually: 'sudo ip link del {}'
+"#,
+                if_names.dev1
+            )
+        })?;
 
-        return;
+    let mut res = run_with_dev_inner(f, &conn_handle, &link_indices, if_names.clone()).await;
+
+    if let Err(e) = delete_link(&conn_handle, link_indices.dev1).await {
+        res = res.with_context(|| {
+            format!(
+                r#"
+failed to delete link: {}
+you may need to delete the link manually: 'sudo ip link del {}'
+"#,
+                e, if_names.dev1
+            )
+        })
     }
 
-    let dev1_if_name_clone = dev1_if_name.clone();
-    let dev2_if_name_clone = dev2_if_name.clone();
+    res
+}
 
-    let res = task::spawn_blocking(move || f(dev1_if_name_clone, dev2_if_name_clone)).await;
-
-    delete_link(&veth_link.handle, veth_link.dev1_index)
+async fn run_with_dev_inner<F>(
+    f: F,
+    conn_handle: &Handle,
+    link_indices: &LinkIndices,
+    if_names: IfNames,
+) -> anyhow::Result<()>
+where
+    F: FnOnce(String, String) + Send + 'static,
+{
+    set_veth_link_up(&conn_handle, &link_indices)
         .await
-        .expect(
-            format!(
-                "Failed to delete link. May need to remove manually: 'sudo ip link del {}'",
-                dev1_if_name
-            )
-            .as_str(),
-        );
+        .with_context(|| "failed to set veth link up")?;
 
-    res.unwrap()
+    task::spawn_blocking(move || f(if_names.dev1, if_names.dev2))
+        .await
+        .map_err(|e| e.into())
 }
