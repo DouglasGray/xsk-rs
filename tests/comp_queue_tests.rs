@@ -1,9 +1,8 @@
+use serial_test::serial;
 use std::{thread, time::Duration};
-
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
-
 use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
@@ -24,6 +23,7 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 }
 
 #[tokio::test]
+#[serial]
 async fn comp_queue_consumes_nothing_if_tx_q_unused() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let mut dev1_frames = dev1.frame_descs;
@@ -45,6 +45,7 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
 }
 
 #[tokio::test]
+#[serial]
 async fn num_frames_consumed_match_those_produced() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let mut dev1_frames = dev1.frame_descs;
@@ -74,6 +75,7 @@ async fn num_frames_consumed_match_those_produced() {
 }
 
 #[tokio::test]
+#[serial]
 async fn addr_of_frames_consumed_match_addr_of_those_produced() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let dev1_tx_q_frames = dev1.frame_descs;

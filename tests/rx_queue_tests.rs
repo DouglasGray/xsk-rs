@@ -1,8 +1,8 @@
 use libbpf_sys::XDP_PACKET_HEADROOM;
+use serial_test::serial;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
-
 use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
@@ -44,6 +44,7 @@ fn default_config_builders() -> (UmemConfigBuilder, SocketConfigBuilder) {
 }
 
 #[tokio::test]
+#[serial]
 async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         assert_eq!(dev1.rx_q.consume(&mut dev1.frame_descs[..2]), 0);
@@ -70,6 +71,7 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
 }
 
 #[tokio::test]
+#[serial]
 async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         assert_eq!(
@@ -105,6 +107,7 @@ async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
 }
 
 #[tokio::test]
+#[serial]
 async fn rx_queue_consumes_frame_correctly_after_tx() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         // Add a frame in the dev1 fill queue ready to receive
@@ -161,6 +164,7 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 }
 
 #[tokio::test]
+#[serial]
 async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
         // Add a frame in the dev1 fill queue ready to receive
