@@ -25,6 +25,7 @@ futures = "0.3"
 rand = "0.8"
 rtnetlink = "0.7"
 env_logger = "0.8"
+serial_test = "0.5"
 
 [dev-dependencies.tokio]
 version = "1.6"

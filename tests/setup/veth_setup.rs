@@ -1,13 +1,10 @@
 use anyhow::{anyhow, Context};
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::{
     sync::mpsc::{self, UnboundedReceiver},
     task,
 };
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 struct IfNames {
@@ -18,6 +15,11 @@ struct IfNames {
 struct LinkIndices {
     dev1: u32,
     dev2: u32,
+}
+
+enum LinkStatus {
+    Up,
+    Down,
 }
 
 fn _ctrl_channel() -> Result<UnboundedReceiver<()>, ctrlc::Error> {
@@ -45,20 +47,41 @@ async fn delete_link(conn_handle: &Handle, index: u32) -> anyhow::Result<()> {
     Ok(conn_handle.link().del(index).execute().await?)
 }
 
-async fn set_veth_link_up(conn_handle: &Handle, link_indices: &LinkIndices) -> anyhow::Result<()> {
-    conn_handle
-        .link()
-        .set(link_indices.dev1)
-        .up()
-        .execute()
-        .await?;
+async fn set_veth_link_status(
+    conn_handle: &Handle,
+    link_indices: &LinkIndices,
+    link_status: LinkStatus,
+) -> anyhow::Result<()> {
+    async fn link_up(conn_handle: &Handle, index: u32) -> anyhow::Result<()> {
+        conn_handle
+            .link()
+            .set(index)
+            .up()
+            .execute()
+            .await
+            .map_err(|e| e.into())
+    }
 
-    conn_handle
-        .link()
-        .set(link_indices.dev2)
-        .up()
-        .execute()
-        .await?;
+    async fn link_down(conn_handle: &Handle, index: u32) -> anyhow::Result<()> {
+        conn_handle
+            .link()
+            .set(index)
+            .down()
+            .execute()
+            .await
+            .map_err(|e| e.into())
+    }
+
+    match link_status {
+        LinkStatus::Up => {
+            link_up(&conn_handle, link_indices.dev1).await?;
+            link_up(&conn_handle, link_indices.dev2).await?;
+        }
+        LinkStatus::Down => {
+            link_down(&conn_handle, link_indices.dev1).await?;
+            link_down(&conn_handle, link_indices.dev2).await?;
+        }
+    }
 
     Ok(())
 }
@@ -96,11 +119,9 @@ pub async fn run_with_dev<F>(f: F) -> anyhow::Result<()>
 where
     F: FnOnce(String, String) + Send + 'static,
 {
-    let ctr = COUNTER.fetch_add(1, Ordering::SeqCst);
-
     let if_names = IfNames {
-        dev1: format!("xsk_test_dev1_{}", ctr),
-        dev2: format!("xsk_test_dev2_{}", ctr),
+        dev1: "xsk_test_dev1".into(),
+        dev2: "xsk_test_dev2".into(),
     };
 
     let conn_handle =
@@ -119,10 +140,7 @@ where
         .await
         .with_context(|| {
             format!(
-                r#"
-failed to retrieve link indices
-you may need to delete the link manually: 'sudo ip link del {}'
-"#,
+                "failed to retrieve link indices, you may need to delete the link manually: 'sudo ip link del {}'",
                 if_names.dev1
             )
         })?;
@@ -132,10 +150,7 @@ you may need to delete the link manually: 'sudo ip link del {}'
     if let Err(e) = delete_link(&conn_handle, link_indices.dev1).await {
         res = res.with_context(|| {
             format!(
-                r#"
-failed to delete link: {}
-you may need to delete the link manually: 'sudo ip link del {}'
-"#,
+                "failed to delete link ({}), you may need to delete the link manually: 'sudo ip link del {}'",
                 e, if_names.dev1
             )
         })
@@ -153,11 +168,17 @@ async fn run_with_dev_inner<F>(
 where
     F: FnOnce(String, String) + Send + 'static,
 {
-    set_veth_link_up(&conn_handle, &link_indices)
+    set_veth_link_status(&conn_handle, &link_indices, LinkStatus::Up)
         .await
-        .with_context(|| "failed to set veth link up")?;
+        .with_context(|| "failed to bring veth link up")?;
 
-    task::spawn_blocking(move || f(if_names.dev1, if_names.dev2))
+    let mut res = task::spawn_blocking(move || f(if_names.dev1, if_names.dev2))
         .await
-        .map_err(|e| e.into())
+        .map_err(|e| e.into());
+
+    if let Err(e) = set_veth_link_status(&conn_handle, &link_indices, LinkStatus::Down).await {
+        res = res.with_context(|| format!("failed to bring veth link down: {} ", e));
+    }
+
+    res
 }

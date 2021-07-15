@@ -1,3 +1,4 @@
+use serial_test::serial;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
@@ -15,6 +16,7 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 }
 
 #[tokio::test]
+#[serial]
 async fn fill_queue_produce_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
@@ -36,6 +38,7 @@ async fn fill_queue_produce_tx_size_frames() {
 }
 
 #[tokio::test]
+#[serial]
 async fn fill_queue_produce_gt_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
@@ -57,6 +60,7 @@ async fn fill_queue_produce_gt_tx_size_frames() {
 }
 
 #[tokio::test]
+#[serial]
 async fn fill_queue_produce_frames_until_full() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let frame_descs = dev1.frame_descs;
