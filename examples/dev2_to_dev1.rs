@@ -1,3 +1,9 @@
+fn main() {
+    todo!();
+    // ToDo: Update example
+}
+
+/*
 mod setup;
 
 use clap::{App, Arg};
@@ -22,6 +28,7 @@ use xsk_rs::{
 };
 
 use setup::{LinkIpAddr, VethConfig};
+use xsk_rs::umem::Frame;
 
 // Reqd for the multithreaded case to signal when all packets have
 // been sent
@@ -35,7 +42,7 @@ struct Xsk<'umem> {
     rx_q: RxQueue<'umem>,
     fill_q: FillQueue<'umem>,
     comp_q: CompQueue<'umem>,
-    frame_descs: Vec<FrameDesc<'umem>>,
+    frame_descs: Vec<Frame>,
     umem: Umem<'umem>,
 }
 
@@ -801,3 +808,4 @@ fn main() {
 
     veth_handle.join().unwrap();
 }
+*/

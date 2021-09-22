@@ -2,15 +2,44 @@ use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_
 use log::error;
 use std::{convert::TryInto, io, ptr, slice};
 
+pub struct MmapShape {
+    frame_count: usize,
+    frame_size: usize,
+}
+
+impl MmapShape {
+    pub fn new(frame_count: usize, frame_size: usize) -> Self {
+        frame_count
+            .checked_mul(frame_size)
+            .expect("mmap is small enough to fit address space");
+
+        MmapShape {
+            frame_count,
+            frame_size,
+        }
+    }
+
+    pub fn total_bytes(&self) -> usize {
+        self.frame_size * self.frame_count
+    }
+
+    pub fn frame_count(&self) -> usize {
+        self.frame_count
+    }
+    pub fn frame_size(&self) -> usize {
+        self.frame_size
+    }
+}
+
 pub struct MmapArea {
-    len: usize,
-    mem_ptr: *mut libc::c_void,
+    pub(crate) size: MmapShape,
+    pub(crate) mem_ptr: *mut libc::c_void,
 }
 
 unsafe impl Send for MmapArea {}
 
 impl MmapArea {
-    pub fn new(len: usize, use_huge_pages: bool) -> io::Result<Self> {
+    pub fn new(size: MmapShape, use_huge_pages: bool) -> io::Result<Self> {
         let addr = ptr::null_mut();
         let prot = PROT_READ | PROT_WRITE;
         let file = -1;
@@ -22,12 +51,21 @@ impl MmapArea {
             flags |= MAP_HUGETLB;
         }
 
-        let mem_ptr = unsafe { libc::mmap(addr, len, prot, flags, file, offset as libc::off_t) };
+        let mem_ptr = unsafe {
+            libc::mmap(
+                addr,
+                size.total_bytes(),
+                prot,
+                flags,
+                file,
+                offset as libc::off_t,
+            )
+        };
 
         if mem_ptr == MAP_FAILED {
             Err(io::Error::last_os_error())
         } else {
-            Ok(MmapArea { len, mem_ptr })
+            Ok(MmapArea { size, mem_ptr })
         }
     }
 
@@ -63,13 +101,13 @@ impl MmapArea {
 
     #[inline]
     pub fn len(&self) -> usize {
-        self.len
+        self.size.total_bytes()
     }
 }
 
 impl Drop for MmapArea {
     fn drop(&mut self) {
-        let err = unsafe { libc::munmap(self.mem_ptr, self.len) };
+        let err = unsafe { libc::munmap(self.mem_ptr, self.size.total_bytes()) };
 
         if err != 0 {
             error!("munmap() failed: {}", err);

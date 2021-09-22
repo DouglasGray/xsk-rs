@@ -17,6 +17,9 @@ use crate::{
 };
 
 use super::{config::Config, fd::Fd, poll};
+use crate::umem::Frame;
+use std::collections::VecDeque;
+use std::convert::TryFrom;
 
 #[derive(Debug)]
 pub enum SocketCreateError {
@@ -56,6 +59,7 @@ impl Error for SocketCreateError {
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
 pub struct Socket<'umem> {
     inner: Box<xsk_socket>,
+    umem: Arc<Umem<'umem>>,
     _marker: PhantomData<&'umem ()>,
 }
 
@@ -78,7 +82,7 @@ unsafe impl Send for TxQueue<'_> {}
 pub struct RxQueue<'umem> {
     inner: Box<xsk_ring_cons>,
     fd: Fd,
-    _socket: Arc<Socket<'umem>>,
+    socket: Arc<Socket<'umem>>,
 }
 
 unsafe impl Send for RxQueue<'_> {}
@@ -90,7 +94,7 @@ impl Socket<'_> {
     /// May require root permissions to create and bind.
     pub fn new<'a, 'umem>(
         config: Config,
-        umem: &mut Umem<'umem>,
+        umem: Arc<Umem<'umem>>,
         if_name: &'a str,
         queue_id: u32,
     ) -> Result<(TxQueue<'umem>, RxQueue<'umem>), SocketCreateError> {
@@ -113,7 +117,7 @@ impl Socket<'_> {
                 &mut xsk_ptr,
                 if_name.as_ptr(),
                 queue_id,
-                umem.as_mut_ptr(),
+                (*umem).as_ptr() as *mut _, // ToDo: check safety
                 rx_q_ptr.as_mut_ptr(),
                 tx_q_ptr.as_mut_ptr(),
                 &socket_create_config,
@@ -144,6 +148,7 @@ impl Socket<'_> {
 
         let socket = Arc::new(Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
+            umem,
             _marker: PhantomData,
         });
 
@@ -156,7 +161,7 @@ impl Socket<'_> {
         let rx_queue = RxQueue {
             inner: unsafe { Box::new(rx_q_ptr.assume_init()) },
             fd,
-            _socket: socket,
+            socket,
         };
 
         Ok((tx_queue, rx_queue))
@@ -185,23 +190,26 @@ impl RxQueue<'_> {
     /// and are no longer required, the frames should eventually be
     /// added back on to either the [FillQueue](struct.FillQueue.html)
     /// or the [TxQueue](struct.TxQueue.html).
+
+    // ToDo: This could be renamed to receive?
     #[inline]
-    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
-        // usize <-> u64 'as' conversions are ok as the crate's top level conditional
-        // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
-        let nb = descs.len() as u64;
+    pub fn consume(&mut self) -> Vec<Frame> {
+        let mut start_idx: u32 = 0;
 
-        if nb == 0 {
-            return 0;
-        }
+        // u64::MAX -> Try to get all frames
+        let cnt = unsafe {
+            libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), u64::MAX, &mut start_idx)
+        };
+        let start_idx = start_idx; // Remove mut
+        let cnt: u32 = cnt.try_into().expect("size_t fits into usize");
 
-        let mut idx: u32 = 0;
-
-        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
+        let mut frames = Vec::with_capacity(cnt.try_into().expect("u32 fits into a usize"));
 
         if cnt > 0 {
-            // Assuming 64-bit so u64 -> usize is ok
-            for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
+            let mmap_area = self.socket.umem.mmap_area();
+
+            for idx in (0..cnt).map(|idx| idx + start_idx) {
+                let mut desc = FrameDesc::new();
                 unsafe {
                     let recv_pkt_desc =
                         libbpf_sys::_xsk_ring_cons__rx_desc(self.inner.as_mut(), idx);
@@ -210,26 +218,27 @@ impl RxQueue<'_> {
                     desc.set_len((*recv_pkt_desc).len as usize);
                     desc.set_options((*recv_pkt_desc).options);
                 }
-                idx += 1;
+
+                // ToDo: Is this detailed enough?
+                // Safety: The kernel can only give us frames back that we previously gave to it via
+                // the fill queue. Thus the desc we receive mut be unique.
+                let frame = unsafe { Frame::new(Arc::clone(mmap_area), desc) };
+                frames.push(frame);
             }
 
-            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt.into()) };
         }
 
-        cnt.try_into().unwrap()
+        frames
     }
 
     /// Same as `consume` but poll first to check if there is anything
     /// to read beforehand.
     #[inline]
-    pub fn poll_and_consume(
-        &mut self,
-        descs: &mut [FrameDesc],
-        poll_timeout: i32,
-    ) -> io::Result<usize> {
+    pub fn poll_and_consume(&mut self, poll_timeout: i32) -> io::Result<Vec<Frame>> {
         match poll::poll_read(&mut self.fd(), poll_timeout)? {
-            true => Ok(self.consume(descs)),
-            false => Ok(0),
+            true => Ok(self.consume()),
+            false => Ok(vec![]),
         }
     }
 
@@ -258,40 +267,63 @@ impl TxQueue<'_> {
     ///
     /// # Safety
     ///
-    /// This function is `unsafe` as it is possible to cause a data
-    /// race by simultaneously submitting the same frame descriptor to
-    /// the tx ring and the fill ring, for example.  Once any frames
-    /// have been submitted they should not be used again until
-    /// consumed via the [CompQueue](struct.CompQueue.html).
-    #[inline]
-    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        // usize <-> u64 'as' conversions are ok as the crate's top level conditional
-        // compilation flags (see lib.rs) guarantee that size_of<usize> = size_of<u64>
-        let nb: u64 = descs.len().try_into().unwrap();
+    /// This function is safe as the invariants on Frame assure that we only get valid non-aliasing
+    /// frame descriptors.
 
-        if nb == 0 {
-            return 0;
+    // ToDo: Maybe this could be renamed to transmit?
+    #[inline]
+    pub fn produce(&mut self, frames: &mut VecDeque<Frame>) {
+        if frames.is_empty() {
+            return;
         }
 
-        let mut idx: u32 = 0;
+        let num_frames = frames
+            .len()
+            .try_into()
+            .expect("number of frames fits size_t");
 
-        let cnt = libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx);
+        let mut start_idx: u32 = 0;
+        // Safety: ToDo
+        let cnt = unsafe {
+            libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), num_frames, &mut start_idx)
+        };
+        let start_idx = start_idx; // Remove mut
+        let cnt: usize = cnt.try_into().expect("size_t fits into usize");
+
+        assert!(
+            u64::try_from(cnt).is_ok(),
+            "Number of packets should fit into a u64"
+        );
+        assert!(
+            cnt as u64 <= num_frames,
+            "Kernel should at maximum return the number of frames we asked for"
+        );
 
         if cnt > 0 {
-            for desc in descs.iter().take(cnt.try_into().unwrap()) {
-                let send_pkt_desc = libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), idx);
+            // ToDo: Check if drain is correct here
+            for (idx, frame) in frames.drain(..cnt).enumerate() {
+                // Safety: ToDo
+                let idx: u32 = idx.try_into().expect("number of frames fits u32");
+                let send_pkt_desc = unsafe {
+                    libbpf_sys::_xsk_ring_prod__tx_desc(self.inner.as_mut(), start_idx + idx)
+                };
 
-                (*send_pkt_desc).addr = desc.addr() as u64;
-                (*send_pkt_desc).len = desc.len() as u32; // Ok as desc.len() = frame_size: u32
-                (*send_pkt_desc).options = desc.options();
+                let desc = frame.frame_desc();
+                // Safety: libbpf assures that this is a valid pointer until submit is called
+                unsafe {
+                    (*send_pkt_desc).addr = desc.addr() as u64;
+                    (*send_pkt_desc).len = desc.len() as u32; // Ok as desc.len() = frame_size: u32
+                    (*send_pkt_desc).options = desc.options();
+                }
 
-                idx += 1;
+                // ToDo: Do something with frame instead of dropping to avoid atomic decrease in ARC on every send
             }
 
-            libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt);
+            // Safety: ToDo
+            unsafe {
+                libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64);
+            }
         }
-
-        cnt.try_into().unwrap()
     }
 
     /// Same as `produce` but wake up the kernel to continue
@@ -299,20 +331,15 @@ impl TxQueue<'_> {
     ///
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
-    ///
-    /// # Safety
-    ///
-    /// This function is `unsafe` for the same reasons that `produce`
-    /// is `unsafe.`
     #[inline]
-    pub unsafe fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
-        let cnt = self.produce(descs);
+    pub fn produce_and_wakeup(&mut self, frames: &mut VecDeque<Frame>) -> io::Result<()> {
+        self.produce(frames);
 
         if self.needs_wakeup() {
             self.wakeup()?;
         }
 
-        Ok(cnt)
+        Ok(())
     }
 
     /// Wake up the kernel to continue processing produced frames.

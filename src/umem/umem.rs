@@ -4,6 +4,12 @@ use std::{convert::TryInto, error::Error, fmt, io, marker::PhantomData, mem::May
 use crate::socket::{self, Fd};
 
 use super::{config::Config, mmap::MmapArea};
+use crate::umem::mmap::MmapShape;
+use crate::umem::Frame;
+use std::collections::VecDeque;
+use std::convert::TryFrom;
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 /// Describes a UMEM frame's address and size of its current contents.
 ///
@@ -27,6 +33,15 @@ pub struct FrameDesc<'umem> {
 }
 
 impl FrameDesc<'_> {
+    pub fn new() -> Self {
+        Self {
+            addr: 0,
+            len: 0,
+            options: 0,
+            _marker: PhantomData,
+        }
+    }
+
     #[inline]
     pub fn addr(&self) -> usize {
         self.addr
@@ -106,7 +121,8 @@ pub struct Umem<'a> {
     umem_len: usize,
     mtu: usize,
     inner: Box<xsk_umem>,
-    mmap_area: MmapArea,
+    mmap_area: Arc<MmapArea>,
+    _num_frames_owned_by_kernel: AtomicUsize,
     _marker: PhantomData<&'a ()>,
 }
 
@@ -120,6 +136,7 @@ pub struct Umem<'a> {
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)
 pub struct CompQueue<'umem> {
     inner: Box<xsk_ring_cons>,
+    umem: Arc<Umem<'umem>>,
     _marker: PhantomData<&'umem ()>,
 }
 
@@ -133,6 +150,7 @@ pub struct CompQueue<'umem> {
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring)
 pub struct FillQueue<'umem> {
     inner: Box<xsk_ring_prod>,
+    _umem: Arc<Umem<'umem>>,
     _marker: PhantomData<&'umem ()>,
 }
 
@@ -144,7 +162,13 @@ impl UmemBuilder {
     /// frames. We do this with a call to `mmap`, requesting a read +
     /// write protected anonymous memory region.
     pub fn create_mmap(self) -> io::Result<UmemBuilderWithMmap> {
-        let mmap_area = MmapArea::new(self.config.umem_len(), self.config.use_huge_pages())?;
+        let mmap_area = MmapArea::new(
+            MmapShape::new(
+                self.config.frame_count() as usize,
+                self.config.frame_size() as usize,
+            ),
+            self.config.use_huge_pages(),
+        )?;
 
         Ok(UmemBuilderWithMmap {
             config: self.config,
@@ -162,7 +186,7 @@ impl<'a> UmemBuilderWithMmap {
     /// [CompQueue](struct.CompQueue.html).
     pub fn create_umem(
         mut self,
-    ) -> io::Result<(Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>)> {
+    ) -> io::Result<(Arc<Umem<'a>>, FillQueue<'a>, CompQueue<'a>, Vec<Frame>)> {
         let umem_create_config = xsk_umem_config {
             fill_size: self.config.fill_queue_size(),
             comp_size: self.config.comp_queue_size(),
@@ -190,6 +214,8 @@ impl<'a> UmemBuilderWithMmap {
             return Err(io::Error::from_raw_os_error(err));
         }
 
+        let mmap_area = Arc::new(self.mmap_area);
+
         // Upcasting u32 -> size_of<usize> = size_of<u64> is ok, the
         // latter equality being guaranteed by the crate's top level
         // conditional compilation flags (see lib.rs)
@@ -200,7 +226,7 @@ impl<'a> UmemBuilderWithMmap {
         let xdp_packet_headroom = XDP_PACKET_HEADROOM as usize;
         let mtu = frame_size - (xdp_packet_headroom + frame_headroom);
 
-        let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count);
+        let mut frames: Vec<Frame> = Vec::with_capacity(frame_count);
 
         for i in 0..frame_count {
             let addr = i * frame_size;
@@ -214,30 +240,37 @@ impl<'a> UmemBuilderWithMmap {
                 _marker: PhantomData,
             };
 
-            frame_descs.push(frame_desc);
+            // Safety: We know that the frame_desc points to a unique part of the mmap area as we
+            // loop over all the sections in the area in this loop.
+            let frame = unsafe { Frame::new(Arc::clone(&mmap_area), frame_desc) };
+
+            frames.push(frame);
         }
 
-        let umem = Umem {
+        let umem = Arc::new(Umem {
             config: self.config,
             frame_size,
             umem_len: frame_count * frame_size,
             mtu,
             inner: unsafe { Box::from_raw(umem_ptr) },
-            mmap_area: self.mmap_area,
+            mmap_area,
+            _num_frames_owned_by_kernel: AtomicUsize::new(0),
             _marker: PhantomData,
-        };
+        });
 
         let fill_queue = FillQueue {
             inner: unsafe { Box::new(fq_ptr.assume_init()) },
+            _umem: Arc::clone(&umem),
             _marker: PhantomData,
         };
 
         let comp_queue = CompQueue {
             inner: unsafe { Box::new(cq_ptr.assume_init()) },
+            umem: Arc::clone(&umem),
             _marker: PhantomData,
         };
 
-        Ok((umem, fill_queue, comp_queue, frame_descs))
+        Ok((umem, fill_queue, comp_queue, frames))
     }
 }
 
@@ -251,6 +284,11 @@ impl Umem<'_> {
         &self.config
     }
 
+    /// Return the mmap area used by this umem
+    pub fn mmap_area(&self) -> &Arc<MmapArea> {
+        &self.mmap_area
+    }
+
     /// The maximum transmission unit, this determines
     /// the largest packet that may be sent.
     ///
@@ -258,6 +296,10 @@ impl Umem<'_> {
     #[inline]
     pub fn mtu(&self) -> usize {
         self.mtu
+    }
+
+    pub(crate) fn as_ptr(&self) -> *const xsk_umem {
+        self.inner.as_ref()
     }
 
     pub(crate) fn as_mut_ptr(&mut self) -> *mut xsk_umem {
@@ -311,149 +353,17 @@ impl Umem<'_> {
         Ok(())
     }
 
-    /// Return a reference to the UMEM region starting at `addr` of
-    /// length `len`.
-    ///
-    /// This does not check that the region accessed makes sense and
-    /// may cause undefined behaviour if used improperly. An example
-    /// of potential misuse is referencing a region that extends
-    /// beyond the end of the UMEM.
-    ///
-    /// # Safety
-    ///
-    /// Apart from the memory considerations, this function is also
-    /// `unsafe` as there is no guarantee the kernel isn't also
-    /// reading from or writing to the same region.
-    #[inline]
-    pub unsafe fn read_from_umem(&self, addr: &usize, len: &usize) -> &[u8] {
-        self.mmap_area.mem_range(*addr, *len)
-    }
-
-    /// Checked version of `umem_region_ref`. Ensures that the
-    /// referenced region is contained within a single frame of the
-    /// UMEM.
-    ///
-    /// # Safety
-    ///
-    /// This function is `unsafe` for the same reasons
-    /// `read_from_umem` is `unsafe`.
-    #[inline]
-    pub unsafe fn read_from_umem_checked(
-        &self,
-        addr: &usize,
-        len: &usize,
-    ) -> Result<&[u8], AccessError> {
-        self.is_access_valid(&addr, &len)?;
-
-        Ok(self.mmap_area.mem_range(*addr, *len))
-    }
-
-    /// Copy `data` to the region starting at `frame_desc.addr`, and
-    /// set `frame_desc.len` when done.
-    ///
-    /// This does no checking that the region written to makes sense
-    /// and may cause undefined behaviour if used improperly. An
-    /// example of potential misuse is writing beyond the end of the
-    /// UMEM, or if `data` is large then potentially writing across
-    /// frame boundaries.
-    ///
-    /// # Safety
-    ///
-    /// Apart from the considerations around writing to memory, this
-    /// function is also `unsafe` as there is no guarantee the kernel
-    /// isn't also reading from or writing to the same region.
-    #[inline]
-    pub unsafe fn write_to_umem(&mut self, frame_desc: &mut FrameDesc, data: &[u8]) {
-        let data_len = data.len();
-
-        if data_len > 0 {
-            let umem_region = self.mmap_area.mem_range_mut(&frame_desc.addr(), &data_len);
-
-            umem_region[..data_len].copy_from_slice(data);
-        }
-
-        frame_desc.set_len(data_len);
-    }
-
-    /// Checked version of `write_to_umem_frame`. Ensures that a
-    /// successful write is completely contained within a single frame
-    /// of the UMEM.
-    ///
-    /// # Safety
-    ///
-    /// This function is `unsafe` for the same reasons `write_to_umem`
-    /// is `unsafe`.
-    #[inline]
-    pub unsafe fn write_to_umem_checked(
-        &mut self,
-        frame_desc: &mut FrameDesc,
-        data: &[u8],
-    ) -> Result<(), WriteError> {
-        let data_len = data.len();
-
-        if data_len > 0 {
-            self.is_data_valid(data).map_err(WriteError::Data)?;
-
-            self.is_access_valid(&frame_desc.addr(), &data_len)
-                .map_err(WriteError::Access)?;
-
-            let umem_region = self.mmap_area.mem_range_mut(&frame_desc.addr(), &data_len);
-
-            umem_region[..data_len].copy_from_slice(data);
-        }
-
-        frame_desc.set_len(data_len);
-
-        Ok(())
-    }
-
-    /// Return a reference to the UMEM region starting at `addr` of
-    /// length `len`.
-    ///
-    /// This does not check that the region accessed makes sense and
-    /// may cause undefined behaviour if used improperly. An example
-    /// of potential misuse is referencing a region that extends
-    /// beyond the end of the UMEM.
-    ///
-    /// If data is written to a frame, the length on the corresponding
-    /// [FrameDesc](struct.FrameDesc.html) for `addr` must be updated
-    /// before submitting to the [TxQueue](struct.TxQueue.html). This
-    /// ensures the correct number of bytes are sent. Use
-    /// `write_to_umem` or `write_to_umem_checked` to avoid the
-    /// overhead of updating the frame descriptor.
-    ///
-    /// # Safety
-    ///
-    /// Apart from the memory considerations, this function is also
-    /// `unsafe` as there is no guarantee the kernel isn't also
-    /// reading from or writing to the same region.
-    #[inline]
-    pub unsafe fn umem_region_mut(&mut self, addr: &usize, len: &usize) -> &mut [u8] {
-        self.mmap_area.mem_range_mut(&addr, &len)
-    }
-
-    /// Checked version of `umem_region_mut`. Ensures the requested
-    /// region lies within a single frame.
-    ///
-    /// # Safety
-    ///
-    /// This function is `unsafe` for the same reasons that
-    /// `umem_region_mut` is `unsafe`.
-    #[inline]
-    pub unsafe fn umem_region_mut_checked(
-        &mut self,
-        addr: &usize,
-        len: &usize,
-    ) -> Result<&mut [u8], AccessError> {
-        self.is_access_valid(addr, len)?;
-
-        Ok(self.mmap_area.mem_range_mut(&addr, &len))
+    pub(crate) unsafe fn transfer_ownership_to_kernel(&self, _num_frames: usize) {
+        // ToDo: Handle kernel owned Arc<MmapArea> so we do not need to increment/decrement the
+        // reference counter on every send/received packet
     }
 }
 
 impl Drop for Umem<'_> {
     fn drop(&mut self) {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
+
+        // ToDo: drop kernel owned mmap_areas here
 
         if err != 0 {
             log::error!("xsk_umem__delete() failed: {}", err);
@@ -480,32 +390,54 @@ impl FillQueue<'_> {
     /// the fill ring and the Tx ring, for example.  Once the frames
     /// have been submitted they should not be used again until
     /// consumed again via the [RxQueue](struct.RxQueue.html).
-    #[inline]
-    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        // usize <-> u64 'as' conversions are ok as the crate's top
-        // level conditional compilation flags (see lib.rs) guarantee
-        // that size_of<usize> = size_of<u64>
-        let nb = descs.len() as u64;
 
-        if nb == 0 {
-            return 0;
+    // ToDo: This shares a lot of code with socket::TxQueue::produce add a function to deduplicate
+    #[inline]
+    pub fn produce(&mut self, frames: &mut VecDeque<Frame>) {
+        if frames.is_empty() {
+            return;
         }
 
-        let mut idx: u32 = 0;
+        let num_frames = frames
+            .len()
+            .try_into()
+            .expect("number of frames fits size_t");
 
-        let cnt = libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), nb, &mut idx);
+        let mut start_idx: u32 = 0;
+        let cnt = unsafe {
+            libbpf_sys::_xsk_ring_prod__reserve(self.inner.as_mut(), num_frames, &mut start_idx)
+        };
+        let start_idx = start_idx; // Remove mut
+        let cnt: usize = cnt.try_into().expect("size_t fits into usize");
+
+        assert!(
+            u64::try_from(cnt).is_ok(),
+            "Number of packets should fit into a u64"
+        );
+        assert!(
+            cnt as u64 <= num_frames,
+            "Kernel should at maximum return the number of frames we asked for"
+        );
 
         if cnt > 0 {
-            for desc in descs.iter().take(cnt.try_into().unwrap()) {
-                *libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), idx) = desc.addr as u64;
+            // ToDo: Check if drain is correct here
+            for (idx, frame) in frames.drain(..cnt).enumerate() {
+                // Safety: ToDo
+                let idx: u32 = idx.try_into().expect("number of frames fits u32");
+                unsafe {
+                    let addr =
+                        libbpf_sys::_xsk_ring_prod__fill_addr(self.inner.as_mut(), start_idx + idx);
+                    *addr = frame.frame_desc().addr as u64;
+                }
 
-                idx += 1;
+                // ToDo: Do something with frame instead of dropping to avoid atomic decrease in ARC on every send
             }
 
-            libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt);
+            // Safety: ToDo
+            unsafe {
+                libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64);
+            }
         }
-
-        cnt.try_into().unwrap()
     }
 
     /// Same as `produce` but wake up the kernel (if required) to let
@@ -522,17 +454,18 @@ impl FillQueue<'_> {
     #[inline]
     pub unsafe fn produce_and_wakeup(
         &mut self,
-        descs: &[FrameDesc],
+        frames: &mut VecDeque<Frame>,
         socket_fd: &mut Fd,
         poll_timeout: i32,
-    ) -> io::Result<usize> {
-        let cnt = self.produce(descs);
+    ) -> io::Result<()> {
+        let old_len = frames.len();
+        self.produce(frames);
 
-        if cnt > 0 && self.needs_wakeup() {
+        if frames.len() != old_len && self.needs_wakeup() {
             self.wakeup(socket_fd, poll_timeout)?;
         }
 
-        Ok(cnt)
+        Ok(())
     }
 
     /// Wake up the kernel to let it know it can continue using the
@@ -574,23 +507,26 @@ impl CompQueue<'_> {
     /// Free frames should be added back on to either the
     /// [FillQueue](struct.FillQueue.html) for data receipt or the
     /// [TxQueue](struct.TxQueue.html) for data transmission.
+
+    // ToDo: This shares a lot of code with the Rx ring
     #[inline]
-    pub fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
-        // usize <-> u64 'as' conversions are ok as the crate's top
-        // level conditional compilation flags (see lib.rs) guarantee
-        // that size_of<usize> = size_of<u64>
-        let nb = descs.len() as u64;
+    pub fn consume(&mut self) -> Vec<Frame> {
+        let mut start_idx: u32 = 0;
 
-        if nb == 0 {
-            return 0;
-        }
+        // u64::MAX -> Try to get all frames
+        let cnt = unsafe {
+            libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), u64::MAX, &mut start_idx)
+        };
+        let start_idx = start_idx; // Remove mut
+        let cnt: u32 = cnt.try_into().expect("size_t fits into usize");
 
-        let mut idx: u32 = 0;
-
-        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.inner.as_mut(), nb, &mut idx) };
+        let mut frames = Vec::with_capacity(cnt.try_into().expect("u32 fits into a usize"));
 
         if cnt > 0 {
-            for desc in descs.iter_mut().take(cnt.try_into().unwrap()) {
+            let mmap_area = self.umem.mmap_area();
+
+            for idx in (0..cnt).map(|idx| idx + start_idx) {
+                let mut desc = FrameDesc::new();
                 let addr: u64 =
                     unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.inner.as_mut(), idx) };
 
@@ -598,13 +534,17 @@ impl CompQueue<'_> {
                 desc.set_len(0);
                 desc.set_options(0);
 
-                idx += 1;
+                // ToDo: Is this detailed enough?
+                // Safety: The kernel can only give us frames back that we previously gave to it via
+                // the tx queue. Thus the desc we receive mut be unique.
+                let frame = unsafe { Frame::new(Arc::clone(mmap_area), desc) };
+                frames.push(frame);
             }
 
-            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.inner.as_mut(), cnt.into()) };
         }
 
-        cnt.try_into().unwrap()
+        frames
     }
 }
 
@@ -694,6 +634,9 @@ impl fmt::Display for WriteError {
 
 impl Error for WriteError {}
 
+/*
+ToDo: Move these tests over to MmapArea + Frame
+
 #[cfg(test)]
 mod tests {
     use rand;
@@ -721,7 +664,7 @@ mod tests {
         .unwrap()
     }
 
-    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>) {
+    fn umem<'a>() -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<Frame>) {
         let config = umem_config();
 
         Umem::builder(config)
@@ -980,3 +923,4 @@ mod tests {
         assert_eq!(&data_vec[..], mem_range);
     }
 }
+*/

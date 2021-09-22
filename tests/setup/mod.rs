@@ -6,6 +6,7 @@ use xsk_rs::{
 mod veth_setup;
 
 mod xsk_setup;
+use std::sync::Arc;
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
 pub struct Xsk<'a> {
@@ -14,8 +15,8 @@ pub struct Xsk<'a> {
     pub comp_q: CompQueue<'a>,
     pub tx_q: TxQueue<'a>,
     pub rx_q: RxQueue<'a>,
-    pub frame_descs: Vec<FrameDesc<'a>>,
-    pub umem: Umem<'a>,
+    pub frames: Vec<Frame>,
+    pub umem: Arc<Umem<'a>>,
 }
 
 pub async fn run_test<F>(
@@ -42,7 +43,7 @@ pub async fn run_test<F>(
             comp_q,
             tx_q,
             rx_q,
-            frame_descs,
+            frames: frame_descs,
             umem,
         };
 
@@ -59,7 +60,7 @@ pub async fn run_test<F>(
             comp_q,
             tx_q,
             rx_q,
-            frame_descs,
+            frames: frame_descs,
             umem,
         };
 

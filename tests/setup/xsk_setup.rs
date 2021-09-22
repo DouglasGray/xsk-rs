@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::sync::Arc;
 use xsk_rs::{
     socket::{Config as SocketConfig, *},
     umem::{Config as UmemConfig, *},
@@ -71,7 +72,7 @@ impl SocketConfigBuilder {
 
 fn build_umem<'a>(
     umem_config: Option<UmemConfig>,
-) -> (Umem<'a>, FillQueue<'a>, CompQueue<'a>, Vec<FrameDesc<'a>>) {
+) -> (Arc<Umem<'a>>, FillQueue<'a>, CompQueue<'a>, Vec<Frame>) {
     let config = match umem_config {
         Some(cfg) => cfg,
         None => UmemConfigBuilder::default().build(),
@@ -91,10 +92,10 @@ pub fn build_socket_and_umem<'a, 'umem>(
     queue_id: u32,
 ) -> (
     (
-        Umem<'umem>,
+        Arc<Umem<'umem>>,
         FillQueue<'umem>,
         CompQueue<'umem>,
-        Vec<FrameDesc<'umem>>,
+        Vec<Frame>,
     ),
     (TxQueue<'umem>, RxQueue<'umem>),
 ) {
@@ -103,10 +104,10 @@ pub fn build_socket_and_umem<'a, 'umem>(
         None => SocketConfigBuilder::default().build(),
     };
 
-    let (mut umem, fill_q, comp_q, frame_descs) = build_umem(umem_config);
+    let (umem, fill_q, comp_q, frame_descs) = build_umem(umem_config);
 
-    let (tx_q, rx_q) =
-        Socket::new(socket_config, &mut umem, if_name, queue_id).expect("failed to build socket");
+    let (tx_q, rx_q) = Socket::new(socket_config, Arc::clone(&umem), if_name, queue_id)
+        .expect("failed to build socket");
 
     ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q))
 }

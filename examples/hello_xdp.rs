@@ -5,40 +5,42 @@ use tokio::{
     runtime::Runtime,
     sync::oneshot::{self, error::TryRecvError},
 };
-use xsk_rs::{FillQueue, FrameDesc, RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig};
+use xsk_rs::{FillQueue, RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig};
 
 use setup::{LinkIpAddr, VethConfig};
+use std::collections::VecDeque;
+use std::io::Write;
+use std::sync::Arc;
+use xsk_rs::umem::Frame;
 
 // Put umem at bottom so drop order is correct
 struct SocketState<'umem> {
     fill_q: FillQueue<'umem>,
     tx_q: TxQueue<'umem>,
     rx_q: RxQueue<'umem>,
-    frame_descs: Vec<FrameDesc<'umem>>,
-    umem: Umem<'umem>,
+    frames: Vec<Frame>,
 }
 
-fn build_socket_and_umem<'a, 'umem>(
+fn build_socket_and_umem(
     umem_config: UmemConfig,
     socket_config: SocketConfig,
-    if_name: &'a str,
+    if_name: &str,
     queue_id: u32,
 ) -> SocketState {
-    let (mut umem, fill_q, _comp_q, frame_descs) = Umem::builder(umem_config)
+    let (umem, fill_q, _comp_q, frame_descs) = Umem::builder(umem_config)
         .create_mmap()
         .expect(format!("failed to create mmap area for {}", if_name).as_str())
         .create_umem()
         .expect(format!("failed to create umem for {}", if_name).as_str());
 
-    let (tx_q, rx_q) = Socket::new(socket_config, &mut umem, if_name, queue_id)
+    let (tx_q, rx_q) = Socket::new(socket_config, Arc::clone(&umem), if_name, queue_id)
         .expect(format!("failed to build socket for {}", if_name).as_str());
 
     SocketState {
-        umem,
         fill_q,
         tx_q,
         rx_q,
-        frame_descs,
+        frames: frame_descs,
     }
 }
 
@@ -56,9 +58,7 @@ fn hello_xdp(veth_config: &VethConfig) {
 
     let mut dev2 = build_socket_and_umem(umem_config, socket_config, &veth_config.dev2_name(), 0);
 
-    let mut dev1_frames = dev1.frame_descs;
-
-    let mut dev2_frames = dev2.frame_descs;
+    let mut dev2_frames = dev2.frames.into();
 
     // Want to send some data from dev1 to dev2. So we need to:
     // 1. Make sure that dev2 can receive data by adding frames to its FillQueue
@@ -68,50 +68,34 @@ fn hello_xdp(veth_config: &VethConfig) {
     // 4. Read from dev2
 
     // 1. Add frames to dev2's FillQueue
-    assert_eq!(
-        unsafe { dev2.fill_q.produce(&dev2_frames[..]) },
-        dev2_frames.len()
-    );
+    dev2.fill_q.produce(&mut dev2_frames);
+    assert!(dev2_frames.is_empty());
 
-    // 2. Update dev1's UMEM with the data we want to send and update the frame desc
-    let send_frame = &mut dev1_frames[0];
+    // 2. Update dev1's UMEM with the data we want to send and update the frame
     let data = "Hello, world!".as_bytes();
 
-    println!("sending: {:?}", str::from_utf8(&data).unwrap());
-
-    // Copy the data to the frame
-    unsafe { dev1.umem.write_to_umem_checked(send_frame, &data).unwrap() };
+    let mut send_frame = dev1.frames.pop().unwrap();
+    send_frame.clear();
+    send_frame.write(data).unwrap();
 
     assert_eq!(send_frame.len(), data.len());
+    println!("sending: {:?}", str::from_utf8(&data).unwrap());
 
     // 3. Hand over the frame to the kernel for transmission
-    assert_eq!(
-        unsafe { dev1.tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap() },
-        1
-    );
+    let mut to_send = VecDeque::from([send_frame]);
+    dev1.tx_q.produce_and_wakeup(&mut to_send).unwrap();
+    assert!(to_send.is_empty());
 
     // 4. Read from dev2
-    let packets_recvd = dev2
-        .rx_q
-        .poll_and_consume(&mut dev2_frames[..], 10)
-        .unwrap();
+    let packets_recvd = dev2.rx_q.poll_and_consume(10).unwrap();
 
     // Check that one of the packets we received matches what we expect.
-    for recv_frame in dev2_frames.iter().take(packets_recvd) {
-        let frame_ref = unsafe {
-            dev2.umem
-                .read_from_umem_checked(&recv_frame.addr(), &recv_frame.len())
-                .unwrap()
-        };
-
+    for recv_frame in packets_recvd {
         // Check lengths match
         if recv_frame.len() == data.len() {
             // Check contents match
-            if frame_ref[..data.len()] == data[..] {
-                println!(
-                    "received: {:?}",
-                    str::from_utf8(&frame_ref[..data.len()]).unwrap()
-                );
+            if recv_frame == data {
+                println!("received: {:?}", str::from_utf8(&recv_frame).unwrap());
                 return;
             }
         }
