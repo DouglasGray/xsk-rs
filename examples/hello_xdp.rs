@@ -8,7 +8,6 @@ use tokio::{
 use xsk_rs::{FillQueue, RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig};
 
 use setup::{LinkIpAddr, VethConfig};
-use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 use xsk_rs::umem::Frame;
@@ -58,7 +57,7 @@ fn hello_xdp(veth_config: &VethConfig) {
 
     let mut dev2 = build_socket_and_umem(umem_config, socket_config, &veth_config.dev2_name(), 0);
 
-    let mut dev2_frames = dev2.frames.into();
+    let dev2_frames = dev2.frames;
 
     // Want to send some data from dev1 to dev2. So we need to:
     // 1. Make sure that dev2 can receive data by adding frames to its FillQueue
@@ -68,8 +67,8 @@ fn hello_xdp(veth_config: &VethConfig) {
     // 4. Read from dev2
 
     // 1. Add frames to dev2's FillQueue
-    dev2.fill_q.produce(&mut dev2_frames);
-    assert!(dev2_frames.is_empty());
+    let not_filled = dev2.fill_q.produce(dev2_frames);
+    assert!(not_filled.is_empty());
 
     // 2. Update dev1's UMEM with the data we want to send and update the frame
     let data = "Hello, world!".as_bytes();
@@ -82,9 +81,9 @@ fn hello_xdp(veth_config: &VethConfig) {
     println!("sending: {:?}", str::from_utf8(&data).unwrap());
 
     // 3. Hand over the frame to the kernel for transmission
-    let mut to_send = VecDeque::from([send_frame]);
-    dev1.tx_q.produce_and_wakeup(&mut to_send).unwrap();
-    assert!(to_send.is_empty());
+    let to_send = Vec::from([send_frame]);
+    let not_sent = dev1.tx_q.produce_and_wakeup(to_send).unwrap();
+    assert!(not_sent.is_empty());
 
     // 4. Read from dev2
     let packets_recvd = dev2.rx_q.poll_and_consume(10).unwrap();

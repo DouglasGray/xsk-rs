@@ -3,7 +3,6 @@ use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
-use std::collections::VecDeque;
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -25,13 +24,13 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 #[serial]
 async fn tx_queue_produce_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let mut frames_to_send = VecDeque::with_capacity(4);
+        let mut frames_to_send = Vec::with_capacity(4);
         for _ in 0..4 {
-            frames_to_send.push_back(dev1.frames.pop().unwrap());
+            frames_to_send.push(dev1.frames.pop().unwrap());
         }
 
-        dev1.tx_q.produce(&mut frames_to_send);
-        assert!(frames_to_send.is_empty());
+        let not_sent = dev1.tx_q.produce(frames_to_send);
+        assert!(not_sent.is_empty());
     }
 
     let (dev1_umem_config, dev1_socket_config) = build_configs();

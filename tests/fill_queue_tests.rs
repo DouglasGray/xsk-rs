@@ -3,8 +3,6 @@ use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 use setup::{UmemConfigBuilder, Xsk};
-use std::collections::VecDeque;
-use xsk_rs::umem::Frame;
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -21,11 +19,11 @@ fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
 #[serial]
 async fn fill_queue_produce_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let mut frames: VecDeque<Frame> = dev1.frames.into();
+        let frames = dev1.frames;
         let old_len = frames.len();
-        dev1.fill_q.produce(&mut frames);
+        let not_filled = dev1.fill_q.produce(frames);
 
-        assert_eq!(old_len - frames.len(), 4);
+        assert_eq!(old_len - not_filled.len(), 4);
     }
 
     let (dev1_umem_config, dev1_socket_config) = build_configs();
@@ -45,12 +43,12 @@ async fn fill_queue_produce_tx_size_frames() {
 #[serial]
 async fn fill_queue_produce_gt_tx_size_frames() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let mut frames_to_fill = VecDeque::with_capacity(5);
+        let mut frames_to_fill = Vec::with_capacity(5);
         for _ in 0..5 {
-            frames_to_fill.push_back(dev1.frames.pop().unwrap());
+            frames_to_fill.push(dev1.frames.pop().unwrap());
         }
-        dev1.fill_q.produce(&mut frames_to_fill);
-        assert!(frames_to_fill.is_empty());
+        let not_filled = dev1.fill_q.produce(frames_to_fill);
+        assert!(not_filled.is_empty());
     }
 
     let (dev1_umem_config, dev1_socket_config) = build_configs();

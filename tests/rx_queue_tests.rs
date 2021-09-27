@@ -4,7 +4,6 @@ use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
-use std::collections::VecDeque;
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -69,13 +68,13 @@ async fn rx_queue_consumes_nothing_if_no_tx_and_fill_q_empty() {
 #[serial]
 async fn rx_queue_consume_returns_nothing_if_fill_q_empty() {
     fn test_fn(mut dev1: Xsk, mut dev2: Xsk) {
-        let mut frames_to_send = VecDeque::with_capacity(4);
+        let mut frames_to_send = Vec::with_capacity(4);
         for _ in 0..4 {
-            frames_to_send.push_back(dev2.frames.pop().unwrap());
+            frames_to_send.push(dev2.frames.pop().unwrap());
         }
 
-        dev2.tx_q.produce_and_wakeup(&mut frames_to_send).unwrap();
-        assert!(frames_to_send.is_empty());
+        let not_sent = dev2.tx_q.produce_and_wakeup(frames_to_send).unwrap();
+        assert!(not_sent.is_empty());
 
         assert!(dev1.rx_q.consume().is_empty());
         assert!(dev1.rx_q.poll_and_consume(100).unwrap().is_empty());

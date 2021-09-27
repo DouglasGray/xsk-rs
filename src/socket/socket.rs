@@ -18,7 +18,6 @@ use crate::{
 
 use super::{config::Config, fd::Fd, poll};
 use crate::umem::Frame;
-use std::collections::VecDeque;
 use std::convert::TryFrom;
 
 #[derive(Debug)]
@@ -272,9 +271,10 @@ impl TxQueue<'_> {
 
     // ToDo: Maybe this could be renamed to transmit?
     #[inline]
-    pub fn produce(&mut self, frames: &mut VecDeque<Frame>) {
+    #[must_use = "produce() returns the frames that have not been sent, as there was not enough room. These should be tried again later!"]
+    pub fn produce(&mut self, mut frames: Vec<Frame>) -> Vec<Frame> {
         if frames.is_empty() {
-            return;
+            return frames;
         }
 
         let num_frames = frames
@@ -324,6 +324,8 @@ impl TxQueue<'_> {
                 libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64);
             }
         }
+
+        frames
     }
 
     /// Same as `produce` but wake up the kernel to continue
@@ -332,14 +334,15 @@ impl TxQueue<'_> {
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
     #[inline]
-    pub fn produce_and_wakeup(&mut self, frames: &mut VecDeque<Frame>) -> io::Result<()> {
-        self.produce(frames);
+    #[must_use = "produce_and_wakeup() returns the frames that have not been sent, as there was not enough room. These should be tried again later!"]
+    pub fn produce_and_wakeup(&mut self, frames: Vec<Frame>) -> io::Result<Vec<Frame>> {
+        let remaining = self.produce(frames);
 
         if self.needs_wakeup() {
             self.wakeup()?;
         }
 
-        Ok(())
+        Ok(remaining)
     }
 
     /// Wake up the kernel to continue processing produced frames.

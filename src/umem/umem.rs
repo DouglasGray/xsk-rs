@@ -6,7 +6,6 @@ use crate::socket::{self, Fd};
 use super::{config::Config, mmap::MmapArea};
 use crate::umem::mmap::MmapShape;
 use crate::umem::Frame;
-use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
@@ -393,9 +392,10 @@ impl FillQueue<'_> {
 
     // ToDo: This shares a lot of code with socket::TxQueue::produce add a function to deduplicate
     #[inline]
-    pub fn produce(&mut self, frames: &mut VecDeque<Frame>) {
+    #[must_use = "produce() returns the frames that have not been sent, as there was not enough room. These should be tried again later!"]
+    pub fn produce(&mut self, mut frames: Vec<Frame>) -> Vec<Frame> {
         if frames.is_empty() {
-            return;
+            return frames;
         }
 
         let num_frames = frames
@@ -438,6 +438,8 @@ impl FillQueue<'_> {
                 libbpf_sys::_xsk_ring_prod__submit(self.inner.as_mut(), cnt as u64);
             }
         }
+
+        frames
     }
 
     /// Same as `produce` but wake up the kernel (if required) to let
@@ -452,20 +454,21 @@ impl FillQueue<'_> {
     /// This function is `unsafe` for the same reasons that `produce`
     /// is `unsafe`.
     #[inline]
+    #[must_use = "produce_and_wakeup() returns the frames that have not been sent, as there was not enough room. These should be tried again later!"]
     pub unsafe fn produce_and_wakeup(
         &mut self,
-        frames: &mut VecDeque<Frame>,
+        frames: Vec<Frame>,
         socket_fd: &mut Fd,
         poll_timeout: i32,
-    ) -> io::Result<()> {
+    ) -> io::Result<Vec<Frame>> {
         let old_len = frames.len();
-        self.produce(frames);
+        let remaining = self.produce(frames);
 
-        if frames.len() != old_len && self.needs_wakeup() {
+        if remaining.len() != old_len && self.needs_wakeup() {
             self.wakeup(socket_fd, poll_timeout)?;
         }
 
-        Ok(())
+        Ok(remaining)
     }
 
     /// Wake up the kernel to let it know it can continue using the

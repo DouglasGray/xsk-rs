@@ -4,7 +4,6 @@ use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 
 mod setup;
 use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
-use std::collections::VecDeque;
 
 fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
     let umem_config = UmemConfigBuilder {
@@ -49,12 +48,12 @@ async fn num_frames_consumed_match_those_produced() {
     fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
         let mut dev1_frames = dev1.frames;
 
-        let mut frames_to_send = VecDeque::with_capacity(2);
+        let mut frames_to_send = Vec::with_capacity(2);
         for _ in 0..2 {
-            frames_to_send.push_back(dev1_frames.pop().expect("got enough frames"));
+            frames_to_send.push(dev1_frames.pop().expect("got enough frames"));
         }
-        dev1.tx_q.produce_and_wakeup(&mut frames_to_send).unwrap();
-        assert!(frames_to_send.is_empty());
+        let not_sent = dev1.tx_q.produce_and_wakeup(frames_to_send).unwrap();
+        assert!(not_sent.is_empty());
 
         // Wait briefly so we don't try to consume too early
         thread::sleep(Duration::from_millis(5));
