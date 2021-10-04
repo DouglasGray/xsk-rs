@@ -1,64 +1,67 @@
-mod setup;
-
-use std::{net::Ipv4Addr, num::NonZeroU32, str, thread};
-use tokio::{
-    runtime::Runtime,
-    sync::oneshot::{self, error::TryRecvError},
+use std::{convert::TryInto, io::Write, net::Ipv4Addr, num::NonZeroU32, str, thread};
+use tokio::runtime::Runtime;
+use xsk_rs::{
+    config::{Interface, SocketConfig, UmemConfig},
+    socket::{RxQueue, Socket, TxQueue},
+    umem::{frame::Frame, CompQueue, FillQueue, Umem},
 };
-use xsk_rs::{FillQueue, FrameDesc, RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig};
 
-use setup::{LinkIpAddr, VethConfig};
+#[allow(dead_code)]
+mod setup;
+use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig};
 
-// Put umem at bottom so drop order is correct
-struct SocketState<'umem> {
-    fill_q: FillQueue<'umem>,
-    tx_q: TxQueue<'umem>,
-    rx_q: RxQueue<'umem>,
-    frame_descs: Vec<FrameDesc<'umem>>,
-    umem: Umem<'umem>,
+struct Xsk {
+    _umem: Umem,
+    fq: FillQueue,
+    _cq: CompQueue,
+    tx_q: TxQueue,
+    rx_q: RxQueue,
+    frames: Vec<Frame>,
 }
 
 fn build_socket_and_umem<'a, 'umem>(
     umem_config: UmemConfig,
     socket_config: SocketConfig,
-    if_name: &'a str,
+    frame_count: NonZeroU32,
+    if_name: &Interface,
     queue_id: u32,
-) -> SocketState {
-    let (mut umem, fill_q, _comp_q, frame_descs) = Umem::builder(umem_config)
-        .create_mmap()
-        .expect(format!("failed to create mmap area for {}", if_name).as_str())
-        .create_umem()
-        .expect(format!("failed to create umem for {}", if_name).as_str());
+) -> Xsk {
+    let (umem, descs) = Umem::new(umem_config, frame_count, false).expect("failed to create UMEM");
 
-    let (tx_q, rx_q) = Socket::new(socket_config, &mut umem, if_name, queue_id)
-        .expect(format!("failed to build socket for {}", if_name).as_str());
+    let (tx_q, rx_q, fq_and_cq) =
+        Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to create socket");
 
-    SocketState {
-        umem,
-        fill_q,
+    let (fq, cq) = fq_and_cq.expect("fill queue and comp queue were None, expected Some");
+
+    Xsk {
+        _umem: umem,
+        fq,
+        _cq: cq,
         tx_q,
         rx_q,
-        frame_descs,
+        frames: descs,
     }
 }
 
-fn hello_xdp(veth_config: &VethConfig) {
-    // Create umem and socket configs
-    let umem_config = UmemConfig::default(NonZeroU32::new(16).unwrap(), false);
-    let socket_config = SocketConfig::default();
+fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, PacketGenerator)) {
+    let dev1_if = dev1.0.if_name().parse().unwrap();
+    let dev2_if = dev2.0.if_name().parse().unwrap();
 
     let mut dev1 = build_socket_and_umem(
-        umem_config.clone(),
-        socket_config.clone(),
-        &veth_config.dev1_name(),
+        UmemConfig::default(),
+        SocketConfig::default(),
+        16.try_into().unwrap(),
+        &dev1_if,
         0,
     );
 
-    let mut dev2 = build_socket_and_umem(umem_config, socket_config, &veth_config.dev2_name(), 0);
-
-    let mut dev1_frames = dev1.frame_descs;
-
-    let mut dev2_frames = dev2.frame_descs;
+    let mut dev2 = build_socket_and_umem(
+        UmemConfig::default(),
+        SocketConfig::default(),
+        16.try_into().unwrap(),
+        &dev2_if,
+        0,
+    );
 
     // Want to send some data from dev1 to dev2. So we need to:
     // 1. Make sure that dev2 can receive data by adding frames to its FillQueue
@@ -67,53 +70,44 @@ fn hello_xdp(veth_config: &VethConfig) {
     // 3. Hand over the frame to the kernel for transmission
     // 4. Read from dev2
 
-    // 1. Add frames to dev2's FillQueue
-    assert_eq!(
-        unsafe { dev2.fill_q.produce(&dev2_frames[..]) },
-        dev2_frames.len()
-    );
+    // 1. Add frames to dev2's fill queue
+    assert_eq!(unsafe { dev2.fq.produce(&dev2.frames) }, dev2.frames.len());
 
     // 2. Update dev1's UMEM with the data we want to send and update the frame desc
-    let send_frame = &mut dev1_frames[0];
-    let data = "Hello, world!".as_bytes();
+    let pkt = "Hello, world!".as_bytes();
 
-    println!("sending: {:?}", str::from_utf8(&data).unwrap());
+    unsafe {
+        dev1.frames[0]
+            .data_mut()
+            .cursor()
+            .write_all(pkt)
+            .expect("failed writing packet to frame")
+    }
 
-    // Copy the data to the frame
-    unsafe { dev1.umem.write_to_umem_checked(send_frame, &data).unwrap() };
-
-    assert_eq!(send_frame.len(), data.len());
+    assert_eq!(dev1.frames[0].len(), pkt.len());
 
     // 3. Hand over the frame to the kernel for transmission
+    println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
+
     assert_eq!(
-        unsafe { dev1.tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap() },
+        unsafe { dev1.tx_q.produce_and_wakeup(&dev1.frames[..1]).unwrap() },
         1
     );
 
     // 4. Read from dev2
-    let packets_recvd = dev2
-        .rx_q
-        .poll_and_consume(&mut dev2_frames[..], 10)
-        .unwrap();
+    let pkts_recvd = unsafe { dev2.rx_q.poll_and_consume(&mut dev2.frames, 100).unwrap() };
 
     // Check that one of the packets we received matches what we expect.
-    for recv_frame in dev2_frames.iter().take(packets_recvd) {
-        let frame_ref = unsafe {
-            dev2.umem
-                .read_from_umem_checked(&recv_frame.addr(), &recv_frame.len())
-                .unwrap()
-        };
+    for recv_frame in dev2.frames.iter().take(pkts_recvd) {
+        let frame_data = unsafe { recv_frame.data() };
 
-        // Check lengths match
-        if recv_frame.len() == data.len() {
-            // Check contents match
-            if frame_ref[..data.len()] == data[..] {
-                println!(
-                    "received: {:?}",
-                    str::from_utf8(&frame_ref[..data.len()]).unwrap()
-                );
-                return;
-            }
+        println!(
+            "received: {:?}",
+            str::from_utf8(frame_data.contents()).unwrap()
+        );
+
+        if frame_data.contents() == &pkt[..] {
+            return;
         }
     }
 
@@ -121,67 +115,46 @@ fn hello_xdp(veth_config: &VethConfig) {
 }
 
 fn main() {
-    let (startup_w, mut startup_r) = oneshot::channel();
-    let (shutdown_w, shutdown_r) = oneshot::channel();
+    let dev1_config = VethDevConfig {
+        if_name: "xsk_test_dev1".into(),
+        addr: [0xf6, 0xe0, 0xf6, 0xc9, 0x60, 0x0a],
+        ip_addr: LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24),
+    };
 
-    let veth_config = VethConfig::new(
-        String::from("xsk_ex_dev1"),
-        String::from("xsk_ex_dev2"),
-        [0xf6, 0xe0, 0xf6, 0xc9, 0x60, 0x0a],
-        [0x4a, 0xf1, 0x30, 0xeb, 0x0d, 0x31],
-        LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24),
-        LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 2), 24),
-    );
-
-    let veth_config_clone = veth_config.clone();
+    let dev2_config = VethDevConfig {
+        if_name: "xsk_test_dev2".into(),
+        addr: [0x4a, 0xf1, 0x30, 0xeb, 0x0d, 0x31],
+        ip_addr: LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24),
+    };
 
     // We'll keep track of ctrl+c events but not let them kill the process
     // immediately as we may need to clean up the veth pair.
-    let ctrl_c_events = setup::ctrl_channel().unwrap();
+    let ctrl_c_events = util::ctrl_channel().unwrap();
 
-    let veth_handle = thread::spawn(move || {
-        let runtime = Runtime::new().unwrap();
+    let (complete_tx, complete_rx) = crossbeam_channel::bounded(1);
 
-        runtime.block_on(setup::run_veth_link(
-            &veth_config_clone,
-            startup_w,
-            shutdown_r,
-        ))
-    });
+    let runtime = Runtime::new().unwrap();
 
-    loop {
-        match startup_r.try_recv() {
-            Ok(_) => break,
-            Err(TryRecvError::Empty) => (),
-            Err(TryRecvError::Closed) => panic!("failed to set up veth pair"),
-        }
-    }
+    let example_handle = thread::spawn(move || {
+        let res = runtime.block_on(veth_setup::run_with_veth_pair(
+            dev1_config,
+            dev2_config,
+            hello_xdp,
+        ));
 
-    // Run example in separate thread so that if it panics we can clean up here
-    let (example_done_tx, example_done_rx) = crossbeam_channel::bounded(1);
+        let _ = complete_tx.send(());
 
-    let handle = thread::spawn(move || {
-        hello_xdp(&veth_config);
-        let _ = example_done_tx.send(());
+        res
     });
 
     // Wait for either the example to finish or for a ctrl+c event to occur
     crossbeam_channel::select! {
-        recv(example_done_rx) -> _ => {
-            // Example done
-            if let Err(e) = handle.join() {
-                println!("error running example: {:?}", e);
-            }
+        recv(complete_rx) -> _ => {
         },
         recv(ctrl_c_events) -> _ => {
-            println!("SIGINT received, deleting veth pair and exiting");
+            println!("SIGINT received");
         }
     }
 
-    // Delete link
-    if let Err(e) = shutdown_w.send(()) {
-        eprintln!("veth link thread returned unexpectedly: {:?}", e);
-    }
-
-    veth_handle.join().unwrap();
+    example_handle.join().unwrap().unwrap();
 }

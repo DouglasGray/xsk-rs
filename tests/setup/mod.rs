@@ -1,70 +1,155 @@
+mod util;
+pub use util::PacketGenerator;
+
+pub mod veth_setup;
+pub use veth_setup::{LinkIpAddr, VethDevConfig};
+
+use std::{net::Ipv4Addr, num::NonZeroU32};
 use xsk_rs::{
-    socket::{Config as SocketConfig, *},
-    umem::{Config as UmemConfig, *},
+    config::{Interface, SocketConfig, UmemConfig},
+    socket::{RxQueue, Socket, TxQueue},
+    umem::{frame::Frame, CompQueue, FillQueue, Umem},
 };
 
-mod veth_setup;
-
-mod xsk_setup;
-pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
-
-pub struct Xsk<'a> {
-    pub if_name: String,
-    pub fill_q: FillQueue<'a>,
-    pub comp_q: CompQueue<'a>,
-    pub tx_q: TxQueue<'a>,
-    pub rx_q: RxQueue<'a>,
-    pub frame_descs: Vec<FrameDesc<'a>>,
-    pub umem: Umem<'a>,
+pub struct Xsk {
+    pub umem: Umem,
+    pub fq: FillQueue,
+    pub cq: CompQueue,
+    pub tx_q: TxQueue,
+    pub rx_q: RxQueue,
+    pub frames: Vec<Frame>,
 }
 
-pub async fn run_test<F>(
-    dev1_umem_config: Option<UmemConfig>,
-    dev1_socket_config: Option<SocketConfig>,
-    dev2_umem_config: Option<UmemConfig>,
-    dev2_socket_config: Option<SocketConfig>,
-    test: F,
-) where
-    F: Fn(Xsk, Xsk) + Send + 'static,
+#[derive(Debug, Clone)]
+pub struct XskConfig {
+    pub frame_count: NonZeroU32,
+    pub umem_config: UmemConfig,
+    pub socket_config: SocketConfig,
+}
+
+pub fn default_veth_dev_configs() -> (VethDevConfig, VethDevConfig) {
+    let dev1_config = VethDevConfig::new(
+        "xsk_test_dev1".into(),
+        Some([0xf6, 0xe0, 0xf6, 0xc9, 0x60, 0x0a]),
+        Some(LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24)),
+    );
+
+    let dev2_config = VethDevConfig::new(
+        "xsk_test_dev2".into(),
+        Some([0x4a, 0xf1, 0x30, 0xeb, 0x0d, 0x31]),
+        Some(LinkIpAddr::new(Ipv4Addr::new(192, 168, 69, 1), 24)),
+    );
+
+    (dev1_config, dev2_config)
+}
+
+pub fn build_socket_and_umem(
+    umem_config: UmemConfig,
+    socket_config: SocketConfig,
+    frame_count: NonZeroU32,
+    if_name: &Interface,
+    queue_id: u32,
+) -> Xsk {
+    let (umem, frames) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
+
+    let (tx_q, rx_q, fq_and_cq) =
+        Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to build socket");
+
+    let (fq, cq) = fq_and_cq.expect(&format!(
+        "missing fill and comp queue - interface {:?} may already be bound to",
+        if_name
+    ));
+
+    Xsk {
+        umem,
+        fq,
+        cq,
+        tx_q,
+        rx_q,
+        frames,
+    }
+}
+
+pub async fn run_test<F>(xsk1_config: XskConfig, xsk2_config: XskConfig, test: F)
+where
+    F: Fn((Xsk, PacketGenerator), (Xsk, PacketGenerator)) + Send + 'static,
 {
-    let inner = move |dev1_if_name: String, dev2_if_name: String| {
-        // Create the socket for the first interfaace
-        let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
-            dev1_umem_config,
-            dev1_socket_config,
-            &dev1_if_name,
+    let (dev1_config, dev2_config) = default_veth_dev_configs();
+
+    let inner = move |dev1_config: VethDevConfig, dev2_config: VethDevConfig| {
+        let xsk1 = build_socket_and_umem(
+            xsk1_config.umem_config,
+            xsk1_config.socket_config,
+            xsk1_config.frame_count,
+            &dev1_config
+                .if_name()
+                .parse()
+                .expect("failed to parse interface name"),
             0,
         );
 
-        let dev1_socket = Xsk {
-            if_name: dev1_if_name,
-            fill_q,
-            comp_q,
-            tx_q,
-            rx_q,
-            frame_descs,
-            umem,
-        };
-
-        let ((umem, fill_q, comp_q, frame_descs), (tx_q, rx_q)) = xsk_setup::build_socket_and_umem(
-            dev2_umem_config,
-            dev2_socket_config,
-            &dev2_if_name,
+        let xsk2 = build_socket_and_umem(
+            xsk2_config.umem_config,
+            xsk2_config.socket_config,
+            xsk2_config.frame_count,
+            &dev2_config
+                .if_name()
+                .parse()
+                .expect("failed to parse interface name"),
             0,
         );
 
-        let dev2_socket = Xsk {
-            if_name: dev2_if_name,
-            fill_q,
-            comp_q,
-            tx_q,
-            rx_q,
-            frame_descs,
-            umem,
-        };
+        let dev1_pkt_gen = PacketGenerator::new(dev1_config, dev2_config);
+        let dev2_pkt_gen = dev1_pkt_gen.clone().into_swapped();
 
-        test(dev1_socket, dev2_socket)
+        test((xsk1, dev1_pkt_gen), (xsk2, dev2_pkt_gen))
     };
 
-    veth_setup::run_with_dev(inner).await.unwrap();
+    veth_setup::run_with_veth_pair(inner, dev1_config, dev2_config)
+        .await
+        .unwrap();
+}
+
+pub async fn run_test_with_dev_configs<F>(
+    xsk1_configs: (XskConfig, VethDevConfig),
+    xsk2_configs: (XskConfig, VethDevConfig),
+    test: F,
+) where
+    F: Fn((Xsk, PacketGenerator), (Xsk, PacketGenerator)) + Send + 'static,
+{
+    let (xsk1_config, dev1_config) = xsk1_configs;
+    let (xsk2_config, dev2_config) = xsk2_configs;
+
+    let inner = move |dev1_config: VethDevConfig, dev2_config: VethDevConfig| {
+        let xsk1 = build_socket_and_umem(
+            xsk1_config.umem_config,
+            xsk1_config.socket_config,
+            xsk1_config.frame_count,
+            &dev1_config
+                .if_name()
+                .parse()
+                .expect("failed to parse interface name"),
+            0,
+        );
+
+        let xsk2 = build_socket_and_umem(
+            xsk2_config.umem_config,
+            xsk2_config.socket_config,
+            xsk2_config.frame_count,
+            &dev2_config
+                .if_name()
+                .parse()
+                .expect("failed to parse interface name"),
+            0,
+        );
+
+        let dev1_pkt_gen = PacketGenerator::new(dev1_config, dev2_config);
+        let dev2_pkt_gen = dev1_pkt_gen.clone().into_swapped();
+
+        test((xsk1, dev1_pkt_gen), (xsk2, dev2_pkt_gen))
+    };
+
+    veth_setup::run_with_veth_pair(inner, dev1_config, dev2_config)
+        .await
+        .unwrap();
 }

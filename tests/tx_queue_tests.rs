@@ -1,90 +1,87 @@
-use serial_test::serial;
-use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
-
+#[allow(dead_code)]
 mod setup;
-use setup::{SocketConfigBuilder, UmemConfigBuilder, Xsk};
+use std::convert::TryInto;
 
-fn build_configs() -> (Option<UmemConfig>, Option<SocketConfig>) {
-    let umem_config = UmemConfigBuilder {
-        frame_count: 8,
-        ..UmemConfigBuilder::default()
-    }
-    .build();
+use setup::Xsk;
 
-    let socket_config = SocketConfigBuilder {
-        tx_queue_size: 4,
-        ..SocketConfigBuilder::default()
-    }
-    .build();
+use serial_test::serial;
+use xsk_rs::config::{QueueSize, SocketConfig, UmemConfig};
 
-    (Some(umem_config), Some(socket_config))
+use crate::setup::{PacketGenerator, XskConfig};
+
+const TX_Q_SIZE: u32 = 4;
+const FRAME_COUNT: u32 = 8;
+
+fn build_configs() -> (UmemConfig, SocketConfig) {
+    let umem_config = UmemConfig::default();
+
+    let socket_config = SocketConfig::builder()
+        .tx_queue_size(QueueSize::new(TX_Q_SIZE).unwrap())
+        .build();
+
+    (umem_config, socket_config)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn tx_queue_produce_tx_size_frames() {
-    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let frame_descs = dev1.frame_descs;
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
 
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[..4]) }, 4);
+        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.frames[..4]) }, 4);
     }
 
-    let (dev1_umem_config, dev1_socket_config) = build_configs();
-    let (dev2_umem_config, dev2_socket_config) = build_configs();
-
-    setup::run_test(
-        dev1_umem_config,
-        dev1_socket_config,
-        dev2_umem_config,
-        dev2_socket_config,
-        test_fn,
-    )
-    .await;
+    build_configs_and_run_test(test).await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn tx_queue_produce_gt_tx_size_frames() {
-    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let frame_descs = dev1.frame_descs;
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
 
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[..5]) }, 0);
+        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.frames[..5]) }, 0);
     }
 
-    let (dev1_umem_config, dev1_socket_config) = build_configs();
-    let (dev2_umem_config, dev2_socket_config) = build_configs();
-
-    setup::run_test(
-        dev1_umem_config,
-        dev1_socket_config,
-        dev2_umem_config,
-        dev2_socket_config,
-        test_fn,
-    )
-    .await;
+    build_configs_and_run_test(test).await
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn tx_queue_produce_frames_until_tx_queue_full() {
-    fn test_fn(mut dev1: Xsk, _dev2: Xsk) {
-        let frame_descs = dev1.frame_descs;
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
 
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[..2]) }, 2);
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[2..3]) }, 1);
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[3..8]) }, 0);
-        assert_eq!(unsafe { dev1.tx_q.produce(&frame_descs[3..4]) }, 1);
+        unsafe {
+            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[..2]), 2);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[2..3]), 1);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[3..8]), 0);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[3..4]), 1);
+        }
     }
 
+    build_configs_and_run_test(test).await
+}
+
+async fn build_configs_and_run_test<F>(test: F)
+where
+    F: Fn((Xsk, PacketGenerator), (Xsk, PacketGenerator)) + Send + 'static,
+{
     let (dev1_umem_config, dev1_socket_config) = build_configs();
     let (dev2_umem_config, dev2_socket_config) = build_configs();
 
     setup::run_test(
-        dev1_umem_config,
-        dev1_socket_config,
-        dev2_umem_config,
-        dev2_socket_config,
-        test_fn,
+        XskConfig {
+            frame_count: FRAME_COUNT.try_into().unwrap(),
+            umem_config: dev1_umem_config,
+            socket_config: dev1_socket_config,
+        },
+        XskConfig {
+            frame_count: FRAME_COUNT.try_into().unwrap(),
+            umem_config: dev2_umem_config,
+            socket_config: dev2_socket_config,
+        },
+        test,
     )
     .await;
 }

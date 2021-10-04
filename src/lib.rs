@@ -11,25 +11,24 @@
 //! the GitHub repo.
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]
+pub mod prelude;
+
+#[warn(unsafe_op_in_unsafe_fn)]
+#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
+pub mod umem;
+
+#[warn(unsafe_op_in_unsafe_fn)]
+#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
 pub mod socket;
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod umem;
+pub mod config;
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]
 mod util;
 
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub use socket::{
-    BindFlags, Config as SocketConfig, LibbpfFlags, RxQueue, Socket, TxQueue, XdpFlags,
-};
-
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub use umem::{
-    AccessError, CompQueue, Config as UmemConfig, DataError, FillQueue, FrameDesc, Umem, WriteError,
-};
-
 #[cfg(test)]
+#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
 mod tests {
     use std::mem;
 

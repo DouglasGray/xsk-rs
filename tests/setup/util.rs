@@ -1,16 +1,6 @@
-use crossbeam_channel::{self, Receiver};
 use etherparse::{PacketBuilder, WriteError};
 
 use super::veth_setup::VethDevConfig;
-
-pub fn ctrl_channel() -> Result<Receiver<()>, ctrlc::Error> {
-    let (tx, rx) = crossbeam_channel::bounded(1);
-    ctrlc::set_handler(move || {
-        let _ = tx.send(());
-    })?;
-
-    Ok(rx)
-}
 
 #[derive(Debug, Clone)]
 pub struct PacketGenerator {
@@ -31,13 +21,13 @@ impl PacketGenerator {
         payload_len: usize,
     ) -> Result<Vec<u8>, WriteError> {
         let builder = PacketBuilder::ethernet2(
-            self.src.addr(), // src mac
-            self.dst.addr(), // dst mac
+            self.src.addr().unwrap(), // src mac
+            self.dst.addr().unwrap(), // dst mac
         )
         .ipv4(
-            self.src.ip_addr().octets(), // src ip
-            self.dst.ip_addr().octets(), // dst ip
-            20,                          // time to live
+            self.src.ip_addr().unwrap().octets(), // src ip
+            self.dst.ip_addr().unwrap().octets(), // dst ip
+            20,                                   // time to live
         )
         .udp(src_port, dst_port);
 

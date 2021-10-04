@@ -1,6 +1,6 @@
 [package]
 name = "xsk-rs"
-version = "0.2.4"
+version = "0.3.4"
 authors = ["Douglas Gray <dbgray01@gmail.com>"]
 edition = "2018"
 description = "Rust bindings for Linux AF_XDP sockets"
@@ -11,21 +11,21 @@ keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 
 [dependencies]
 bitflags = "1.2"
-libbpf-sys = "0.4.0-2"
+libbpf-sys = "0.5.0-2"
 libc = "0.2"
 log = "0.4"
 
 [dev-dependencies]
 anyhow = "1.0"
-clap = "2.33"
 crossbeam-channel = "0.5"
 ctrlc = "3.1"
+env_logger = "0.9"
 etherparse = "0.9"
 futures = "0.3"
 rand = "0.8"
 rtnetlink = "0.7"
-env_logger = "0.8"
 serial_test = "0.5"
+structopt = "0.3"
 
 [dev-dependencies.tokio]
 version = "1.6"

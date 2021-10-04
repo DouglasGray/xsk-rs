@@ -1,8 +1,8 @@
-pub(crate) fn get_errno() -> i32 {
+pub fn get_errno() -> i32 {
     unsafe { *libc::__errno_location() }
 }
 
-pub(crate) fn is_pow_of_two(val: u32) -> bool {
+pub fn is_pow_of_two(val: u32) -> bool {
     if val == 0 {
         return false;
     }
