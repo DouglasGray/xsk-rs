@@ -7,7 +7,7 @@ use super::{config::Config, mmap::MmapArea};
 use crate::umem::mmap::MmapShape;
 use crate::umem::Frame;
 use std::convert::TryFrom;
-use std::sync::atomic::AtomicUsize;
+
 use std::sync::Arc;
 
 /// Describes a UMEM frame's address and size of its current contents.
@@ -121,7 +121,6 @@ pub struct Umem<'a> {
     mtu: usize,
     inner: Box<xsk_umem>,
     mmap_area: Arc<MmapArea>,
-    _num_frames_owned_by_kernel: AtomicUsize,
     _marker: PhantomData<&'a ()>,
 }
 
@@ -253,7 +252,6 @@ impl<'a> UmemBuilderWithMmap {
             mtu,
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area,
-            _num_frames_owned_by_kernel: AtomicUsize::new(0),
             _marker: PhantomData,
         });
 
@@ -351,19 +349,11 @@ impl Umem<'_> {
 
         Ok(())
     }
-
-    pub(crate) unsafe fn transfer_ownership_to_kernel(&self, _num_frames: usize) {
-        // ToDo: Handle kernel owned Arc<MmapArea> so we do not need to increment/decrement the
-        // reference counter on every send/received packet
-    }
 }
 
 impl Drop for Umem<'_> {
     fn drop(&mut self) {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
-
-        // ToDo: drop kernel owned mmap_areas here
-
         if err != 0 {
             log::error!("xsk_umem__delete() failed: {}", err);
         }
@@ -389,6 +379,9 @@ impl FillQueue<'_> {
     /// the fill ring and the Tx ring, for example.  Once the frames
     /// have been submitted they should not be used again until
     /// consumed again via the [RxQueue](struct.RxQueue.html).
+    ///
+    /// # Panic
+    /// Panics if a `Frame` that is not belonging to this `Umem` is passed.
 
     // ToDo: This shares a lot of code with socket::TxQueue::produce add a function to deduplicate
     #[inline]
@@ -419,9 +412,15 @@ impl FillQueue<'_> {
             "Kernel should at maximum return the number of frames we asked for"
         );
 
+        let umem_mmap_area = self._umem.mmap_area();
         if cnt > 0 {
             // ToDo: Check if drain is correct here
             for (idx, frame) in frames.drain(..cnt).enumerate() {
+                assert!(
+                    Arc::ptr_eq(frame.mmap_area(), umem_mmap_area),
+                    "a Umem can only take `Frame`s pointing into its `MmapArea`"
+                );
+
                 // Safety: ToDo
                 let idx: u32 = idx.try_into().expect("number of frames fits u32");
                 unsafe {

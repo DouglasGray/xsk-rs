@@ -1,4 +1,3 @@
-use libbpf_sys::XDP_PACKET_HEADROOM;
 use serial_test::serial;
 use xsk_rs::{socket::Config as SocketConfig, umem::Config as UmemConfig};
 

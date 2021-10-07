@@ -24,7 +24,7 @@ use std::sync::Arc;
 /// a variable length data slice in a fixed length allocation.
 pub struct Frame {
     /// This reference makes sure that the underlying memory is still available
-    _mmap_area: Arc<MmapArea>,
+    mmap_area: Arc<MmapArea>,
     base_ptr: NonNull<u8>,
     capacity: usize,
     desc: FrameDesc<'static>,
@@ -61,7 +61,7 @@ impl Frame {
         let base_ptr = NonNull::new(base_ptr).expect("Mmap_area is non null");
 
         Frame {
-            _mmap_area: mmap_area,
+            mmap_area: mmap_area,
             base_ptr,
             capacity,
             desc,
@@ -126,6 +126,21 @@ impl Frame {
         unsafe { self.set_len(new_size) };
     }
 
+    pub fn extend_from_slice(&mut self, slice: &[u8]) -> Result<(), ()> {
+        let old_len = self.len();
+        let new_len = old_len + slice.len();
+        if new_len > self.capacity {
+            return Err(());
+        }
+
+        let uninitialized = &mut self.full_cap_slice_mut()[old_len..][..slice.len()];
+        uninitialized.copy_from_slice(slice);
+
+        // Safety: the new bytes were copied from the input slice
+        unsafe { self.set_len(new_len) };
+        Ok(())
+    }
+
     /// Get the frame descriptor for this frame
     pub fn frame_desc(&self) -> &FrameDesc {
         &self.desc
@@ -139,6 +154,10 @@ impl Frame {
     /// Get a mutable view to the full space available to the Frame including uninitialized bytes
     fn full_cap_slice_mut(&mut self) -> &mut [u8] {
         unsafe { slice::from_raw_parts_mut(self.base_ptr.as_ptr(), self.capacity) }
+    }
+
+    pub fn mmap_area(&self) -> &Arc<MmapArea> {
+        &self.mmap_area
     }
 }
 

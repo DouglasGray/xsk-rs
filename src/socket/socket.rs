@@ -299,9 +299,16 @@ impl TxQueue<'_> {
             "Kernel should at maximum return the number of frames we asked for"
         );
 
+        let umem_mmap_area = self._socket.umem.mmap_area();
+
         if cnt > 0 {
             // ToDo: Check if drain is correct here
             for (idx, frame) in frames.drain(..cnt).enumerate() {
+                assert!(
+                    Arc::ptr_eq(frame.mmap_area(), umem_mmap_area),
+                    "a `Socket` can only take `Frame`s pointing into its `Umem`"
+                );
+
                 // Safety: ToDo
                 let idx: u32 = idx.try_into().expect("number of frames fits u32");
                 let send_pkt_desc = unsafe {
