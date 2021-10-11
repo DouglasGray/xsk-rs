@@ -159,6 +159,10 @@ impl Frame {
     pub fn mmap_area(&self) -> &Arc<MmapArea> {
         &self.mmap_area
     }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
 }
 
 // Safety: We have unique ownership over the base_ptr. All other parts of the struct are auto Send
