@@ -27,7 +27,7 @@ pub struct Frame {
     mmap_area: Arc<MmapArea>,
     base_ptr: NonNull<u8>,
     capacity: usize,
-    desc: FrameDesc<'static>,
+    desc: FrameDesc,
 }
 
 impl Frame {
@@ -39,7 +39,7 @@ impl Frame {
     ///
     /// # Safety
     /// `frame_desc` must point to a non-aliased region in `mmap_area`.
-    pub unsafe fn new(mmap_area: Arc<MmapArea>, desc: FrameDesc<'static>) -> Self {
+    pub unsafe fn new(mmap_area: Arc<MmapArea>, desc: FrameDesc) -> Self {
         assert!(desc.len() <= mmap_area.size.frame_size());
         let capacity = mmap_area.size.frame_size();
 

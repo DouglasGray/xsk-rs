@@ -9,14 +9,14 @@ mod xsk_setup;
 use std::sync::Arc;
 pub use xsk_setup::{SocketConfigBuilder, UmemConfigBuilder};
 
-pub struct Xsk<'a> {
+pub struct Xsk {
     pub if_name: String,
-    pub fill_q: FillQueue<'a>,
-    pub comp_q: CompQueue<'a>,
-    pub tx_q: TxQueue<'a>,
-    pub rx_q: RxQueue<'a>,
+    pub fill_q: FillQueue,
+    pub comp_q: CompQueue,
+    pub tx_q: TxQueue,
+    pub rx_q: RxQueue,
     pub frames: Vec<Frame>,
-    pub umem: Arc<Umem<'a>>,
+    pub umem: Arc<Umem>,
 }
 
 pub async fn run_test<F>(

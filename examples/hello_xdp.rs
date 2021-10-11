@@ -13,10 +13,10 @@ use std::sync::Arc;
 use xsk_rs::umem::Frame;
 
 // Put umem at bottom so drop order is correct
-struct SocketState<'umem> {
-    fill_q: FillQueue<'umem>,
-    tx_q: TxQueue<'umem>,
-    rx_q: RxQueue<'umem>,
+struct SocketState {
+    fill_q: FillQueue,
+    tx_q: TxQueue,
+    rx_q: RxQueue,
     frames: Vec<Frame>,
 }
 

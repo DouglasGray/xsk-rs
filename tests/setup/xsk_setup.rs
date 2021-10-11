@@ -70,9 +70,7 @@ impl SocketConfigBuilder {
     }
 }
 
-fn build_umem<'a>(
-    umem_config: Option<UmemConfig>,
-) -> (Arc<Umem<'a>>, FillQueue<'a>, CompQueue<'a>, Vec<Frame>) {
+fn build_umem(umem_config: Option<UmemConfig>) -> (Arc<Umem>, FillQueue, CompQueue, Vec<Frame>) {
     let config = match umem_config {
         Some(cfg) => cfg,
         None => UmemConfigBuilder::default().build(),
@@ -91,13 +89,8 @@ pub fn build_socket_and_umem<'a, 'umem>(
     if_name: &'a str,
     queue_id: u32,
 ) -> (
-    (
-        Arc<Umem<'umem>>,
-        FillQueue<'umem>,
-        CompQueue<'umem>,
-        Vec<Frame>,
-    ),
-    (TxQueue<'umem>, RxQueue<'umem>),
+    (Arc<Umem>, FillQueue, CompQueue, Vec<Frame>),
+    (TxQueue, RxQueue),
 ) {
     let socket_config = match socket_config {
         Some(cfg) => cfg,

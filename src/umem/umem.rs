@@ -24,20 +24,18 @@ use std::sync::Arc;
 /// kernel and dictates the number of bytes the user should read from
 /// the UMEM.
 #[derive(Debug, Clone, PartialEq)]
-pub struct FrameDesc<'umem> {
+pub struct FrameDesc {
     addr: usize,
     len: usize,
     options: u32,
-    _marker: PhantomData<&'umem ()>,
 }
 
-impl FrameDesc<'_> {
+impl FrameDesc {
     pub fn new() -> Self {
         Self {
             addr: 0,
             len: 0,
             options: 0,
-            _marker: PhantomData,
         }
     }
 
@@ -114,14 +112,13 @@ pub struct UmemBuilderWithMmap {
 /// A region of virtual contiguous memory divided into equal-sized
 /// frames.  It provides the underlying working memory for an AF_XDP
 /// socket.
-pub struct Umem<'a> {
+pub struct Umem {
     config: Config,
     frame_size: usize,
     umem_len: usize,
     mtu: usize,
     inner: Box<xsk_umem>,
     mmap_area: Arc<MmapArea>,
-    _marker: PhantomData<&'a ()>,
 }
 
 /// Used to transfer ownership of UMEM frames from kernel-space to
@@ -132,10 +129,9 @@ pub struct Umem<'a> {
 ///
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)
-pub struct CompQueue<'umem> {
+pub struct CompQueue {
     inner: Box<xsk_ring_cons>,
-    umem: Arc<Umem<'umem>>,
-    _marker: PhantomData<&'umem ()>,
+    umem: Arc<Umem>,
 }
 
 /// Used to transfer ownership of UMEM frames from user-space to
@@ -146,10 +142,9 @@ pub struct CompQueue<'umem> {
 ///
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring)
-pub struct FillQueue<'umem> {
+pub struct FillQueue {
     inner: Box<xsk_ring_prod>,
-    _umem: Arc<Umem<'umem>>,
-    _marker: PhantomData<&'umem ()>,
+    _umem: Arc<Umem>,
 }
 
 impl UmemBuilder {
@@ -182,9 +177,7 @@ impl<'a> UmemBuilderWithMmap {
     /// the UMEM with it by splitting the memory region into frames
     /// and creating the [FillQueue](struct.FillQueue.html) and
     /// [CompQueue](struct.CompQueue.html).
-    pub fn create_umem(
-        mut self,
-    ) -> io::Result<(Arc<Umem<'a>>, FillQueue<'a>, CompQueue<'a>, Vec<Frame>)> {
+    pub fn create_umem(mut self) -> io::Result<(Arc<Umem>, FillQueue, CompQueue, Vec<Frame>)> {
         let umem_create_config = xsk_umem_config {
             fill_size: self.config.fill_queue_size(),
             comp_size: self.config.comp_queue_size(),
@@ -231,12 +224,7 @@ impl<'a> UmemBuilderWithMmap {
             let len = 0;
             let options = 0;
 
-            let frame_desc = FrameDesc {
-                addr,
-                len,
-                options,
-                _marker: PhantomData,
-            };
+            let frame_desc = FrameDesc { addr, len, options };
 
             // Safety: We know that the frame_desc points to a unique part of the mmap area as we
             // loop over all the sections in the area in this loop.
@@ -252,26 +240,23 @@ impl<'a> UmemBuilderWithMmap {
             mtu,
             inner: unsafe { Box::from_raw(umem_ptr) },
             mmap_area,
-            _marker: PhantomData,
         });
 
         let fill_queue = FillQueue {
             inner: unsafe { Box::new(fq_ptr.assume_init()) },
             _umem: Arc::clone(&umem),
-            _marker: PhantomData,
         };
 
         let comp_queue = CompQueue {
             inner: unsafe { Box::new(cq_ptr.assume_init()) },
             umem: Arc::clone(&umem),
-            _marker: PhantomData,
         };
 
         Ok((umem, fill_queue, comp_queue, frames))
     }
 }
 
-impl Umem<'_> {
+impl Umem {
     pub fn builder(config: Config) -> UmemBuilder {
         UmemBuilder { config }
     }
@@ -351,7 +336,7 @@ impl Umem<'_> {
     }
 }
 
-impl Drop for Umem<'_> {
+impl Drop for Umem {
     fn drop(&mut self) {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.inner.as_mut()) };
         if err != 0 {
@@ -360,7 +345,7 @@ impl Drop for Umem<'_> {
     }
 }
 
-impl FillQueue<'_> {
+impl FillQueue {
     /// Let the kernel know that the frames in `descs` may be used to
     /// receive data.
     ///
@@ -494,9 +479,9 @@ impl FillQueue<'_> {
     }
 }
 
-unsafe impl Send for FillQueue<'_> {}
+unsafe impl Send for FillQueue {}
 
-impl CompQueue<'_> {
+impl CompQueue {
     /// Update `descs` with frames whose contents have been sent
     /// (after submission via the [TxQueue](struct.TxQueue.html) and
     /// may now be used again.
@@ -550,7 +535,7 @@ impl CompQueue<'_> {
     }
 }
 
-unsafe impl Send for CompQueue<'_> {}
+unsafe impl Send for CompQueue {}
 
 /// UMEM access errors
 #[derive(Debug)]

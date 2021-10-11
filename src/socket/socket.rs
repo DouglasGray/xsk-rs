@@ -56,47 +56,46 @@ impl Error for SocketCreateError {
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
-pub struct Socket<'umem> {
+pub struct Socket {
     inner: Box<xsk_socket>,
-    umem: Arc<Umem<'umem>>,
-    _marker: PhantomData<&'umem ()>,
+    umem: Arc<Umem>,
 }
 
 /// The transmitting side of an AF_XDP socket.
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).
-pub struct TxQueue<'umem> {
+pub struct TxQueue {
     inner: Box<xsk_ring_prod>,
     fd: Fd,
-    _socket: Arc<Socket<'umem>>,
+    socket: Arc<Socket>,
 }
 
-unsafe impl Send for TxQueue<'_> {}
+unsafe impl Send for TxQueue {}
 
 /// The receiving side of an AF_XDP socket.
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#rx-ring).
-pub struct RxQueue<'umem> {
+pub struct RxQueue {
     inner: Box<xsk_ring_cons>,
     fd: Fd,
-    socket: Arc<Socket<'umem>>,
+    socket: Arc<Socket>,
 }
 
-unsafe impl Send for RxQueue<'_> {}
+unsafe impl Send for RxQueue {}
 
-impl Socket<'_> {
+impl Socket {
     /// Create and bind a new AF_XDP socket to a given interface and
     /// queue id.
     ///
     /// May require root permissions to create and bind.
-    pub fn new<'a, 'umem>(
+    pub fn new(
         config: Config,
-        umem: Arc<Umem<'umem>>,
-        if_name: &'a str,
+        umem: Arc<Umem>,
+        if_name: &str,
         queue_id: u32,
-    ) -> Result<(TxQueue<'umem>, RxQueue<'umem>), SocketCreateError> {
+    ) -> Result<(TxQueue, RxQueue), SocketCreateError> {
         let socket_create_config = xsk_socket_config {
             rx_size: config.rx_queue_size(),
             tx_size: config.tx_queue_size(),
@@ -148,13 +147,12 @@ impl Socket<'_> {
         let socket = Arc::new(Socket {
             inner: unsafe { Box::from_raw(xsk_ptr) },
             umem,
-            _marker: PhantomData,
         });
 
         let tx_queue = TxQueue {
             inner: unsafe { Box::new(tx_q_ptr.assume_init()) },
             fd: fd.clone(),
-            _socket: Arc::clone(&socket),
+            socket: Arc::clone(&socket),
         };
 
         let rx_queue = RxQueue {
@@ -167,7 +165,7 @@ impl Socket<'_> {
     }
 }
 
-impl Drop for Socket<'_> {
+impl Drop for Socket {
     fn drop(&mut self) {
         unsafe {
             libbpf_sys::xsk_socket__delete(self.inner.as_mut());
@@ -175,7 +173,7 @@ impl Drop for Socket<'_> {
     }
 }
 
-impl RxQueue<'_> {
+impl RxQueue {
     /// Populate `descs` with information on packets received on the
     /// rx ring.
     ///
@@ -251,7 +249,7 @@ impl RxQueue<'_> {
     }
 }
 
-impl TxQueue<'_> {
+impl TxQueue {
     /// Let the kernel know that the contents of frames in `descs` are
     /// ready to be transmitted.
     ///
@@ -299,7 +297,7 @@ impl TxQueue<'_> {
             "Kernel should at maximum return the number of frames we asked for"
         );
 
-        let umem_mmap_area = self._socket.umem.mmap_area();
+        let umem_mmap_area = self.socket.umem.mmap_area();
 
         if cnt > 0 {
             // ToDo: Check if drain is correct here
