@@ -193,6 +193,7 @@ impl Frame {
     }
 }
 
+/// Headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Headroom<'umem> {
     buf: &'umem [u8],
@@ -228,6 +229,9 @@ impl Deref for Headroom<'_> {
     }
 }
 
+/// Mutable headroom segment of a [`Umem`](crate::umem::Umem) frame
+/// that allows writing via its [`cursor`](HeadroomMut::cursor)
+/// method.
 #[derive(Debug)]
 pub struct HeadroomMut<'umem> {
     pos: &'umem mut usize,
@@ -269,6 +273,7 @@ impl Deref for HeadroomMut<'_> {
     }
 }
 
+/// Data segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Data<'umem> {
     buf: &'umem [u8],
@@ -304,6 +309,8 @@ impl Deref for Data<'_> {
     }
 }
 
+/// Mutable data segment of a [`Umem`](crate::umem::Umem) frame that
+/// allows writing via its [`cursor`](DataMut::cursor) method.
 #[derive(Debug)]
 pub struct DataMut<'umem> {
     pos: &'umem mut usize,
