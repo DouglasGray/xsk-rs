@@ -44,13 +44,14 @@ impl RxQueue {
     ///
     /// Once the contents of the consumed frames have been dealt with
     /// and are no longer required, the frames should eventually be
-    /// added back on to either the [`FillQueue`](crate::FillQueue)
-    /// or the [`TxQueue`](crate::TxQueue).
+    /// added back on to either the
+    /// [`FillQueue`](crate::umem::FillQueue) or the
+    /// [`TxQueue`](super::TxQueue).
     ///
     /// # Safety
     ///
-    /// The underlying [`Umem`](crate::Umem) of the passed `frames` and this
-    /// [`RxQueue`] must be the same.
+    /// The underlying [`Umem`](crate::umem::Umem) of the passed
+    /// `frames` and this [`RxQueue`] must be the same.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;

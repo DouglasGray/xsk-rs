@@ -40,11 +40,11 @@ impl TxQueue {
     ///
     /// # Safety
     ///
-    /// This function is unsafe as it is possible to cause a data
-    /// race by simultaneously submitting the same frame descriptor to
-    /// the tx ring and the fill ring, for example.  Once any frames
-    /// have been submitted they should not be used again until
-    /// consumed via the [`CompQueue`](crate::CompQueue).
+    /// This function is unsafe as it is possible to cause a data race
+    /// by simultaneously submitting the same frame descriptor to the
+    /// tx ring and the fill ring, for example.  Once any frames have
+    /// been submitted they should not be used again until consumed
+    /// via the [`CompQueue`](crate::umem::CompQueue).
     #[inline]
     pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
         let nb = frames.len() as u64;
@@ -120,8 +120,9 @@ impl TxQueue {
         Ok(())
     }
 
-    /// Check if the [`NEED_WAKEUP`](libbpf_sys::NEED_WAKEUP) flag is
-    /// set on the tx ring.  If so then this means a call to
+    /// Check if the
+    /// [`XDP_USE_NEED_WAKEUP`](libbpf_sys::XDP_USE_NEED_WAKEUP) flag
+    /// is set on the tx ring.  If so then this means a call to
     /// [`wakeup`](TxQueue::wakeup) will be required to continue
     /// processing produced frames.
     ///

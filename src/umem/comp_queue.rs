@@ -11,7 +11,7 @@ use super::{
 /// kernel-space to user-space.
 ///
 /// Frames received in this queue are those that have been sent via
-/// the [`TxQueue`](super::TxQueue).
+/// the [`TxQueue`](crate::socket::TxQueue).
 ///
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)

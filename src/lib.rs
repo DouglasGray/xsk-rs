@@ -10,33 +10,28 @@
 //! Some simple examples may be found in the `examples` directory in
 //! the GitHub repo.
 
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod prelude;
+use cfg_if::cfg_if;
 
-#[warn(unsafe_op_in_unsafe_fn)]
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod umem;
+cfg_if! {
+    if #[cfg(all(target_pointer_width = "64", target_family = "unix"))] {
+        #[warn(unsafe_op_in_unsafe_fn)]
+        pub mod umem;
+        #[warn(unsafe_op_in_unsafe_fn)]
+        pub mod socket;
+        pub mod config;
+        pub mod prelude;
 
-#[warn(unsafe_op_in_unsafe_fn)]
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod socket;
+        mod ring;
+        mod util;
 
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-pub mod config;
+        #[cfg(test)]
+        mod tests {
+            use std::mem;
 
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-mod ring;
-
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-mod util;
-
-#[cfg(test)]
-#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
-mod tests {
-    use std::mem;
-
-    #[test]
-    fn ensure_usize_and_u64_are_same_size() {
-        assert_eq!(mem::size_of::<usize>(), mem::size_of::<u64>());
+            #[test]
+            fn ensure_usize_and_u64_are_same_size() {
+                assert_eq!(mem::size_of::<usize>(), mem::size_of::<u64>());
+            }
+        }
     }
 }

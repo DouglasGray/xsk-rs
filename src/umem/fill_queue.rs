@@ -108,8 +108,9 @@ impl FillQueue {
         Ok(())
     }
 
-    /// Check if the [`NEED_WAKEUP`](libbpf_sys::NEED_WAKEUP) flag is
-    /// set on the fill ring. If so then this means a call to
+    /// Check if the
+    /// [`XDP_USE_NEED_WAKEUP`](libbpf_sys::XDP_USE_NEED_WAKEUP) flag
+    /// is set on the fill ring. If so then this means a call to
     /// [`wakeup`](FillQueue::wakeup) will be required to continue
     /// processing received data.
     ///
