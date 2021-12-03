@@ -59,8 +59,7 @@ impl CompQueue {
             let mut data_desc = FrameDesc::default();
 
             for frame in frames.iter_mut().take(cnt as usize) {
-                let addr: u64 =
-                    unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(&mut self.ring, idx) };
+                let addr: u64 = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(&self.ring, idx) };
 
                 data_desc.addr = addr as usize;
                 data_desc.len = 0;

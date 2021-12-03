@@ -16,40 +16,19 @@ use super::mmap::framed::FramedMmap;
 /// of the [`Umem`](super::Umem) and corresponds to some point within a frame. The
 /// `len` field describes the length (in bytes) of any data stored in
 /// that frame, starting from `addr`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct FrameDesc {
     pub addr: usize,
     pub len: usize,
     pub options: u32,
 }
 
-impl Default for FrameDesc {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            addr: 0,
-            len: 0,
-            options: 0,
-        }
-    }
-}
-
 /// The saved cursor positions for a frame's data and headroom
 /// segments. Used to keep track of positions between writes.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 struct CursorPos {
     headroom: usize,
     data: usize,
-}
-
-impl Default for CursorPos {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            headroom: 0,
-            data: 0,
-        }
-    }
 }
 
 /// A single frame of some [`Umem`](super::Umem).
@@ -70,14 +49,14 @@ impl Frame {
         }
     }
 
-    #[inline]
     /// The frame's address. This address is the start of the data segment.
+    #[inline]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
-    #[inline]
     /// The current length of the data segment.
+    #[inline]
     pub fn len(&self) -> usize {
         self.cursor_pos.data
     }
@@ -92,7 +71,6 @@ impl Frame {
         self.options = options
     }
 
-    #[inline]
     /// The frame's headroom and data segments.
     ///
     /// # Safety
@@ -100,7 +78,8 @@ impl Frame {
     /// The underlying [`Umem`](super::Umem) region this frame
     /// accesses must not be mutably accessed anywhere else at the
     /// same time, either in userspace or by the kernel.
-    pub unsafe fn get<'a>(&'a self) -> (Headroom<'a>, Data<'a>) {
+    #[inline]
+    pub unsafe fn get(&self) -> (Headroom, Data) {
         let (h, d) = unsafe { self.frames.get_unchecked(self.addr) };
 
         (
@@ -113,12 +92,12 @@ impl Frame {
         )
     }
 
-    #[inline]
     /// The frame's headroom segment.
     ///
     /// # Safety
     ///
     /// See [`get`](Frame::get).
+    #[inline]
     pub unsafe fn headroom(&self) -> Headroom {
         let (h, _d) = unsafe { self.frames.get_unchecked(self.addr) };
 
@@ -127,12 +106,12 @@ impl Frame {
         }
     }
 
-    #[inline]
     /// The frame's data segment
     ///
     /// # Safety
     ///
     /// See [`get`](Frame::get).
+    #[inline]
     pub unsafe fn data(&self) -> Data {
         let (_h, d) = unsafe { self.frames.get_unchecked(self.addr) };
 
@@ -141,7 +120,6 @@ impl Frame {
         }
     }
 
-    #[inline]
     /// Mutable references to the frame's headroom and data segments.
     ///
     /// # Safety
@@ -149,6 +127,7 @@ impl Frame {
     /// The underlying [`Umem`](super::Umem) region this frame
     /// accesses must not be mutably or immutably accessed anywhere
     /// else at the same time, either in userspace or by the kernel.
+    #[inline]
     pub unsafe fn get_mut(&mut self) -> (HeadroomMut, DataMut) {
         let (h, d) = unsafe { self.frames.get_unchecked_mut(self.addr) };
 
@@ -164,12 +143,12 @@ impl Frame {
         )
     }
 
-    #[inline]
     /// A mutable reference to the frame's headroom segment.
     ///
     /// # Safety
     ///
     /// See [`get_mut`](Frame::get_mut).
+    #[inline]
     pub unsafe fn headroom_mut(&mut self) -> HeadroomMut {
         let (h, _d) = unsafe { self.frames.get_unchecked_mut(self.addr) };
 
@@ -179,12 +158,12 @@ impl Frame {
         }
     }
 
-    #[inline]
     /// A mutable reference to the frame's data segment.
     ///
     /// # Safety
     ///
     /// See [`get_mut`](Frame::get_mut).
+    #[inline]
     pub unsafe fn data_mut(&mut self) -> DataMut {
         let (_h, d) = unsafe { self.frames.get_unchecked_mut(self.addr) };
 

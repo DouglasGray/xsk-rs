@@ -65,8 +65,7 @@ impl RxQueue {
             let mut desc = FrameDesc::default();
 
             for frame in frames.iter_mut().take(cnt as usize) {
-                let recv_pkt_desc =
-                    unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(&mut self.ring, idx) };
+                let recv_pkt_desc = unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(&self.ring, idx) };
 
                 unsafe {
                     desc.addr = (*recv_pkt_desc).addr as usize;

@@ -74,7 +74,7 @@ impl TryFrom<Vec<u8>> for Interface {
 }
 
 /// Builder for a [`SocketConfig`](Config).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ConfigBuilder {
     config: Config,
 }
@@ -111,14 +111,6 @@ impl ConfigBuilder {
 
     pub fn build(&self) -> Config {
         self.config
-    }
-}
-
-impl Default for ConfigBuilder {
-    fn default() -> Self {
-        Self {
-            config: Default::default(),
-        }
     }
 }
 

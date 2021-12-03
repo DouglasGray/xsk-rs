@@ -61,7 +61,7 @@ impl Socket {
     /// queue id using the underlying UMEM.
     ///
     /// May require root permissions to create successfully.
-    pub fn new<'a, 'umem>(
+    pub fn new(
         config: SocketConfig,
         umem: &Umem,
         if_name: &Interface,

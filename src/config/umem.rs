@@ -8,7 +8,7 @@ use std::{error, fmt};
 use super::{FrameSize, QueueSize};
 
 /// Builder for a [`UmemConfig`](Config).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ConfigBuilder {
     config: Config,
 }
@@ -49,14 +49,6 @@ impl ConfigBuilder {
             })
         } else {
             Ok(self.config)
-        }
-    }
-}
-
-impl Default for ConfigBuilder {
-    fn default() -> Self {
-        Self {
-            config: Default::default(),
         }
     }
 }
