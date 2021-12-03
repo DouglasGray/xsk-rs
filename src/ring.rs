@@ -1,7 +1,7 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod};
 
 #[derive(Default)]
-pub struct XskRingCons(pub xsk_ring_cons);
+pub struct XskRingCons(xsk_ring_cons);
 
 impl XskRingCons {
     pub fn as_mut(&mut self) -> &mut xsk_ring_cons {
@@ -20,7 +20,7 @@ impl XskRingCons {
 unsafe impl Send for XskRingCons {}
 
 #[derive(Default)]
-pub struct XskRingProd(pub xsk_ring_prod);
+pub struct XskRingProd(xsk_ring_prod);
 
 impl XskRingProd {
     pub fn as_mut(&mut self) -> &mut xsk_ring_prod {
