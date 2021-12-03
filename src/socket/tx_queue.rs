@@ -1,8 +1,7 @@
-use libbpf_sys::xsk_ring_prod;
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
 use std::{io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
 
-use crate::{umem::frame::Frame, util};
+use crate::{ring::XskRingProd, umem::frame::Frame, util};
 
 use super::{fd::Fd, Socket};
 
@@ -11,7 +10,7 @@ use super::{fd::Fd, Socket};
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).
 pub struct TxQueue {
-    ring: xsk_ring_prod,
+    ring: XskRingProd,
     fd: Fd,
     _socket: Arc<Socket>,
 }
@@ -19,7 +18,7 @@ pub struct TxQueue {
 unsafe impl Send for TxQueue {}
 
 impl TxQueue {
-    pub(super) fn new(ring: xsk_ring_prod, socket: Arc<Socket>) -> Self {
+    pub(super) fn new(ring: XskRingProd, socket: Arc<Socket>) -> Self {
         Self {
             ring,
             fd: socket.fd,
@@ -56,19 +55,19 @@ impl TxQueue {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(&mut self.ring, nb, &mut idx) };
+        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for frame in frames.iter().take(cnt as usize) {
                 let send_pkt_desc =
-                    unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(&mut self.ring, idx) };
+                    unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
                 unsafe { frame.write_xdp_desc(&mut *send_pkt_desc) };
 
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(&mut self.ring, cnt) };
+            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -130,7 +129,7 @@ impl TxQueue {
     /// link to docs with further explanation.
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(&self.ring) != 0 }
+        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
 
     /// The [`Socket`]'s file descriptor.

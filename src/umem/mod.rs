@@ -15,7 +15,7 @@ pub use fill_queue::FillQueue;
 mod comp_queue;
 pub use comp_queue::CompQueue;
 
-use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, XDP_PACKET_HEADROOM};
+use libbpf_sys::{xsk_umem, XDP_PACKET_HEADROOM};
 use std::{
     borrow::Borrow,
     error::Error,
@@ -25,7 +25,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::config::UmemConfig;
+use crate::{
+    config::UmemConfig,
+    ring::{XskRingCons, XskRingProd},
+};
 
 /// Wrapper around a pointer to some [`Umem`]. Guarantees
 /// that the pointer is both non-null and unique.
@@ -56,6 +59,8 @@ impl Drop for XskUmem {
     }
 }
 
+unsafe impl Send for XskUmem {}
+
 /// Wraps the [`xsk_umem`] pointer and [`Mmap`]'d area together to
 /// ensure they're dropped in tandem.
 ///
@@ -63,14 +68,14 @@ impl Drop for XskUmem {
 /// order.
 pub(crate) struct UmemInner {
     umem: Mutex<XskUmem>,
-    saved_fq_and_cq: Mutex<Option<(xsk_ring_prod, xsk_ring_cons)>>,
+    saved_fq_and_cq: Mutex<Option<(XskRingProd, XskRingCons)>>,
     mmap: Arc<Mmap>,
 }
 
 impl UmemInner {
     fn new(
         umem: XskUmem,
-        saved_fq_and_cq: Option<(xsk_ring_prod, xsk_ring_cons)>,
+        saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>,
         mmap: Arc<Mmap>,
     ) -> Self {
         Self {
@@ -109,16 +114,16 @@ impl Umem {
         })?;
 
         let mut umem_ptr = ptr::null_mut();
-        let mut fq = xsk_ring_prod::default();
-        let mut cq = xsk_ring_cons::default();
+        let mut fq = XskRingProd::default();
+        let mut cq = XskRingCons::default();
 
         let err = unsafe {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
                 mmap.as_mut(),
                 mmap_len as u64,
-                &mut fq,
-                &mut cq,
+                fq.as_mut(),
+                cq.as_mut(),
                 &config.into(),
             )
         };
@@ -140,19 +145,19 @@ impl Umem {
             });
         }
 
-        if fq.ring.is_null() {
+        if fq.is_ring_null() {
             return Err(UmemCreateError {
                 reason: "returned fill queue ring is null",
                 err: io::Error::from_raw_os_error(err),
             });
         };
 
-        if cq.ring.is_null() {
+        if cq.is_ring_null() {
             return Err(UmemCreateError {
                 reason: "returned comp queue ring is null",
                 err: io::Error::from_raw_os_error(err),
             });
-        };
+        }
 
         let inner = UmemInner::new(xsk_umem, Some((fq, cq)), Arc::new(mmap));
 
@@ -196,7 +201,7 @@ impl Umem {
     #[inline]
     pub(crate) fn with_parts<F, T>(&self, mut f: F) -> T
     where
-        F: FnMut(&mut xsk_umem, Option<(xsk_ring_prod, xsk_ring_cons)>) -> T,
+        F: FnMut(&mut xsk_umem, Option<(XskRingProd, XskRingCons)>) -> T,
     {
         let mut umem = self.inner.umem.lock().unwrap();
         let saved_fq_and_cq = &mut self.inner.saved_fq_and_cq.lock().unwrap();

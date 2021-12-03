@@ -66,6 +66,11 @@ impl Drop for Mmap {
 
 unsafe impl Send for Mmap {}
 
+// Safety: this impl is only safe in the context of this library. The
+// only mutators of the mmap'd region are the frames, which write to
+// disjoint sections (assuming the unsafe requirements are upheld).
+unsafe impl Sync for Mmap {}
+
 #[cfg(test)]
 mod tests {
     #[test]

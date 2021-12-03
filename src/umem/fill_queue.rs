@@ -1,7 +1,9 @@
-use libbpf_sys::xsk_ring_prod;
 use std::{io, sync::Arc};
 
-use crate::socket::fd::{Fd, PollEvent};
+use crate::{
+    ring::XskRingProd,
+    socket::fd::{Fd, PollEvent},
+};
 
 use super::{frame::Frame, UmemInner};
 
@@ -14,12 +16,12 @@ use super::{frame::Frame, UmemInner};
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring)
 pub struct FillQueue {
-    ring: xsk_ring_prod,
+    ring: XskRingProd,
     _umem: Arc<UmemInner>,
 }
 
 impl FillQueue {
-    pub(crate) fn new(ring: xsk_ring_prod, umem: Arc<UmemInner>) -> Self {
+    pub(crate) fn new(ring: XskRingProd, umem: Arc<UmemInner>) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -51,19 +53,19 @@ impl FillQueue {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(&mut self.ring, nb, &mut idx) };
+        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for frame in frames.iter().take(cnt as usize) {
                 unsafe {
-                    *libbpf_sys::_xsk_ring_prod__fill_addr(&mut self.ring, idx) =
+                    *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
                         frame.addr() as u64
                 };
 
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(&mut self.ring, cnt) };
+            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -115,7 +117,7 @@ impl FillQueue {
     /// a link to docs with further explanation.
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(&self.ring) != 0 }
+        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
 }
 

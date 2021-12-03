@@ -1,5 +1,6 @@
-use libbpf_sys::xsk_ring_cons;
 use std::sync::Arc;
+
+use crate::ring::XskRingCons;
 
 use super::{
     frame::{Frame, FrameDesc},
@@ -15,12 +16,12 @@ use super::{
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)
 pub struct CompQueue {
-    ring: xsk_ring_cons,
+    ring: XskRingCons,
     _umem: Arc<UmemInner>,
 }
 
 impl CompQueue {
-    pub(crate) fn new(ring: xsk_ring_cons, umem: Arc<UmemInner>) -> Self {
+    pub(crate) fn new(ring: XskRingCons, umem: Arc<UmemInner>) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -53,13 +54,14 @@ impl CompQueue {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(&mut self.ring, nb, &mut idx) };
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             let mut data_desc = FrameDesc::default();
 
             for frame in frames.iter_mut().take(cnt as usize) {
-                let addr: u64 = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(&self.ring, idx) };
+                let addr: u64 =
+                    unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
 
                 data_desc.addr = addr as usize;
                 data_desc.len = 0;
@@ -70,7 +72,7 @@ impl CompQueue {
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_cons__release(&mut self.ring, cnt) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize

@@ -25,6 +25,9 @@ pub mod socket;
 pub mod config;
 
 #[cfg(all(target_pointer_width = "64", target_family = "unix"))]
+mod ring;
+
+#[cfg(all(target_pointer_width = "64", target_family = "unix"))]
 mod util;
 
 #[cfg(test)]

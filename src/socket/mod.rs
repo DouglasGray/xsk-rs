@@ -9,7 +9,7 @@ pub use rx_queue::RxQueue;
 mod tx_queue;
 pub use tx_queue::TxQueue;
 
-use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_socket};
+use libbpf_sys::xsk_socket;
 use std::{
     borrow::Borrow,
     error::Error,
@@ -20,6 +20,7 @@ use std::{
 
 use crate::{
     config::{Interface, SocketConfig},
+    ring::{XskRingCons, XskRingProd},
     umem::UmemInner,
 };
 
@@ -68,23 +69,23 @@ impl Socket {
         queue_id: u32,
     ) -> Result<(TxQueue, RxQueue, Option<(FillQueue, CompQueue)>), SocketCreateError> {
         let mut xsk_ptr = ptr::null_mut();
-        let mut tx_q = xsk_ring_prod::default();
-        let mut rx_q = xsk_ring_cons::default();
+        let mut tx_q = XskRingProd::default();
+        let mut rx_q = XskRingCons::default();
 
         let (err, fq, cq) = unsafe {
             umem.with_parts(|xsk_umem, saved_fq_and_cq| {
                 let (mut fq, mut cq) = saved_fq_and_cq
-                    .unwrap_or_else(|| (xsk_ring_prod::default(), xsk_ring_cons::default()));
+                    .unwrap_or_else(|| (XskRingProd::default(), XskRingCons::default()));
 
                 let err = libbpf_sys::xsk_socket__create_shared(
                     &mut xsk_ptr,
                     if_name.as_cstr().as_ptr(),
                     queue_id,
                     xsk_umem,
-                    &mut rx_q,
-                    &mut tx_q,
-                    &mut fq,
-                    &mut cq,
+                    rx_q.as_mut(),
+                    tx_q.as_mut(),
+                    fq.as_mut(),
+                    cq.as_mut(),
                     &config.into(),
                 );
 
@@ -124,7 +125,7 @@ impl Socket {
             _umem: Arc::clone(umem.inner()),
         });
 
-        let tx_q = if tx_q.ring.is_null() {
+        let tx_q = if tx_q.is_ring_null() {
             return Err(SocketCreateError {
                 reason: "returned tx queue ring is null",
                 err: io::Error::from_raw_os_error(err),
@@ -133,7 +134,7 @@ impl Socket {
             TxQueue::new(tx_q, Arc::clone(&socket))
         };
 
-        let rx_q = if rx_q.ring.is_null() {
+        let rx_q = if rx_q.is_ring_null() {
             return Err(SocketCreateError {
                 reason: "returned rx queue ring is null",
                 err: io::Error::from_raw_os_error(err),
@@ -142,7 +143,7 @@ impl Socket {
             RxQueue::new(rx_q, Arc::clone(&socket))
         };
 
-        let fq_and_cq = match (fq.ring.is_null(), cq.ring.is_null()) {
+        let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
             (true, true) => None,
             (false, false) => {
                 let fq = FillQueue::new(fq, Arc::clone(umem.inner()));

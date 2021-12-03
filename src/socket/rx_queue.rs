@@ -1,7 +1,9 @@
-use libbpf_sys::xsk_ring_cons;
 use std::{io, sync::Arc};
 
-use crate::umem::frame::{Frame, FrameDesc};
+use crate::{
+    ring::XskRingCons,
+    umem::frame::{Frame, FrameDesc},
+};
 
 use super::{
     fd::{Fd, PollEvent},
@@ -13,7 +15,7 @@ use super::{
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#rx-ring).
 pub struct RxQueue {
-    ring: xsk_ring_cons,
+    ring: XskRingCons,
     fd: Fd,
     _socket: Arc<Socket>,
 }
@@ -21,7 +23,7 @@ pub struct RxQueue {
 unsafe impl Send for RxQueue {}
 
 impl RxQueue {
-    pub(super) fn new(ring: xsk_ring_cons, socket: Arc<Socket>) -> Self {
+    pub(super) fn new(ring: XskRingCons, socket: Arc<Socket>) -> Self {
         Self {
             ring,
             fd: socket.fd,
@@ -59,13 +61,14 @@ impl RxQueue {
 
         let mut idx: u32 = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(&mut self.ring, nb, &mut idx) };
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             let mut desc = FrameDesc::default();
 
             for frame in frames.iter_mut().take(cnt as usize) {
-                let recv_pkt_desc = unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(&self.ring, idx) };
+                let recv_pkt_desc =
+                    unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(self.ring.as_ref(), idx) };
 
                 unsafe {
                     desc.addr = (*recv_pkt_desc).addr as usize;
@@ -80,7 +83,7 @@ impl RxQueue {
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_cons__release(&mut self.ring, cnt) };
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
