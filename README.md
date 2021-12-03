@@ -95,9 +95,9 @@ fn main() {
             .expect("failed writing packet to frame")
     }
 
-    // 3. Hand over dev1's frame to the kernel for transmission
-	println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
-	
+    // 3. Submit dev1's frame to the kernel for transmission
+    println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
+
     unsafe {
         dev1_tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap();
     }
@@ -109,9 +109,8 @@ fn main() {
     for recv_frame in dev2_frames.iter().take(pkts_recvd) {
         let data = unsafe { recv_frame.data() };
 
-        println!("received: {:?}", str::from_utf8(data.contents()).unwrap());
-
         if data.contents() == &pkt[..] {
+            println!("received: {:?}", str::from_utf8(data.contents()).unwrap());
             return;
         }
     }
