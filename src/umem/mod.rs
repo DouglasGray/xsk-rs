@@ -198,15 +198,22 @@ impl Umem {
         &self.inner
     }
 
+    /// Called on socket creation, this passes the create function a
+    /// pointer to the UMEM and also pops any saved fill queue or
+    /// completion queue.
+    ///
+    /// Regarding the saved queues, this is a byproduct of how the
+    /// UMEM is created in the C code and we save them here to avoid
+    /// leaking memory.
     #[inline]
-    pub(crate) fn with_parts<F, T>(&self, mut f: F) -> T
+    pub(crate) fn on_socket_create<F, T>(&self, mut socket_create: F) -> T
     where
         F: FnMut(&mut xsk_umem, Option<(XskRingProd, XskRingCons)>) -> T,
     {
         let mut umem = self.inner.umem.lock().unwrap();
         let saved_fq_and_cq = &mut self.inner.saved_fq_and_cq.lock().unwrap();
 
-        f(umem.as_mut(), saved_fq_and_cq.take())
+        socket_create(umem.as_mut(), saved_fq_and_cq.take())
     }
 }
 

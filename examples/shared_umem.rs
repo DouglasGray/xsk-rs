@@ -7,31 +7,25 @@ mod setup;
 use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig};
 
 fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, PacketGenerator)) {
-    // Create a UMEM for dev1.
-    let (dev1_umem, mut dev1_frames) =
-        Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
-            .expect("failed to create UMEM");
+    // This UMEM will be shared between both sockets.
+    let (umem, mut frames) = Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
+        .expect("failed to create UMEM");
 
     // Bind an AF_XDP socket to the interface named `xsk_dev1`, on
     // queue 0.
     let (mut dev1_tx_q, _dev1_rx_q, _dev1_fq_and_cq) = Socket::new(
         SocketConfig::default(),
-        &dev1_umem,
+        &umem,
         &dev1.0.if_name().parse().unwrap(),
         0,
     )
     .expect("failed to create dev1 socket");
 
-    // Create a UMEM for dev2.
-    let (dev2_umem, mut dev2_frames) =
-        Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
-            .expect("failed to create UMEM");
-
     // Bind an AF_XDP socket to the interface named `xsk_dev2`, on
-    // queue 0.
+    // queue 0. Also uses the UMEM above.
     let (_dev2_tx_q, mut dev2_rx_q, dev2_fq_and_cq) = Socket::new(
         SocketConfig::default(),
-        &dev2_umem,
+        &umem,
         &dev2.0.if_name().parse().unwrap(),
         0,
     )
@@ -39,13 +33,17 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
 
     let (mut dev2_fq, _dev2_cq) = dev2_fq_and_cq.expect("missing dev2 fill queue and comp queue");
 
+    // Just split the UMEM frames between the two sockets for
+    // convenience.
+    let (dev1_frames, mut dev2_frames) = frames.split_at_mut(16);
+
     // 1. Add frames to dev2's fill queue so we are ready to receive
     // some packets.
     unsafe {
         dev2_fq.produce(&dev2_frames);
     }
 
-    // 2. Write to dev1's UMEM.
+    // 2. Write to the UMEM.
     let pkt = "Hello, world!".as_bytes();
 
     unsafe {

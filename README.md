@@ -20,6 +20,8 @@ implementation. Note that neither example will be indicative of actual
 performance, since binding the sockets to the veth pair means that
 packets will pass through the kernel network stack.
 
+An example with shared UMEM is in `shared_umem.rs`.
+
 ### Running tests / examples
 
 Root permissions may be required to run the tests or examples, since 
@@ -44,8 +46,7 @@ Tested on a 64-bit machine running Linux kernel version 5.14.0.
 
 ### Usage
 
-The below example sends a packet from one interface to another. It
-uses a shared UMEM for brevity.
+The below example sends a packet from one interface to another.
 
 ```rust
 use std::{convert::TryInto, io::Write, str};
@@ -56,22 +57,36 @@ use xsk_rs::{
 };
 
 fn main() {
-    let (umem, mut frames) = Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
-        .expect("failed to create UMEM");
+    // Create a UMEM for dev1 with 32 frames, whose sizes are
+    // specified via the `UmemConfig` instance.
+    let (dev1_umem, mut dev1_frames) =
+        Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
+            .expect("failed to create UMEM");
 
-    let (dev1_frames, dev2_frames) = frames.split_at_mut(16);
-
+    // Bind an AF_XDP socket to the interface named `xsk_dev1`, on
+    // queue 0.
     let (mut dev1_tx_q, _dev1_rx_q, _dev1_fq_and_cq) = Socket::new(
         SocketConfig::default(),
-        &umem,
+        &dev1_umem,
         &"xsk_dev1".parse().unwrap(),
         0,
     )
     .expect("failed to create dev1 socket");
 
+    // Create a UMEM for dev2. Another option is to use the same UMEM
+    // as dev1 - to do that we'd just pass `dev1_umem` to the
+    // `Socket::new` call. In this case the UMEM would be shared, and
+    // so `dev1_frames` could be used in either context, but each
+    // socket would have its own completion queue and fill queue.
+    let (dev2_umem, mut dev2_frames) =
+        Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
+            .expect("failed to create UMEM");
+
+    // Bind an AF_XDP socket to the interface named `xsk_dev2`, on
+    // queue 0.
     let (_dev2_tx_q, mut dev2_rx_q, dev2_fq_and_cq) = Socket::new(
         SocketConfig::default(),
-        &umem,
+        &dev2_umem,
         &"xsk_dev2".parse().unwrap(),
         0,
     )
@@ -79,12 +94,13 @@ fn main() {
 
     let (mut dev2_fq, _dev2_cq) = dev2_fq_and_cq.expect("missing dev2 fill queue and comp queue");
 
-    // 1. Add frames to dev2's fill queue
+    // 1. Add frames to dev2's fill queue so we are ready to receive
+    // some packets.
     unsafe {
         dev2_fq.produce(&dev2_frames);
     }
 
-    // 2. Write data to dev1's UMEM
+    // 2. Write to dev1's UMEM.
     let pkt = "Hello, world!".as_bytes();
 
     unsafe {
@@ -95,17 +111,17 @@ fn main() {
             .expect("failed writing packet to frame")
     }
 
-    // 3. Submit dev1's frame to the kernel for transmission
+    // 3. Submit the frame to the kernel for transmission.
     println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
 
     unsafe {
         dev1_tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap();
     }
 
-    // 4. Read from dev2
-    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(dev2_frames, 100).unwrap() };
+    // 4. Read on dev2.
+    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(&mut dev2_frames, 100).unwrap() };
 
-    // 5. Confirm that one of the packets we received matches what we expect
+    // 5. Confirm that one of the packets we received matches what we expect.
     for recv_frame in dev2_frames.iter().take(pkts_recvd) {
         let data = unsafe { recv_frame.data() };
 

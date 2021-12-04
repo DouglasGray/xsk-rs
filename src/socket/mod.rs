@@ -62,6 +62,26 @@ impl Socket {
     /// queue id using the underlying UMEM.
     ///
     /// May require root permissions to create successfully.
+    ///
+    /// Whether you can expect the returned `Option<(FillQueue,
+    /// CompQueue)>` to be [`Some`](Option::Some) or
+    /// [`None`](Option::None) depends on a couple of things:
+    ///
+    ///  1. If the [`Umem`] is currently shared (i.e. being used for
+    ///  >=1 AF_XDP sockets elsewhere):
+    ///
+    ///    - If the `(if_name, queue_id)` pair is not bound to,
+    ///    expect [`Some`](Option::Some).
+    ///
+    ///    - If the `(if_name, queue_id)` pair is bound to, expect
+    ///    [`None`](Option::None) and use the [`FillQueue`] and
+    ///    [`CompQueue`] originally returned for this pair.
+    ///
+    ///  2. If the [`Umem`] is not currently shared, expect
+    ///  [`Some`](Option::Some).
+    ///
+    /// For further details on using a shared [`Umem`] please see the
+    /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-shared-umem-bind-flag).
     pub fn new(
         config: SocketConfig,
         umem: &Umem,
@@ -73,7 +93,7 @@ impl Socket {
         let mut rx_q = XskRingCons::default();
 
         let (err, fq, cq) = unsafe {
-            umem.with_parts(|xsk_umem, saved_fq_and_cq| {
+            umem.on_socket_create(|xsk_umem, saved_fq_and_cq| {
                 let (mut fq, mut cq) = saved_fq_and_cq
                     .unwrap_or_else(|| (XskRingProd::default(), XskRingCons::default()));
 
