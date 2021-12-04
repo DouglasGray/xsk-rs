@@ -53,9 +53,9 @@ impl Data<*mut u8> {
     }
 }
 
-struct HeadroomPtr(pub *mut libc::c_void);
+struct HeadroomPtr(pub *mut u8);
 
-struct DataPtr(pub *mut libc::c_void);
+struct DataPtr(pub *mut u8);
 
 /// Dimensions of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug, Clone, Copy)]
@@ -77,12 +77,13 @@ impl FramedMmap {
     pub fn new(layout: FrameLayout, mmap: Arc<Mmap>) -> io::Result<Self> {
         let frame_size = layout.xdp_headroom + layout.frame_headroom + layout.data_size;
 
-        if frame_size == 0 || mmap.len % frame_size != 0 {
+        if frame_size == 0 || mmap.len() % frame_size != 0 {
             Err(io::Error::new(
                 ErrorKind::Other,
                 format!(
                     "mmap with len {} cannot be split exactly into frames of size {}",
-                    mmap.len, frame_size
+                    mmap.len(),
+                    frame_size
                 ),
             ))
         } else {
@@ -141,8 +142,8 @@ impl FramedMmap {
         let headroom_offset = base_addr + self.layout.xdp_headroom;
         let data_offset = headroom_offset + self.layout.frame_headroom;
 
-        let headroom_addr = unsafe { self.mmap.addr.as_ptr().add(headroom_offset) };
-        let data_addr = unsafe { self.mmap.addr.as_ptr().add(data_offset) };
+        let headroom_addr = unsafe { self.mmap.addr().add(headroom_offset) };
+        let data_addr = unsafe { self.mmap.addr().add(data_offset) };
 
         (HeadroomPtr(headroom_addr), DataPtr(data_addr))
     }
@@ -155,7 +156,7 @@ mod tests {
 
     use libbpf_sys::xdp_desc;
 
-    use crate::umem::Frame;
+    use crate::umem::{Frame, Mmap};
 
     use super::*;
 
@@ -171,7 +172,8 @@ mod tests {
 
         let mmap = Mmap::new(16 * frame_size, false).unwrap();
 
-        let addr = mmap.addr;
+        // Take a copy of the base addr
+        let addr = mmap.addr();
 
         let framed_mmap = FramedMmap::new(layout, Arc::new(mmap)).unwrap();
 
@@ -205,7 +207,7 @@ mod tests {
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    addr.as_ptr().add(0 * frame_size + layout.frame_headroom) as *const u8,
+                    addr.add(0 * frame_size + layout.frame_headroom) as *const u8,
                     5,
                 )
             },
@@ -215,7 +217,7 @@ mod tests {
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    addr.as_ptr().add(1 * frame_size + layout.frame_headroom) as *const u8,
+                    addr.add(1 * frame_size + layout.frame_headroom) as *const u8,
                     6,
                 )
             },
