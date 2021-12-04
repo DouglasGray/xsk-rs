@@ -24,28 +24,34 @@ impl<'a> Cursor<'a> {
         Self { pos, buf }
     }
 
-    #[inline]
     /// The cursor's current write position in the buffer.
+    #[inline]
     pub fn pos(&self) -> usize {
         *self.pos
     }
 
-    #[inline]
     /// Sets the cursor's write position. The new position will never
     /// exceed the buffer's length.
+    #[inline]
     pub fn set_pos(&mut self, pos: usize) {
         *self.pos = cmp::min(pos, self.len())
     }
 
-    #[inline]
     /// The length of the underlying buffer.
+    #[inline]
     pub fn len(&self) -> usize {
         self.buf.len()
     }
 
+    /// Returns `true` if length of underlying buffer is zero.
     #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buf.is_empty()
+    }
+
     /// Fills the buffer with zeroes and sets the cursor's write
     /// position to the start of the buffer.
+    #[inline]
     pub fn zero_out(&mut self) {
         self.buf.fill(0);
         self.set_pos(0);

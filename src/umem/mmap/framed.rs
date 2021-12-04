@@ -6,10 +6,56 @@ use std::{
 use super::Mmap;
 
 #[derive(Debug)]
-pub struct Headroom<T>(pub T);
+pub struct Headroom<T> {
+    pub addr: T,
+    pub len: usize,
+}
+
+impl Headroom<*const u8> {
+    fn new(ptr: HeadroomPtr, len: usize) -> Self {
+        Self {
+            addr: ptr.0 as *const u8,
+            len,
+        }
+    }
+}
+
+impl Headroom<*mut u8> {
+    fn new(ptr: HeadroomPtr, len: usize) -> Self {
+        Self {
+            addr: ptr.0 as *mut u8,
+            len,
+        }
+    }
+}
 
 #[derive(Debug)]
-pub struct Data<T>(pub T);
+pub struct Data<T> {
+    pub addr: T,
+    pub len: usize,
+}
+
+impl Data<*const u8> {
+    fn new(ptr: DataPtr, len: usize) -> Self {
+        Self {
+            addr: ptr.0 as *const u8,
+            len,
+        }
+    }
+}
+
+impl Data<*mut u8> {
+    fn new(ptr: DataPtr, len: usize) -> Self {
+        Self {
+            addr: ptr.0 as *mut u8,
+            len,
+        }
+    }
+}
+
+struct HeadroomPtr(pub *mut libc::c_void);
+
+struct DataPtr(pub *mut libc::c_void);
 
 /// Dimensions of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug, Clone, Copy)]
@@ -55,15 +101,12 @@ impl FramedMmap {
     ///
     /// `addr` must be within the [`Mmap`] region.
     #[inline]
-    pub unsafe fn get_unchecked(
-        &self,
-        addr: usize,
-    ) -> (Headroom<(*const u8, usize)>, Data<(*const u8, usize)>) {
+    pub unsafe fn get_unchecked(&self, addr: usize) -> (Headroom<*const u8>, Data<*const u8>) {
         let (h, d) = unsafe { self.frame_pointers(addr) };
 
         (
-            Headroom((h.0 as *const u8, self.layout.frame_headroom)),
-            Data((d.0 as *const u8, self.layout.data_size)),
+            Headroom::<*const u8>::new(h, self.layout.frame_headroom),
+            Data::<*const u8>::new(d, self.layout.data_size),
         )
     }
 
@@ -74,15 +117,12 @@ impl FramedMmap {
     ///
     /// `addr` must be within the [`Mmap`] region.
     #[inline]
-    pub unsafe fn get_unchecked_mut(
-        &mut self,
-        addr: usize,
-    ) -> (Headroom<(*mut u8, usize)>, Data<(*mut u8, usize)>) {
+    pub unsafe fn get_unchecked_mut(&mut self, addr: usize) -> (Headroom<*mut u8>, Data<*mut u8>) {
         let (h, d) = unsafe { self.frame_pointers(addr) };
 
         (
-            Headroom((h.0 as *mut u8, self.layout.frame_headroom)),
-            Data((d.0 as *mut u8, self.layout.data_size)),
+            Headroom::<*mut u8>::new(h, self.layout.frame_headroom),
+            Data::<*mut u8>::new(d, self.layout.data_size),
         )
     }
 
@@ -95,10 +135,7 @@ impl FramedMmap {
     ///
     /// `addr` must be within the [`Mmap`] region.
     #[inline]
-    unsafe fn frame_pointers(
-        &self,
-        addr: usize,
-    ) -> (Headroom<*mut libc::c_void>, Data<*mut libc::c_void>) {
+    unsafe fn frame_pointers(&self, addr: usize) -> (HeadroomPtr, DataPtr) {
         let base_addr = self.calculate_base_addr(addr);
 
         let headroom_offset = base_addr + self.layout.xdp_headroom;
@@ -107,7 +144,7 @@ impl FramedMmap {
         let headroom_addr = unsafe { self.mmap.addr.as_ptr().add(headroom_offset) };
         let data_addr = unsafe { self.mmap.addr.as_ptr().add(data_offset) };
 
-        (Headroom(headroom_addr), Data(data_addr))
+        (HeadroomPtr(headroom_addr), DataPtr(data_addr))
     }
 }
 

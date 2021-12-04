@@ -61,6 +61,14 @@ impl Frame {
         self.cursor_pos.data
     }
 
+    /// Returns `true` if the length of the data segment (i.e. what
+    /// was received from the kernel or will be transmitted to) is
+    /// zero.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.cursor_pos.data == 0
+    }
+
     #[inline]
     pub fn options(&self) -> u32 {
         self.options
@@ -85,11 +93,11 @@ impl Frame {
         (
             Headroom {
                 contents: unsafe {
-                    &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom]
+                    &slice::from_raw_parts(h.addr, h.len)[..self.cursor_pos.headroom]
                 },
             },
             Data {
-                contents: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
+                contents: unsafe { &slice::from_raw_parts(d.addr, d.len)[..self.cursor_pos.data] },
             },
         )
     }
@@ -104,7 +112,7 @@ impl Frame {
         let (h, _d) = unsafe { self.frames.get_unchecked(self.addr) };
 
         Headroom {
-            contents: unsafe { &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom] },
+            contents: unsafe { &slice::from_raw_parts(h.addr, h.len)[..self.cursor_pos.headroom] },
         }
     }
 
@@ -118,7 +126,7 @@ impl Frame {
         let (_h, d) = unsafe { self.frames.get_unchecked(self.addr) };
 
         Data {
-            contents: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
+            contents: unsafe { &slice::from_raw_parts(d.addr, d.len)[..self.cursor_pos.data] },
         }
     }
 
@@ -136,11 +144,11 @@ impl Frame {
         (
             HeadroomMut {
                 pos: &mut self.cursor_pos.headroom,
-                buf: unsafe { slice::from_raw_parts_mut(h.0 .0, h.0 .1) },
+                buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
             },
             DataMut {
                 pos: &mut self.cursor_pos.data,
-                buf: unsafe { slice::from_raw_parts_mut(d.0 .0, d.0 .1) },
+                buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
             },
         )
     }
@@ -156,7 +164,7 @@ impl Frame {
 
         HeadroomMut {
             pos: &mut self.cursor_pos.headroom,
-            buf: unsafe { slice::from_raw_parts_mut(h.0 .0, h.0 .1) },
+            buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
         }
     }
 
@@ -171,7 +179,7 @@ impl Frame {
 
         DataMut {
             pos: &mut self.cursor_pos.data,
-            buf: unsafe { slice::from_raw_parts_mut(d.0 .0, d.0 .1) },
+            buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
         }
     }
 

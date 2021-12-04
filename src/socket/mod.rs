@@ -82,6 +82,8 @@ impl Socket {
     ///
     /// For further details on using a shared [`Umem`] please see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-shared-umem-bind-flag).
+    #[allow(clippy::new_ret_no_self)]
+    #[allow(clippy::type_complexity)]
     pub fn new(
         config: SocketConfig,
         umem: &Umem,
