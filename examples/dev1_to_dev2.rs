@@ -604,7 +604,7 @@ pub fn build_socket_and_umem(
     if_name: &Interface,
     queue_id: u32,
 ) -> Xsk {
-    let (umem, descs) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
+    let (umem, frames) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
 
     let (tx_q, rx_q, fq_and_cq) =
         Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to build socket");
@@ -620,7 +620,7 @@ pub fn build_socket_and_umem(
         cq,
         tx_q,
         rx_q,
-        frames: descs,
+        frames,
     }
 }
 
