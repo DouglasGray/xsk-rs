@@ -110,6 +110,7 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
 
             // Check that the data is correct
             assert_eq!(xsk2.frames[0].data().contents(), &sent_pkt);
+            assert_eq!(xsk2.frames[0].data_mut().contents(), &sent_pkt);
         }
     }
 
@@ -148,6 +149,10 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
             assert_eq!(xsk2.rx_q.consume(&mut xsk2.frames), 1);
 
             assert_eq!(xsk2.frames[0].len(), 5);
+
+            // Check that the data is correct
+            assert_eq!(xsk2.frames[0].data().contents(), &sent_pkt);
+            assert_eq!(xsk2.frames[0].data_mut().contents(), &sent_pkt);
 
             // Check addr starts where we expect
             assert_eq!(

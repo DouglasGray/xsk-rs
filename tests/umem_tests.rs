@@ -87,6 +87,33 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
         .unwrap();
 }
 
+#[tokio::test]
+#[serial]
+async fn writing_to_frame_and_reading_works_as_expected() {
+    let (_umem, mut frames) = Umem::new(
+        UmemConfig::builder().frame_headroom(32).build().unwrap(),
+        64.try_into().unwrap(),
+        false,
+    )
+    .unwrap();
+
+    unsafe {
+        frames[0]
+            .headroom_mut()
+            .cursor()
+            .write_all(b"hello")
+            .unwrap();
+
+        assert_eq!(frames[0].headroom().contents(), b"hello");
+        assert_eq!(frames[0].headroom_mut().contents(), b"hello");
+
+        frames[0].data_mut().cursor().write_all(b"world").unwrap();
+
+        assert_eq!(frames[0].data().contents(), b"world");
+        assert_eq!(frames[0].data_mut().contents(), b"world");
+    }
+}
+
 fn send_and_receive_pkt(
     frames: &mut [Frame],
     sender: (&mut TxQueue, &mut CompQueue),

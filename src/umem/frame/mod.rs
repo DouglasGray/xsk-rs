@@ -84,10 +84,12 @@ impl Frame {
 
         (
             Headroom {
-                buf: unsafe { &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom] },
+                contents: unsafe {
+                    &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom]
+                },
             },
             Data {
-                buf: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
+                contents: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
             },
         )
     }
@@ -102,7 +104,7 @@ impl Frame {
         let (h, _d) = unsafe { self.frames.get_unchecked(self.addr) };
 
         Headroom {
-            buf: unsafe { &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom] },
+            contents: unsafe { &slice::from_raw_parts(h.0 .0, h.0 .1)[..self.cursor_pos.headroom] },
         }
     }
 
@@ -116,7 +118,7 @@ impl Frame {
         let (_h, d) = unsafe { self.frames.get_unchecked(self.addr) };
 
         Data {
-            buf: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
+            contents: unsafe { &slice::from_raw_parts(d.0 .0, d.0 .1)[..self.cursor_pos.data] },
         }
     }
 
@@ -196,27 +198,27 @@ impl Frame {
 /// Headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Headroom<'umem> {
-    buf: &'umem [u8],
+    contents: &'umem [u8],
 }
 
 impl Headroom<'_> {
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
 impl AsRef<[u8]> for Headroom<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
 impl Borrow<[u8]> for Headroom<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
@@ -225,7 +227,7 @@ impl Deref for Headroom<'_> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.contents
     }
 }
 
@@ -241,7 +243,7 @@ pub struct HeadroomMut<'umem> {
 impl<'umem> HeadroomMut<'umem> {
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        self.buf
+        &self.buf[..*self.pos]
     }
 
     #[inline]
@@ -253,14 +255,14 @@ impl<'umem> HeadroomMut<'umem> {
 impl AsRef<[u8]> for HeadroomMut<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        self.buf
+        self.contents()
     }
 }
 
 impl Borrow<[u8]> for HeadroomMut<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.buf
+        self.contents()
     }
 }
 
@@ -269,34 +271,34 @@ impl Deref for HeadroomMut<'_> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.contents()
     }
 }
 
 /// Data segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Data<'umem> {
-    buf: &'umem [u8],
+    contents: &'umem [u8],
 }
 
 impl Data<'_> {
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
 impl AsRef<[u8]> for Data<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
 impl Borrow<[u8]> for Data<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.buf
+        self.contents
     }
 }
 
@@ -305,7 +307,7 @@ impl Deref for Data<'_> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.contents
     }
 }
 
@@ -320,7 +322,7 @@ pub struct DataMut<'umem> {
 impl<'umem> DataMut<'umem> {
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        self.buf
+        &self.buf[..*self.pos]
     }
 
     #[inline]
@@ -332,14 +334,14 @@ impl<'umem> DataMut<'umem> {
 impl AsRef<[u8]> for DataMut<'_> {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        self.buf
+        self.contents()
     }
 }
 
 impl Borrow<[u8]> for DataMut<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
-        self.buf
+        self.contents()
     }
 }
 
@@ -348,6 +350,6 @@ impl Deref for DataMut<'_> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.buf
+        self.contents()
     }
 }
