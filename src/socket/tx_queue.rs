@@ -5,7 +5,7 @@ use crate::{ring::XskRingProd, umem::frame::Frame, util};
 
 use super::{fd::Fd, Socket};
 
-/// The transmitting side of an AF_XDP [`Socket].
+/// The transmitting side of an AF_XDP [`Socket`].
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).

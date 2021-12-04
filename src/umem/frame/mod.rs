@@ -191,8 +191,7 @@ impl Frame {
     pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
         self.addr = desc.addr;
         self.options = desc.options;
-        self.cursor_pos.headroom = 0;
-        self.cursor_pos.data = desc.len;
+        self.cursor_pos.data = desc.len; // Leave the headroom cursor position where it is
     }
 
     #[inline]
@@ -210,6 +209,14 @@ pub struct Headroom<'umem> {
 }
 
 impl Headroom<'_> {
+    /// Returns this headroom segment's contents, up to the current
+    /// cursor position.
+    ///
+    /// Note that headroom cursor position isn't reset in between
+    /// updates to the frame's descriptor. So, for example, if you write
+    /// to this headroom and then transmit its frame, if you then use
+    /// the same frame for receiving a packet then the headroom
+    /// contents will be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         self.contents
@@ -249,11 +256,20 @@ pub struct HeadroomMut<'umem> {
 }
 
 impl<'umem> HeadroomMut<'umem> {
+    /// Returns this headroom segment's contents, up to the current
+    /// cursor position.
+    ///
+    /// Note that headroom cursor position isn't reset in between
+    /// updates to the frame's descriptor. So, for example, if you write
+    /// to this headroom and then transmit its frame, if you then use
+    /// the same frame for receiving a packet then the headroom
+    /// contents will be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         &self.buf[..*self.pos]
     }
 
+    /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
         Cursor::new(self.pos, self.buf)
@@ -290,6 +306,8 @@ pub struct Data<'umem> {
 }
 
 impl Data<'_> {
+    /// Returns this data segment's contents, up to the current
+    /// cursor position.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         self.contents
@@ -328,11 +346,14 @@ pub struct DataMut<'umem> {
 }
 
 impl<'umem> DataMut<'umem> {
+    /// Returns this data segment's contents, up to the current
+    /// cursor position.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         &self.buf[..*self.pos]
     }
 
+    /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
         Cursor::new(self.pos, self.buf)

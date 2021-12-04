@@ -46,7 +46,7 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
     }
 
     // 2. Write to dev1's UMEM.
-    let pkt = "Hello, world!".as_bytes();
+    let pkt = b"Hello, world!";
 
     unsafe {
         dev1_frames[0]
@@ -57,7 +57,7 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
     }
 
     // 3. Submit the frame to the kernel for transmission.
-    println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
+    println!("sending: {:?}", str::from_utf8(pkt).unwrap());
 
     unsafe {
         dev1_tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap();

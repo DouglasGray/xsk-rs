@@ -88,12 +88,12 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
             assert_eq!(xsk2.fq.produce(&xsk2.frames[0..1]), 1);
 
             // Write to frame of dev 1
-            let sent_pkt = vec![b'H', b'e', b'l', b'l', b'o'];
+            let sent_pkt = b"hello";
 
             xsk1.frames[0]
                 .data_mut()
                 .cursor()
-                .write_all(&sent_pkt)
+                .write_all(sent_pkt)
                 .unwrap();
 
             assert_eq!(xsk1.frames[0].len(), 5);
@@ -109,8 +109,8 @@ async fn rx_queue_consumes_frame_correctly_after_tx() {
             assert_eq!(xsk2.frames[0].len(), 5);
 
             // Check that the data is correct
-            assert_eq!(xsk2.frames[0].data().contents(), &sent_pkt);
-            assert_eq!(xsk2.frames[0].data_mut().contents(), &sent_pkt);
+            assert_eq!(xsk2.frames[0].data().contents(), sent_pkt);
+            assert_eq!(xsk2.frames[0].data_mut().contents(), sent_pkt);
         }
     }
 
@@ -129,13 +129,13 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
             assert_eq!(xsk2.fq.produce(&xsk2.frames[0..1]), 1);
 
             // Data to send from dev1
-            let sent_pkt = vec![b'H', b'e', b'l', b'l', b'o'];
+            let sent_pkt = b"hello";
 
             // Write data to UMEM
             xsk1.frames[0]
                 .data_mut()
                 .cursor()
-                .write_all(&sent_pkt)
+                .write_all(sent_pkt)
                 .unwrap();
 
             assert_eq!(xsk1.frames[0].len(), 5);
@@ -151,14 +151,60 @@ async fn recvd_packet_offset_after_tx_includes_xdp_and_frame_headroom() {
             assert_eq!(xsk2.frames[0].len(), 5);
 
             // Check that the data is correct
-            assert_eq!(xsk2.frames[0].data().contents(), &sent_pkt);
-            assert_eq!(xsk2.frames[0].data_mut().contents(), &sent_pkt);
+            assert_eq!(xsk2.frames[0].data().contents(), sent_pkt);
+            assert_eq!(xsk2.frames[0].data_mut().contents(), sent_pkt);
 
             // Check addr starts where we expect
             assert_eq!(
                 xsk2.frames[0].addr(),
                 (XDP_PACKET_HEADROOM + FRAME_HEADROOM) as usize
             );
+        }
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn headroom_data_present_after_receive() {
+    fn test(dev1: (Xsk, PacketGenerator), dev2: (Xsk, PacketGenerator)) {
+        unsafe {
+            let mut xsk1 = dev1.0;
+            let mut xsk2 = dev2.0;
+
+            // Write to dev2 frame headroom and put in fill queue
+            xsk2.frames[0]
+                .headroom_mut()
+                .cursor()
+                .write_all(b"hello")
+                .unwrap();
+
+            assert_eq!(xsk2.fq.produce(&xsk2.frames[0..1]), 1);
+
+            // Send from dev1
+            xsk1.frames[0]
+                .data_mut()
+                .cursor()
+                .write_all(b"world")
+                .unwrap();
+
+            assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.frames[..1]).unwrap(), 1);
+
+            thread::sleep(Duration::from_millis(5));
+
+            // Read on dev2
+            assert_eq!(xsk2.rx_q.consume(&mut xsk2.frames), 1);
+
+            assert_eq!(xsk2.frames[0].len(), 5);
+
+            // Confirm headroom data still present after rx
+            assert_eq!(xsk2.frames[0].headroom().contents(), b"hello");
+            assert_eq!(xsk2.frames[0].headroom_mut().contents(), b"hello");
+
+            // Check that the data is correct as well
+            assert_eq!(xsk2.frames[0].data().contents(), b"world");
+            assert_eq!(xsk2.frames[0].data_mut().contents(), b"world");
         }
     }
 
