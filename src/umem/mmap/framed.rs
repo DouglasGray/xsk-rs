@@ -68,7 +68,6 @@ pub struct FrameLayout {
 /// A [`Mmap`] chunked into frames of size `frame_size`.
 #[derive(Clone)]
 pub struct FramedMmap {
-    frame_size: usize,
     layout: FrameLayout,
     mmap: Arc<Mmap>,
 }
@@ -87,11 +86,7 @@ impl FramedMmap {
                 ),
             ))
         } else {
-            Ok(FramedMmap {
-                frame_size,
-                layout,
-                mmap,
-            })
+            Ok(FramedMmap { layout, mmap })
         }
     }
 
@@ -100,10 +95,11 @@ impl FramedMmap {
     ///
     /// # Safety
     ///
-    /// `addr` must be within the [`Mmap`] region.
+    /// `data_addr` must be the starting address of the data segment
+    /// of a frame within this [`Mmap`] region.
     #[inline]
-    pub unsafe fn get_unchecked(&self, addr: usize) -> (Headroom<*const u8>, Data<*const u8>) {
-        let (h, d) = unsafe { self.frame_pointers(addr) };
+    pub unsafe fn get_unchecked(&self, data_addr: usize) -> (Headroom<*const u8>, Data<*const u8>) {
+        let (h, d) = unsafe { self.frame_pointers(data_addr) };
 
         (
             Headroom::<*const u8>::new(h, self.layout.frame_headroom),
@@ -116,10 +112,14 @@ impl FramedMmap {
     ///
     /// # Safety
     ///
-    /// `addr` must be within the [`Mmap`] region.
+    /// `data_addr` must be the starting address of the data segment
+    /// of a frame within this [`Mmap`] region.
     #[inline]
-    pub unsafe fn get_unchecked_mut(&mut self, addr: usize) -> (Headroom<*mut u8>, Data<*mut u8>) {
-        let (h, d) = unsafe { self.frame_pointers(addr) };
+    pub unsafe fn get_unchecked_mut(
+        &mut self,
+        data_addr: usize,
+    ) -> (Headroom<*mut u8>, Data<*mut u8>) {
+        let (h, d) = unsafe { self.frame_pointers(data_addr) };
 
         (
             Headroom::<*mut u8>::new(h, self.layout.frame_headroom),
@@ -127,25 +127,16 @@ impl FramedMmap {
         )
     }
 
-    #[inline]
-    fn calculate_base_addr(&self, addr: usize) -> usize {
-        (addr / self.frame_size) * self.frame_size
-    }
-
     /// # Safety
     ///
-    /// `addr` must be within the [`Mmap`] region.
+    /// `data_addr` must be the starting address of the data segment
+    /// of a frame within this [`Mmap`] region.
     #[inline]
-    unsafe fn frame_pointers(&self, addr: usize) -> (HeadroomPtr, DataPtr) {
-        let base_addr = self.calculate_base_addr(addr);
+    unsafe fn frame_pointers(&self, data_addr: usize) -> (HeadroomPtr, DataPtr) {
+        let headroom = unsafe { self.mmap.addr().add(data_addr - self.layout.frame_headroom) };
+        let data = unsafe { self.mmap.addr().add(data_addr) };
 
-        let headroom_offset = base_addr + self.layout.xdp_headroom;
-        let data_offset = headroom_offset + self.layout.frame_headroom;
-
-        let headroom_addr = unsafe { self.mmap.addr().add(headroom_offset) };
-        let data_addr = unsafe { self.mmap.addr().add(data_offset) };
-
-        (HeadroomPtr(headroom_addr), DataPtr(data_addr))
+        (HeadroomPtr(headroom), DataPtr(data))
     }
 }
 
@@ -177,8 +168,11 @@ mod tests {
 
         let framed_mmap = FramedMmap::new(layout, Arc::new(mmap)).unwrap();
 
-        let mut frame_0 = Frame::new(0 * frame_size + layout.frame_headroom, framed_mmap.clone());
-        let mut frame_1 = Frame::new(1 * frame_size + layout.frame_headroom, framed_mmap.clone());
+        let mut frame_0 =
+            unsafe { Frame::new(0 * frame_size + layout.frame_headroom, framed_mmap.clone()) };
+
+        let mut frame_1 =
+            unsafe { Frame::new(1 * frame_size + layout.frame_headroom, framed_mmap.clone()) };
 
         let mut desc = xdp_desc::default();
 
@@ -267,10 +261,12 @@ mod tests {
         let framed_mmap = FramedMmap::new(layout, Arc::clone(&mmap)).unwrap();
 
         (0..frame_count).into_iter().for_each(|i| {
-            let mut frame = Frame::new(
-                (i * frame_size) + layout.xdp_headroom + layout.frame_headroom,
-                framed_mmap.clone(),
-            );
+            let mut frame = unsafe {
+                Frame::new(
+                    (i * frame_size) + layout.xdp_headroom + layout.frame_headroom,
+                    framed_mmap.clone(),
+                )
+            };
 
             let (mut headroom, mut data) = unsafe { frame.get_mut() };
 
