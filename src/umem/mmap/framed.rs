@@ -224,4 +224,79 @@ mod tests {
             b"world!"
         );
     }
+
+    #[test]
+    fn check_writes_are_contiguous() {
+        let layout = FrameLayout {
+            xdp_headroom: 4,
+            frame_headroom: 8,
+            data_size: 12,
+        };
+
+        let frame_count = 4;
+
+        // An arbitrary layout
+        let xdp_headroom_segment = [0, 0, 0, 0];
+        let frame_headroom_segment = [1, 1, 1, 1, 1, 1, 1, 1];
+        let data_segment = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
+
+        let mut cursor = io::Cursor::new(Vec::new());
+
+        cursor.write_all(&xdp_headroom_segment).unwrap();
+        cursor.write_all(&frame_headroom_segment).unwrap();
+        cursor.write_all(&data_segment).unwrap();
+
+        let base_layout: Vec<u8> = cursor.into_inner();
+
+        let expected_layout: Vec<u8> = (0..frame_count as u8)
+            .into_iter()
+            .map(|i| {
+                base_layout
+                    .iter()
+                    .map(|el| el * (i + 1))
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect();
+
+        // Create framed mmap and frames and write some data to them
+        let frame_size = layout.xdp_headroom + layout.frame_headroom + layout.data_size;
+
+        let mmap = Arc::new(Mmap::new(frame_count * frame_size, false).unwrap());
+
+        let framed_mmap = FramedMmap::new(layout, Arc::clone(&mmap)).unwrap();
+
+        (0..frame_count).into_iter().for_each(|i| {
+            let mut frame = Frame::new(
+                (i * frame_size) + layout.xdp_headroom + layout.frame_headroom,
+                framed_mmap.clone(),
+            );
+
+            let (mut headroom, mut data) = unsafe { frame.get_mut() };
+
+            headroom
+                .cursor()
+                .write_all(
+                    &frame_headroom_segment
+                        .iter()
+                        .map(|el| el * (i as u8 + 1))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+
+            data.cursor()
+                .write_all(
+                    &data_segment
+                        .iter()
+                        .map(|el| el * (i as u8 + 1))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+        });
+
+        // Check they match
+        let mmap_region = unsafe { slice::from_raw_parts(mmap.addr(), mmap.len()) };
+
+        assert_eq!(mmap_region, expected_layout)
+    }
 }

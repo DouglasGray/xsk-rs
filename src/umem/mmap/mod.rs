@@ -77,7 +77,7 @@ cfg_if! {
         }
 
     } else {
-        /// An mmap-like struct for testing with.
+        /// A mocked [`Mmap`] that uses a [`Vec`] internally.
         #[derive(Clone)]
         pub struct Mmap {
             inner: Vec<u8>
@@ -86,7 +86,7 @@ cfg_if! {
         impl Mmap {
             pub(super) fn new(len: usize, _use_huge_pages: bool) -> io::Result<Self> {
                 Ok(Self {
-                    inner: Vec::with_capacity(len)
+                    inner: vec![0; len]
                 })
             }
 
