@@ -20,7 +20,6 @@ pub struct Cursor<'a> {
 impl<'a> Cursor<'a> {
     #[inline]
     pub(super) fn new(pos: &'a mut usize, buf: &'a mut [u8]) -> Self {
-        *pos = cmp::min(*pos, buf.len());
         Self { pos, buf }
     }
 
@@ -30,23 +29,16 @@ impl<'a> Cursor<'a> {
         *self.pos
     }
 
-    /// Sets the cursor's write position. The new position will never
-    /// exceed the buffer's length.
+    /// Sets the cursor's write position.
     #[inline]
     pub fn set_pos(&mut self, pos: usize) {
-        *self.pos = cmp::min(pos, self.len())
+        *self.pos = cmp::min(pos, self.buf.len())
     }
 
     /// The length of the underlying buffer.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub fn buf_len(&mut self) -> usize {
         self.buf.len()
-    }
-
-    /// Returns `true` if length of underlying buffer is zero.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.buf.is_empty()
     }
 
     /// Fills the buffer with zeroes and sets the cursor's write
