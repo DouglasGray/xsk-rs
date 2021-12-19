@@ -18,8 +18,13 @@ fn bench_min(c: &mut Criterion) {
     let num = 1_000_000;
     let mut rng = rand::thread_rng();
 
+    // There are a lot of calls to cmp::min where it's likely one of
+    // them is larger than the other, for example a cursor position
+    // and the length of the underlying buffer. Want to check how
+    // much difference a manual impl where the first branch is
+    // usually hit would make.
     let smaller: Vec<_> = (0..num).into_iter().map(|_| rng.gen::<usize>()).collect();
-    let larger: Vec<_> = smaller.iter().map(|i| i + 1).collect();
+    let larger: Vec<_> = smaller.iter().map(|i| i + rng.gen::<usize>()).collect();
 
     let pairs: Vec<(usize, usize)> = smaller.into_iter().zip(larger.into_iter()).collect();
 

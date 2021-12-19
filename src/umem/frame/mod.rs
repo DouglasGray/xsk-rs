@@ -24,8 +24,7 @@ pub(crate) struct FrameDesc {
     pub options: u32,
 }
 
-/// The lengths a frame's data and headroom segments. Used to keep
-/// track of positions between writes.
+/// The lengths of a frame's data and headroom segments.
 #[derive(Debug, Default, Clone, Copy)]
 struct SegmentLengths {
     headroom: usize,
@@ -36,7 +35,7 @@ struct SegmentLengths {
 pub struct Frame {
     addr: usize,
     mtu: usize,
-    segment_lens: SegmentLengths,
+    lens: SegmentLengths,
     options: u32,
     framed_mmap: FramedMmap,
 }
@@ -50,7 +49,7 @@ impl Frame {
         Self {
             addr,
             mtu,
-            segment_lens: SegmentLengths::default(),
+            lens: SegmentLengths::default(),
             options: 0,
             framed_mmap,
         }
@@ -65,7 +64,7 @@ impl Frame {
     /// The current length of the data segment.
     #[inline]
     pub fn len(&self) -> usize {
-        cmp::min(self.segment_lens.data, self.mtu)
+        cmp::min(self.lens.data, self.mtu)
     }
 
     /// Returns `true` if the length of the data segment (i.e. what
@@ -73,7 +72,7 @@ impl Frame {
     /// zero.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.segment_lens.data == 0
+        self.lens.data == 0
     }
 
     #[inline]
@@ -97,8 +96,8 @@ impl Frame {
     pub unsafe fn get(&self) -> (Headroom, Data) {
         let (h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let headroom_len = cmp::min(self.segment_lens.headroom, h.len);
-        let data_len = cmp::min(self.segment_lens.data, d.len);
+        let headroom_len = cmp::min(self.lens.headroom, h.len);
+        let data_len = cmp::min(self.lens.data, d.len);
 
         (
             Headroom {
@@ -119,7 +118,7 @@ impl Frame {
     pub unsafe fn headroom(&self) -> Headroom {
         let (h, _d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let headroom_len = cmp::min(self.segment_lens.headroom, h.len);
+        let headroom_len = cmp::min(self.lens.headroom, h.len);
 
         Headroom {
             contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
@@ -135,7 +134,7 @@ impl Frame {
     pub unsafe fn data(&self) -> Data {
         let (_h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let data_len = cmp::min(self.segment_lens.data, d.len);
+        let data_len = cmp::min(self.lens.data, d.len);
 
         Data {
             contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
@@ -155,11 +154,11 @@ impl Frame {
 
         (
             HeadroomMut {
-                len: &mut self.segment_lens.headroom,
+                len: &mut self.lens.headroom,
                 buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
             },
             DataMut {
-                len: &mut self.segment_lens.data,
+                len: &mut self.lens.data,
                 buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
             },
         )
@@ -175,7 +174,7 @@ impl Frame {
         let (h, _d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
 
         HeadroomMut {
-            len: &mut self.segment_lens.headroom,
+            len: &mut self.lens.headroom,
             buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
         }
     }
@@ -190,7 +189,7 @@ impl Frame {
         let (_h, d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
 
         DataMut {
-            len: &mut self.segment_lens.data,
+            len: &mut self.lens.data,
             buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
         }
     }
@@ -204,7 +203,7 @@ impl Frame {
     pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
         self.addr = desc.addr;
         self.options = desc.options;
-        self.segment_lens.data = desc.len; // Leave the headroom cursor position where it is
+        self.lens.data = desc.len; // Leave the headroom cursor position where it is
     }
 
     /// # Safety
