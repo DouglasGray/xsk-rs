@@ -62,7 +62,14 @@ struct DataPtr(pub *mut u8);
 pub struct FrameLayout {
     pub xdp_headroom: usize,
     pub frame_headroom: usize,
-    pub data_size: usize,
+    pub mtu: usize,
+}
+
+impl FrameLayout {
+    #[inline]
+    pub fn frame_size(&self) -> usize {
+        self.xdp_headroom + self.frame_headroom + self.mtu
+    }
 }
 
 /// A [`Mmap`] chunked into frames of size `frame_size`.
@@ -74,7 +81,7 @@ pub struct FramedMmap {
 
 impl FramedMmap {
     pub fn new(layout: FrameLayout, mmap: Arc<Mmap>) -> io::Result<Self> {
-        let frame_size = layout.xdp_headroom + layout.frame_headroom + layout.data_size;
+        let frame_size = layout.frame_size();
 
         if frame_size == 0 || mmap.len() % frame_size != 0 {
             Err(io::Error::new(
@@ -103,7 +110,7 @@ impl FramedMmap {
 
         (
             Headroom::<*const u8>::new(h, self.layout.frame_headroom),
-            Data::<*const u8>::new(d, self.layout.data_size),
+            Data::<*const u8>::new(d, self.layout.mtu),
         )
     }
 
@@ -123,7 +130,7 @@ impl FramedMmap {
 
         (
             Headroom::<*mut u8>::new(h, self.layout.frame_headroom),
-            Data::<*mut u8>::new(d, self.layout.data_size),
+            Data::<*mut u8>::new(d, self.layout.mtu),
         )
     }
 
@@ -156,10 +163,10 @@ mod tests {
         let layout = FrameLayout {
             xdp_headroom: 0,
             frame_headroom: 512,
-            data_size: 2048,
+            mtu: 2048,
         };
 
-        let frame_size = layout.frame_headroom + layout.data_size;
+        let frame_size = layout.frame_size();
 
         let mmap = Mmap::new(16 * frame_size, false).unwrap();
 
@@ -171,7 +178,7 @@ mod tests {
         let mut frame_0 = unsafe {
             Frame::new(
                 0 * frame_size + layout.frame_headroom,
-                layout.data_size,
+                layout.mtu,
                 framed_mmap.clone(),
             )
         };
@@ -179,7 +186,7 @@ mod tests {
         let mut frame_1 = unsafe {
             Frame::new(
                 1 * frame_size + layout.frame_headroom,
-                layout.data_size,
+                layout.mtu,
                 framed_mmap.clone(),
             )
         };
@@ -238,7 +245,7 @@ mod tests {
         let layout = FrameLayout {
             xdp_headroom: 4,
             frame_headroom: 8,
-            data_size: 12,
+            mtu: 12,
         };
 
         let frame_count = 4;
@@ -268,7 +275,7 @@ mod tests {
             .collect();
 
         // Create framed mmap and frames and write some data to them
-        let frame_size = layout.xdp_headroom + layout.frame_headroom + layout.data_size;
+        let frame_size = layout.frame_size();
 
         let mmap = Arc::new(Mmap::new(frame_count * frame_size, false).unwrap());
 
@@ -278,7 +285,7 @@ mod tests {
             let mut frame = unsafe {
                 Frame::new(
                     (i * frame_size) + layout.xdp_headroom + layout.frame_headroom,
-                    layout.data_size,
+                    layout.mtu,
                     framed_mmap.clone(),
                 )
             };

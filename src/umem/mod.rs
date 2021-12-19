@@ -163,13 +163,13 @@ impl Umem {
 
         let xdp_headroom = XDP_PACKET_HEADROOM as usize;
         let frame_headroom = config.frame_headroom() as usize;
-        let data_size = frame_size - (xdp_headroom + frame_headroom);
+        let mtu = frame_size - (xdp_headroom + frame_headroom);
 
         let framed_mmap = FramedMmap::new(
             FrameLayout {
                 xdp_headroom,
                 frame_headroom,
-                data_size,
+                mtu,
             },
             Arc::clone(&inner.mmap),
         )
@@ -183,7 +183,7 @@ impl Umem {
         for i in 0..frame_count {
             let addr = (i * frame_size) + xdp_headroom + frame_headroom;
 
-            frame_descs.push(unsafe { Frame::new(addr, data_size, framed_mmap.clone()) });
+            frame_descs.push(unsafe { Frame::new(addr, mtu, framed_mmap.clone()) });
         }
 
         let umem = Umem {
