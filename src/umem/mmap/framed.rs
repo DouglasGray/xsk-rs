@@ -168,11 +168,21 @@ mod tests {
 
         let framed_mmap = FramedMmap::new(layout, Arc::new(mmap)).unwrap();
 
-        let mut frame_0 =
-            unsafe { Frame::new(0 * frame_size + layout.frame_headroom, framed_mmap.clone()) };
+        let mut frame_0 = unsafe {
+            Frame::new(
+                0 * frame_size + layout.frame_headroom,
+                layout.data_size,
+                framed_mmap.clone(),
+            )
+        };
 
-        let mut frame_1 =
-            unsafe { Frame::new(1 * frame_size + layout.frame_headroom, framed_mmap.clone()) };
+        let mut frame_1 = unsafe {
+            Frame::new(
+                1 * frame_size + layout.frame_headroom,
+                layout.data_size,
+                framed_mmap.clone(),
+            )
+        };
 
         let mut desc = xdp_desc::default();
 
@@ -181,7 +191,9 @@ mod tests {
             .write_all(b"hello")
             .unwrap();
 
-        frame_0.write_xdp_desc(&mut desc);
+        unsafe {
+            frame_0.write_xdp_desc(&mut desc);
+        }
 
         assert_eq!(desc.addr, (0 * frame_size + layout.frame_headroom) as u64);
         assert_eq!(desc.len, 5);
@@ -192,7 +204,9 @@ mod tests {
             .write_all(b"world!")
             .unwrap();
 
-        frame_1.write_xdp_desc(&mut desc);
+        unsafe {
+            frame_1.write_xdp_desc(&mut desc);
+        }
 
         assert_eq!(desc.addr, (1 * frame_size + layout.frame_headroom) as u64);
         assert_eq!(desc.len, 6);
@@ -264,6 +278,7 @@ mod tests {
             let mut frame = unsafe {
                 Frame::new(
                     (i * frame_size) + layout.xdp_headroom + layout.frame_headroom,
+                    layout.data_size,
                     framed_mmap.clone(),
                 )
             };

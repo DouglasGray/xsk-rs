@@ -5,7 +5,7 @@ mod cursor;
 pub use cursor::Cursor;
 
 use core::slice;
-use std::{borrow::Borrow, ops::Deref};
+use std::{borrow::Borrow, cmp, ops::Deref};
 
 use super::mmap::framed::FramedMmap;
 
@@ -24,10 +24,10 @@ pub(crate) struct FrameDesc {
     pub options: u32,
 }
 
-/// The saved cursor positions for a frame's data and headroom
-/// segments. Used to keep track of positions between writes.
+/// The lengths a frame's data and headroom segments. Used to keep
+/// track of positions between writes.
 #[derive(Debug, Default, Clone, Copy)]
-struct CursorPos {
+struct SegmentLengths {
     headroom: usize,
     data: usize,
 }
@@ -35,7 +35,8 @@ struct CursorPos {
 /// A single frame of some [`Umem`](super::Umem).
 pub struct Frame {
     addr: usize,
-    cursor_pos: CursorPos,
+    mtu: usize,
+    segment_lens: SegmentLengths,
     options: u32,
     framed_mmap: FramedMmap,
 }
@@ -45,10 +46,11 @@ impl Frame {
     ///
     /// `addr` must be the starting address of the data segment of
     /// some frame belonging to `framed_mmap`.
-    pub(super) unsafe fn new(addr: usize, framed_mmap: FramedMmap) -> Self {
+    pub(super) unsafe fn new(addr: usize, mtu: usize, framed_mmap: FramedMmap) -> Self {
         Self {
             addr,
-            cursor_pos: CursorPos::default(),
+            mtu,
+            segment_lens: SegmentLengths::default(),
             options: 0,
             framed_mmap,
         }
@@ -63,7 +65,7 @@ impl Frame {
     /// The current length of the data segment.
     #[inline]
     pub fn len(&self) -> usize {
-        self.cursor_pos.data
+        cmp::min(self.segment_lens.data, self.mtu)
     }
 
     /// Returns `true` if the length of the data segment (i.e. what
@@ -71,7 +73,7 @@ impl Frame {
     /// zero.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.cursor_pos.data == 0
+        self.segment_lens.data == 0
     }
 
     #[inline]
@@ -95,14 +97,15 @@ impl Frame {
     pub unsafe fn get(&self) -> (Headroom, Data) {
         let (h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
+        let headroom_len = cmp::min(self.segment_lens.headroom, h.len);
+        let data_len = cmp::min(self.segment_lens.data, d.len);
+
         (
             Headroom {
-                contents: unsafe {
-                    &slice::from_raw_parts(h.addr, h.len)[..self.cursor_pos.headroom]
-                },
+                contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
             },
             Data {
-                contents: unsafe { &slice::from_raw_parts(d.addr, d.len)[..self.cursor_pos.data] },
+                contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
             },
         )
     }
@@ -116,8 +119,10 @@ impl Frame {
     pub unsafe fn headroom(&self) -> Headroom {
         let (h, _d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
+        let headroom_len = cmp::min(self.segment_lens.headroom, h.len);
+
         Headroom {
-            contents: unsafe { &slice::from_raw_parts(h.addr, h.len)[..self.cursor_pos.headroom] },
+            contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
         }
     }
 
@@ -130,8 +135,10 @@ impl Frame {
     pub unsafe fn data(&self) -> Data {
         let (_h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
+        let data_len = cmp::min(self.segment_lens.data, d.len);
+
         Data {
-            contents: unsafe { &slice::from_raw_parts(d.addr, d.len)[..self.cursor_pos.data] },
+            contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
         }
     }
 
@@ -148,11 +155,11 @@ impl Frame {
 
         (
             HeadroomMut {
-                pos: &mut self.cursor_pos.headroom,
+                len: &mut self.segment_lens.headroom,
                 buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
             },
             DataMut {
-                pos: &mut self.cursor_pos.data,
+                len: &mut self.segment_lens.data,
                 buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
             },
         )
@@ -168,7 +175,7 @@ impl Frame {
         let (h, _d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
 
         HeadroomMut {
-            pos: &mut self.cursor_pos.headroom,
+            len: &mut self.segment_lens.headroom,
             buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
         }
     }
@@ -183,7 +190,7 @@ impl Frame {
         let (_h, d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
 
         DataMut {
-            pos: &mut self.cursor_pos.data,
+            len: &mut self.segment_lens.data,
             buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
         }
     }
@@ -192,19 +199,24 @@ impl Frame {
     ///
     /// The address in `desc` must be the starting address of the
     /// data segment of a frame belonging to the same underlying
-    /// [`Umem`](super::Umem) as this.
+    /// [`Umem`](super::Umem) as this frame.
     #[inline]
     pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
         self.addr = desc.addr;
         self.options = desc.options;
-        self.cursor_pos.data = desc.len; // Leave the headroom cursor position where it is
+        self.segment_lens.data = desc.len; // Leave the headroom cursor position where it is
     }
 
+    /// # Safety
+    ///
+    /// The provided `desc` must ultimately be passed to a ring that
+    /// is associated with the same underlying [`Umem`](super::Umem)
+    /// as this frame.
     #[inline]
-    pub(crate) fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
+    pub(crate) unsafe fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
         desc.addr = self.addr as u64;
         desc.options = self.options;
-        desc.len = self.cursor_pos.data as u32;
+        desc.len = self.len() as u32;
     }
 }
 
@@ -257,7 +269,7 @@ impl Deref for Headroom<'_> {
 /// method.
 #[derive(Debug)]
 pub struct HeadroomMut<'umem> {
-    pos: &'umem mut usize,
+    len: &'umem mut usize,
     buf: &'umem mut [u8],
 }
 
@@ -272,13 +284,27 @@ impl<'umem> HeadroomMut<'umem> {
     /// contents will be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        &self.buf[..*self.pos]
+        let len = cmp::min(*self.len, self.buf.len());
+        &self.buf[..len]
     }
 
     /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
-        Cursor::new(self.pos, self.buf)
+        Cursor::new(self.len, self.buf)
+    }
+
+    /// Returns a reference to this segment's underlying memory and a
+    /// `usize` which is the length of whatever data is currently
+    /// contained in this segment.
+    ///
+    /// If you write to this slice then you must also update the
+    /// accompanying `usize` accordingly. You can use the
+    /// [`cursor`](HeadroomMut::cursor) method to avoid having to do
+    /// this manually.
+    #[inline]
+    pub fn buf_and_len(&'umem mut self) -> (&mut [u8], &mut usize) {
+        (&mut self.buf, &mut self.len)
     }
 }
 
@@ -347,7 +373,7 @@ impl Deref for Data<'_> {
 /// allows writing via its [`cursor`](DataMut::cursor) method.
 #[derive(Debug)]
 pub struct DataMut<'umem> {
-    pos: &'umem mut usize,
+    len: &'umem mut usize,
     buf: &'umem mut [u8],
 }
 
@@ -356,13 +382,27 @@ impl<'umem> DataMut<'umem> {
     /// cursor position.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        &self.buf[..*self.pos]
+        let len = cmp::min(*self.len, self.buf.len());
+        &self.buf[..len]
     }
 
     /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
-        Cursor::new(self.pos, self.buf)
+        Cursor::new(self.len, self.buf)
+    }
+
+    /// Returns a reference to this segment's underlying memory and a
+    /// `usize` which is the length of whatever data is currently
+    /// contained in this segment.
+    ///
+    /// If you write to this slice then you must also update the
+    /// accompanying `usize` accordingly. You can use the
+    /// [`cursor`](DataMut::cursor) method to avoid having to do
+    /// this manually.
+    #[inline]
+    pub fn buf_and_len(&'umem mut self) -> (&mut [u8], &mut usize) {
+        (&mut self.buf, &mut self.len)
     }
 }
 

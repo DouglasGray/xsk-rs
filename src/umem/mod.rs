@@ -183,7 +183,7 @@ impl Umem {
         for i in 0..frame_count {
             let addr = (i * frame_size) + xdp_headroom + frame_headroom;
 
-            frame_descs.push(unsafe { Frame::new(addr, framed_mmap.clone()) });
+            frame_descs.push(unsafe { Frame::new(addr, data_size, framed_mmap.clone()) });
         }
 
         let umem = Umem {

@@ -32,7 +32,7 @@ impl<'a> Cursor<'a> {
     /// Sets the cursor's write position.
     #[inline]
     pub fn set_pos(&mut self, pos: usize) {
-        *self.pos = cmp::min(pos, self.buf.len())
+        *self.pos = pos;
     }
 
     /// The length of the underlying buffer.
@@ -130,35 +130,5 @@ mod tests {
 
         assert_eq!(pos, 0);
         assert_eq!(&buf, &[0; 32]);
-    }
-
-    #[test]
-    fn max_pos_value_is_buf_len() {
-        let mut pos = 0;
-        let mut buf = [0; 32];
-
-        {
-            let mut cursor = Cursor::new(&mut pos, &mut buf[..]);
-
-            cursor.set_pos(10);
-        }
-
-        assert_eq!(pos, 10);
-
-        {
-            let mut cursor = Cursor::new(&mut pos, &mut buf[..]);
-
-            cursor.set_pos(32);
-        }
-
-        assert_eq!(pos, 32);
-
-        {
-            let mut cursor = Cursor::new(&mut pos, &mut buf[..]);
-
-            cursor.set_pos(33);
-        }
-
-        assert_eq!(pos, 32);
     }
 }
