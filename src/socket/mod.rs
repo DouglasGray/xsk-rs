@@ -95,8 +95,9 @@ impl Socket {
         let mut rx_q = XskRingCons::default();
 
         let (err, fq, cq) = unsafe {
-            umem.on_socket_create(|xsk_umem, saved_fq_and_cq| {
+            umem.with_ptr_and_saved_queues(|xsk_umem, saved_fq_and_cq| {
                 let (mut fq, mut cq) = saved_fq_and_cq
+                    .take()
                     .unwrap_or_else(|| (XskRingProd::default(), XskRingCons::default()));
 
                 let err = libbpf_sys::xsk_socket__create_shared(
