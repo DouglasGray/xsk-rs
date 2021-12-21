@@ -1,9 +1,8 @@
 //! A wrapper for convenient writing to a [`Umem`](crate::umem::Umem) frame.
 
-use std::{
-    cmp,
-    io::{self, IoSlice, Write},
-};
+use std::io::{self, IoSlice, Write};
+
+use crate::util;
 
 /// Wraps a buffer and a value denoting its current write position and
 /// provides a convenient [`Write`] implementation.
@@ -53,7 +52,7 @@ impl<'a> Cursor<'a> {
 impl Write for Cursor<'_> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let pos = cmp::min(*self.pos, self.buf.len());
+        let pos = util::min_usize(*self.pos, self.buf.len());
         let amt = (&mut self.buf[pos..]).write(buf)?;
 
         *self.pos += amt;

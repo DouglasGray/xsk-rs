@@ -11,6 +11,20 @@ pub fn is_pow_of_two(val: u32) -> bool {
     (val & (val - 1)) == 0
 }
 
+/// A handrolled min calc for usizes that appears to be ~20% faster
+/// than using [`cmp::min`](std::cmp::min) - though the difference is
+/// still only ~50-60 picoseconds (see benches). Decided it would be
+/// worth it since [`cmp::min`](std::cmp::min) appears a fair bit in
+/// normal control flow.
+#[inline]
+pub fn min_usize(fst: usize, snd: usize) -> usize {
+    if fst < snd {
+        fst
+    } else {
+        snd
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

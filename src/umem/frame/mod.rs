@@ -5,9 +5,11 @@ mod cursor;
 pub use cursor::Cursor;
 
 use core::slice;
-use std::{borrow::Borrow, cmp, ops::Deref};
+use std::{borrow::Borrow, ops::Deref};
 
 use super::mmap::framed::FramedMmap;
+
+use crate::util;
 
 /// A [`Umem`](super::Umem) frame descriptor.
 ///
@@ -64,7 +66,7 @@ impl Frame {
     /// The current length of the data segment.
     #[inline]
     pub fn len(&self) -> usize {
-        cmp::min(self.lens.data, self.mtu)
+        util::min_usize(self.lens.data, self.mtu)
     }
 
     /// Returns `true` if the length of the data segment (i.e. what
@@ -96,8 +98,8 @@ impl Frame {
     pub unsafe fn get(&self) -> (Headroom, Data) {
         let (h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let headroom_len = cmp::min(self.lens.headroom, h.len);
-        let data_len = cmp::min(self.lens.data, d.len);
+        let headroom_len = util::min_usize(self.lens.headroom, h.len);
+        let data_len = util::min_usize(self.lens.data, d.len);
 
         (
             Headroom {
@@ -118,7 +120,7 @@ impl Frame {
     pub unsafe fn headroom(&self) -> Headroom {
         let (h, _d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let headroom_len = cmp::min(self.lens.headroom, h.len);
+        let headroom_len = util::min_usize(self.lens.headroom, h.len);
 
         Headroom {
             contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
@@ -134,7 +136,7 @@ impl Frame {
     pub unsafe fn data(&self) -> Data {
         let (_h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
-        let data_len = cmp::min(self.lens.data, d.len);
+        let data_len = util::min_usize(self.lens.data, d.len);
 
         Data {
             contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
@@ -283,7 +285,7 @@ impl<'umem> HeadroomMut<'umem> {
     /// contents will be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        let len = cmp::min(*self.len, self.buf.len());
+        let len = util::min_usize(*self.len, self.buf.len());
         &self.buf[..len]
     }
 
@@ -381,7 +383,7 @@ impl<'umem> DataMut<'umem> {
     /// cursor position.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        let len = cmp::min(*self.len, self.buf.len());
+        let len = util::min_usize(*self.len, self.buf.len());
         &self.buf[..len]
     }
 
