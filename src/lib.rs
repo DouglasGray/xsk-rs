@@ -99,14 +99,12 @@
 //!
 //! panic!("no matching packets received")
 //! ```
-
+#![warn(unsafe_op_in_unsafe_fn)]
 use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(all(target_pointer_width = "64", target_family = "unix"))] {
-        #[warn(unsafe_op_in_unsafe_fn)]
         pub mod umem;
-        #[warn(unsafe_op_in_unsafe_fn)]
         pub mod socket;
         pub mod config;
 
