@@ -3,7 +3,7 @@ use std::{io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
 
 use crate::{ring::XskRingProd, umem::frame::Frame, util};
 
-use super::{fd::Fd, Socket};
+use super::{fd::Fd, Socket, XdpStatistics};
 
 /// The transmitting side of an AF_XDP [`Socket`].
 ///
@@ -142,5 +142,10 @@ impl TxQueue {
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
+    }
+
+    #[inline]
+    pub fn statistics(&self) -> io::Result<XdpStatistics> {
+        XdpStatistics::retrieve(&self.fd)
     }
 }

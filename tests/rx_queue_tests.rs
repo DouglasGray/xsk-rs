@@ -211,6 +211,39 @@ async fn headroom_data_present_after_receive() {
     build_configs_and_run_test(test).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn xdp_statistics_report_dropped_packet() {
+    fn test(dev1: (Xsk, PacketGenerator), dev2: (Xsk, PacketGenerator)) {
+        unsafe {
+            let mut xsk1 = dev1.0;
+            let mut xsk2 = dev2.0;
+
+            // Don't add frames to dev2's fill queue, just send from
+            // dev1
+            xsk1.frames[0]
+                .data_mut()
+                .cursor()
+                .write_all(b"hello")
+                .unwrap();
+
+            assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.frames[..1]).unwrap(), 1);
+
+            // Try read - no frames in fill queue so should be zero
+            assert_eq!(
+                xsk2.rx_q.poll_and_consume(&mut xsk2.frames, 100).unwrap(),
+                0
+            );
+
+            let stats = xsk2.rx_q.statistics().unwrap();
+
+            assert!(stats.rx_dropped() > 0);
+        }
+    }
+
+    build_configs_and_run_test(test).await
+}
+
 async fn build_configs_and_run_test<F>(test: F)
 where
     F: Fn((Xsk, PacketGenerator), (Xsk, PacketGenerator)) + Send + 'static,

@@ -7,7 +7,7 @@ use crate::{
 
 use super::{
     fd::{Fd, PollEvent},
-    Socket,
+    Socket, XdpStatistics,
 };
 
 /// The receiving side of an AF_XDP [`Socket`].
@@ -117,5 +117,10 @@ impl RxQueue {
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
+    }
+
+    #[inline]
+    pub fn statistics(&self) -> io::Result<XdpStatistics> {
+        XdpStatistics::retrieve(&self.fd)
     }
 }
