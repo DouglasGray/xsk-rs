@@ -5,7 +5,7 @@ fn min_cmp(fst: usize, snd: usize) -> usize {
     cmp::min(fst, snd)
 }
 
-fn min_usize(fst: usize, snd: usize) -> usize {
+fn min_if_else(fst: usize, snd: usize) -> usize {
     if fst < snd {
         fst
     } else {
@@ -24,7 +24,7 @@ fn bench_min(c: &mut Criterion) {
         });
 
         group.bench_with_input(BenchmarkId::new("if_else", p), &vals, |b, vals| {
-            b.iter(|| min_usize(vals.0, vals.1));
+            b.iter(|| min_if_else(vals.0, vals.1));
         });
     }
 
