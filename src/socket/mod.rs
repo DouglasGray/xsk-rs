@@ -1,23 +1,19 @@
 //! Types for creating and using an AF_XDP [`Socket`].
 
-pub mod fd;
-use fd::Fd;
+mod fd;
+pub use fd::{Fd, XdpStatistics};
 
 mod rx_queue;
-use libc::SOL_XDP;
 pub use rx_queue::RxQueue;
 
 mod tx_queue;
 pub use tx_queue::TxQueue;
 
-use libbpf_sys::{xdp_statistics, xsk_socket, XDP_STATISTICS};
+use libbpf_sys::xsk_socket;
 use std::{
     borrow::Borrow,
     error::Error,
-    fmt,
-    io::{self, ErrorKind},
-    mem,
-    os::unix::prelude::AsRawFd,
+    fmt, io,
     ptr::{self, NonNull},
     sync::Arc,
 };
@@ -29,8 +25,6 @@ use crate::{
 };
 
 use crate::umem::{CompQueue, FillQueue, Umem};
-
-const XDP_STATISTICS_SIZEOF: u32 = mem::size_of::<xdp_statistics>() as u32;
 
 /// Wrapper around a pointer to some AF_XDP socket. Guarantees that
 /// the pointer is both non-null and unique.
@@ -208,71 +202,5 @@ impl fmt::Display for SocketCreateError {
 impl Error for SocketCreateError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.err.borrow())
-    }
-}
-
-/// AF_XDP socket statistics.
-#[derive(Default, Debug, Clone, Copy)]
-pub struct XdpStatistics(xdp_statistics);
-
-impl XdpStatistics {
-    #[inline]
-    fn retrieve(fd: &Fd) -> io::Result<XdpStatistics> {
-        let mut stats = xdp_statistics::default();
-
-        let mut optlen = XDP_STATISTICS_SIZEOF;
-
-        let err = unsafe {
-            libc::getsockopt(
-                fd.as_raw_fd(),
-                SOL_XDP,
-                XDP_STATISTICS as i32,
-                &mut stats as *mut _ as *mut libc::c_void,
-                &mut optlen,
-            )
-        };
-
-        if err != 0 {
-            return Err(io::Error::from_raw_os_error(err));
-        }
-
-        if optlen == XDP_STATISTICS_SIZEOF {
-            Ok(XdpStatistics(stats))
-        } else {
-            Err(io::Error::new(
-                ErrorKind::Other,
-                "`optlen` returned from `getsockopt` does not match `xdp_statistics` struct size",
-            ))
-        }
-    }
-
-    #[inline]
-    pub fn rx_dropped(&self) -> u64 {
-        self.0.rx_dropped
-    }
-
-    #[inline]
-    pub fn rx_invalid_descs(&self) -> u64 {
-        self.0.rx_invalid_descs
-    }
-
-    #[inline]
-    pub fn tx_invalid_descs(&self) -> u64 {
-        self.0.tx_invalid_descs
-    }
-
-    #[inline]
-    pub fn rx_ring_full(&self) -> u64 {
-        self.0.rx_ring_full
-    }
-
-    #[inline]
-    pub fn rx_fill_ring_empty_descs(&self) -> u64 {
-        self.0.rx_fill_ring_empty_descs
-    }
-
-    #[inline]
-    pub fn tx_ring_empty_descs(&self) -> u64 {
-        self.0.tx_ring_empty_descs
     }
 }

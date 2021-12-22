@@ -1,9 +1,6 @@
 use std::{io, sync::Arc};
 
-use crate::{
-    ring::XskRingProd,
-    socket::fd::{Fd, PollEvent},
-};
+use crate::{ring::XskRingProd, socket::Fd};
 
 use super::{frame::Frame, UmemInner};
 
@@ -104,7 +101,7 @@ impl FillQueue {
     /// link to docs with further explanation.
     #[inline]
     pub fn wakeup(&self, fd: &mut Fd, poll_timeout: i32) -> io::Result<()> {
-        fd.poll(PollEvent::Read, poll_timeout)?;
+        fd.poll_read(poll_timeout)?;
         Ok(())
     }
 

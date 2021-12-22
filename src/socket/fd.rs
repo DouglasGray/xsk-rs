@@ -1,18 +1,16 @@
 //! File descriptor utilities.
 
-use libc::{EINTR, POLLIN, POLLOUT};
+use libbpf_sys::{xdp_statistics, XDP_STATISTICS};
+use libc::{EINTR, POLLIN, POLLOUT, SOL_XDP};
 use std::{
-    io,
+    io::{self, ErrorKind},
+    mem,
     os::unix::prelude::{AsRawFd, RawFd},
 };
 
 use crate::util;
 
-#[derive(Debug, Clone, Copy)]
-pub enum PollEvent {
-    Read,
-    Write,
-}
+const XDP_STATISTICS_SIZEOF: u32 = mem::size_of::<xdp_statistics>() as u32;
 
 #[derive(Clone, Copy)]
 struct PollFd(libc::pollfd);
@@ -39,7 +37,6 @@ impl PollFd {
 }
 
 /// A pollable socket file descriptor.
-#[derive(Clone, Copy)]
 pub struct Fd {
     id: i32,
     pollfd_read: PollFd,
@@ -48,13 +45,13 @@ pub struct Fd {
 
 impl Fd {
     pub(super) fn new(id: i32) -> Self {
-        let pollin_fd = PollFd(libc::pollfd {
+        let pollfd_read = PollFd(libc::pollfd {
             fd: id,
             events: POLLIN,
             revents: 0,
         });
 
-        let pollout_fd = PollFd(libc::pollfd {
+        let pollfd_write = PollFd(libc::pollfd {
             fd: id,
             events: POLLOUT,
             revents: 0,
@@ -62,16 +59,57 @@ impl Fd {
 
         Fd {
             id,
-            pollfd_read: pollin_fd,
-            pollfd_write: pollout_fd,
+            pollfd_read,
+            pollfd_write,
+        }
+    }
+
+    pub(super) fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            pollfd_read: self.pollfd_read,
+            pollfd_write: self.pollfd_write,
         }
     }
 
     #[inline]
-    pub fn poll(&mut self, event: PollEvent, timeout_ms: i32) -> io::Result<bool> {
-        match event {
-            PollEvent::Read => self.pollfd_read.poll(timeout_ms),
-            PollEvent::Write => self.pollfd_write.poll(timeout_ms),
+    pub(crate) fn poll_read(&mut self, timeout_ms: i32) -> io::Result<bool> {
+        self.pollfd_read.poll(timeout_ms)
+    }
+
+    #[inline]
+    pub(crate) fn poll_write(&mut self, timeout_ms: i32) -> io::Result<bool> {
+        self.pollfd_write.poll(timeout_ms)
+    }
+
+    /// Returns socket statistics.
+    #[inline]
+    pub fn xdp_statistics(&self) -> io::Result<XdpStatistics> {
+        let mut stats = xdp_statistics::default();
+
+        let mut optlen = XDP_STATISTICS_SIZEOF;
+
+        let err = unsafe {
+            libc::getsockopt(
+                self.as_raw_fd(),
+                SOL_XDP,
+                XDP_STATISTICS as i32,
+                &mut stats as *mut _ as *mut libc::c_void,
+                &mut optlen,
+            )
+        };
+
+        if err != 0 {
+            return Err(io::Error::from_raw_os_error(err));
+        }
+
+        if optlen == XDP_STATISTICS_SIZEOF {
+            Ok(XdpStatistics(stats))
+        } else {
+            Err(io::Error::new(
+                ErrorKind::Other,
+                "`optlen` returned from `getsockopt` does not match `xdp_statistics` struct size",
+            ))
         }
     }
 }
@@ -87,5 +125,41 @@ impl AsRawFd for Fd {
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
         self.id
+    }
+}
+
+/// AF_XDP socket statistics.
+#[derive(Default, Debug, Clone, Copy)]
+pub struct XdpStatistics(xdp_statistics);
+
+impl XdpStatistics {
+    #[inline]
+    pub fn rx_dropped(&self) -> u64 {
+        self.0.rx_dropped
+    }
+
+    #[inline]
+    pub fn rx_invalid_descs(&self) -> u64 {
+        self.0.rx_invalid_descs
+    }
+
+    #[inline]
+    pub fn tx_invalid_descs(&self) -> u64 {
+        self.0.tx_invalid_descs
+    }
+
+    #[inline]
+    pub fn rx_ring_full(&self) -> u64 {
+        self.0.rx_ring_full
+    }
+
+    #[inline]
+    pub fn rx_fill_ring_empty_descs(&self) -> u64 {
+        self.0.rx_fill_ring_empty_descs
+    }
+
+    #[inline]
+    pub fn tx_ring_empty_descs(&self) -> u64 {
+        self.0.tx_ring_empty_descs
     }
 }

@@ -5,10 +5,7 @@ use crate::{
     umem::frame::{Frame, FrameDesc},
 };
 
-use super::{
-    fd::{Fd, PollEvent},
-    Socket, XdpStatistics,
-};
+use super::{fd::Fd, Socket};
 
 /// The receiving side of an AF_XDP [`Socket`].
 ///
@@ -26,7 +23,7 @@ impl RxQueue {
     pub(super) fn new(ring: XskRingCons, socket: Arc<Socket>) -> Self {
         Self {
             ring,
-            fd: socket.fd,
+            fd: socket.fd.clone(),
             _socket: socket,
         }
     }
@@ -102,10 +99,16 @@ impl RxQueue {
         frames: &mut [Frame],
         poll_timeout: i32,
     ) -> io::Result<usize> {
-        match self.fd.poll(PollEvent::Read, poll_timeout)? {
+        match self.poll(poll_timeout)? {
             true => Ok(unsafe { self.consume(frames) }),
             false => Ok(0),
         }
+    }
+
+    /// Polls the socket, returning `true` if there is data to read.
+    #[inline]
+    pub fn poll(&mut self, poll_timeout: i32) -> io::Result<bool> {
+        self.fd.poll_read(poll_timeout)
     }
 
     /// The [`Socket`]'s file descriptor.
@@ -117,10 +120,5 @@ impl RxQueue {
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
-    }
-
-    #[inline]
-    pub fn statistics(&self) -> io::Result<XdpStatistics> {
-        XdpStatistics::retrieve(&self.fd)
     }
 }

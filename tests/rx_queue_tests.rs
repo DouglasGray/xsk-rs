@@ -235,7 +235,7 @@ async fn xdp_statistics_report_dropped_packet() {
                 0
             );
 
-            let stats = xsk2.rx_q.statistics().unwrap();
+            let stats = xsk2.rx_q.fd().xdp_statistics().unwrap();
 
             assert!(stats.rx_dropped() > 0);
         }

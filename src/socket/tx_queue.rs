@@ -3,7 +3,7 @@ use std::{io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
 
 use crate::{ring::XskRingProd, umem::frame::Frame, util};
 
-use super::{fd::Fd, Socket, XdpStatistics};
+use super::{fd::Fd, Socket};
 
 /// The transmitting side of an AF_XDP [`Socket`].
 ///
@@ -21,7 +21,7 @@ impl TxQueue {
     pub(super) fn new(ring: XskRingProd, socket: Arc<Socket>) -> Self {
         Self {
             ring,
-            fd: socket.fd,
+            fd: socket.fd.clone(),
             _socket: socket,
         }
     }
@@ -133,6 +133,12 @@ impl TxQueue {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
 
+    /// Polls the socket, returning `true` if it is ready to write.
+    #[inline]
+    pub fn poll(&mut self, poll_timeout: i32) -> io::Result<bool> {
+        self.fd.poll_write(poll_timeout)
+    }
+
     /// The [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd(&self) -> &Fd {
@@ -142,10 +148,5 @@ impl TxQueue {
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
-    }
-
-    #[inline]
-    pub fn statistics(&self) -> io::Result<XdpStatistics> {
-        XdpStatistics::retrieve(&self.fd)
     }
 }

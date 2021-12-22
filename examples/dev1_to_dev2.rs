@@ -14,8 +14,8 @@ use std::{
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 use xsk_rs::{
-    socket::fd::PollEvent, BindFlags, CompQueue, FillQueue, Frame, FrameSize, Interface, QueueSize,
-    RxQueue, Socket, SocketConfig, TxQueue, Umem, UmemConfig,
+    BindFlags, CompQueue, FillQueue, Frame, FrameSize, Interface, QueueSize, RxQueue, Socket,
+    SocketConfig, TxQueue, Umem, UmemConfig,
 };
 
 mod setup;
@@ -164,9 +164,6 @@ fn dev1_to_dev2_single_thread(
     let tx_frames = &mut xsk_tx.frames;
     let rx_frames = &mut xsk_rx.frames;
 
-    let mut tx_fd = xsk_tx.tx_q.fd().clone();
-    let mut rx_fd = xsk_rx.rx_q.fd().clone();
-
     let start = Instant::now();
 
     // Packets to write
@@ -232,10 +229,8 @@ fn dev1_to_dev2_single_thread(
 
                     if xsk_rx.fq.needs_wakeup() {
                         log::debug!("waking up receiver fill queue");
-                        xsk_rx
-                            .fq
-                            .wakeup(&mut rx_fd, config.poll_ms_timeout)
-                            .unwrap();
+                        let fd = xsk_rx.rx_q.fd_mut();
+                        xsk_rx.fq.wakeup(fd, config.poll_ms_timeout).unwrap();
                     }
                 }
                 frames_rcvd => {
@@ -243,11 +238,12 @@ fn dev1_to_dev2_single_thread(
 
                     // Add frames back to fill queue
                     while unsafe {
+                        let fd = xsk_rx.rx_q.fd_mut();
                         xsk_rx
                             .fq
                             .produce_and_wakeup(
                                 &rx_frames[..frames_rcvd],
-                                &mut rx_fd,
+                                fd,
                                 config.poll_ms_timeout,
                             )
                             .unwrap()
@@ -295,10 +291,7 @@ fn dev1_to_dev2_single_thread(
                         });
 
                         // Wait until we're ok to write
-                        while !tx_fd
-                            .poll(PollEvent::Write, config.poll_ms_timeout)
-                            .unwrap()
-                        {
+                        while !xsk_tx.tx_q.poll(config.poll_ms_timeout).unwrap() {
                             log::debug!("sender socket not ready to write");
                             continue;
                         }
@@ -394,7 +387,6 @@ fn dev1_to_dev2_multithreaded(
         let (mut xsk_rx, _) = rx;
 
         let rx_frames = &mut xsk_rx.frames;
-        let mut rx_fd = xsk_rx.rx_q.fd().clone();
 
         // Populate receiver fill queue
         let frames_filled = unsafe {
@@ -428,7 +420,8 @@ fn dev1_to_dev2_multithreaded(
 
                     if xsk_rx.fq.needs_wakeup() {
                         log::debug!("waking up receiver fill queue");
-                        xsk_rx.fq.wakeup(&mut rx_fd, poll_ms_timeout).unwrap();
+                        let fd = xsk_rx.rx_q.fd_mut();
+                        xsk_rx.fq.wakeup(fd, poll_ms_timeout).unwrap();
                     }
 
                     // Or it might be that there are no packets left to receive
@@ -441,13 +434,10 @@ fn dev1_to_dev2_multithreaded(
 
                     // Add frames back to fill queue
                     while unsafe {
+                        let fd = xsk_rx.rx_q.fd_mut();
                         xsk_rx
                             .fq
-                            .produce_and_wakeup(
-                                &rx_frames[..frames_rcvd],
-                                &mut rx_fd,
-                                poll_ms_timeout,
-                            )
+                            .produce_and_wakeup(&rx_frames[..frames_rcvd], fd, poll_ms_timeout)
                             .unwrap()
                     } != frames_rcvd
                     {
@@ -471,7 +461,6 @@ fn dev1_to_dev2_multithreaded(
 
     let tx_handle = thread::spawn(move || {
         let tx_frames = &mut xsk_tx.frames;
-        let mut tx_fd = xsk_tx.tx_q.fd().clone();
 
         tx_frames[0..max_batch_size].iter_mut().for_each(|frame| {
             let pkt = pkts.next().unwrap();
@@ -521,7 +510,7 @@ fn dev1_to_dev2_multithreaded(
                         });
 
                         // Wait until we're ok to write
-                        while !tx_fd.poll(PollEvent::Write, poll_ms_timeout).unwrap() {
+                        while !xsk_tx.tx_q.poll(poll_ms_timeout).unwrap() {
                             log::debug!("sender socket not ready to write");
                             continue;
                         }
