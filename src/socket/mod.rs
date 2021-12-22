@@ -30,7 +30,7 @@ use crate::{
 
 use crate::umem::{CompQueue, FillQueue, Umem};
 
-const XDP_STATISTICS_OPTLEN: u32 = mem::size_of::<xdp_statistics>() as u32;
+const XDP_STATISTICS_SIZEOF: u32 = mem::size_of::<xdp_statistics>() as u32;
 
 /// Wrapper around a pointer to some AF_XDP socket. Guarantees that
 /// the pointer is both non-null and unique.
@@ -220,7 +220,7 @@ impl XdpStatistics {
     fn retrieve(fd: &Fd) -> io::Result<XdpStatistics> {
         let mut stats = xdp_statistics::default();
 
-        let mut optlen = XDP_STATISTICS_OPTLEN;
+        let mut optlen = XDP_STATISTICS_SIZEOF;
 
         let err = unsafe {
             libc::getsockopt(
@@ -236,12 +236,12 @@ impl XdpStatistics {
             return Err(io::Error::from_raw_os_error(err));
         }
 
-        if optlen == XDP_STATISTICS_OPTLEN {
+        if optlen == XDP_STATISTICS_SIZEOF {
             Ok(XdpStatistics(stats))
         } else {
             Err(io::Error::new(
                 ErrorKind::Other,
-                "`optlen` returned from `getsockopt` does not match passed buffer length",
+                "`optlen` returned from `getsockopt` does not match `xdp_statistics` struct size",
             ))
         }
     }
