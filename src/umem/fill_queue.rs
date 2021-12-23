@@ -11,7 +11,7 @@ use super::{frame::Frame, UmemInner};
 /// be returned via the [`RxQueue`](crate::socket::RxQueue).
 ///
 /// For more information see the
-/// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring)
+/// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring).
 pub struct FillQueue {
     ring: XskRingProd,
     _umem: Arc<UmemInner>,
@@ -23,15 +23,12 @@ impl FillQueue {
     }
 
     /// Let the kernel know that the provided `frames` may be used to
-    /// receive data.
+    /// receive data. Returns the number of frames submitted to the
+    /// kernel.
     ///
     /// Note that if the length of `frames` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be handed over to the kernel.
-    ///
-    /// This returns the number of frames submitted to the kernel. Due
-    /// to the constraint mentioned in the above paragraph, this
-    /// should always be the length of `frames` or `0`.
     ///
     /// # Safety
     ///

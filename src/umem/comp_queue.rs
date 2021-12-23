@@ -14,7 +14,7 @@ use super::{
 /// the [`TxQueue`](crate::socket::TxQueue).
 ///
 /// For more information see the
-/// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring)
+/// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring).
 pub struct CompQueue {
     ring: XskRingCons,
     _umem: Arc<UmemInner>,
@@ -26,24 +26,22 @@ impl CompQueue {
     }
 
     /// Update `frames` with frames whose contents have been sent
-    /// (after submission via the [`TxQueue`](crate::socket::TxQueue) and may
-    /// now be used again.
+    /// (after submission via the [`TxQueue`](crate::socket::TxQueue))
+    /// and may now be used again. Returns the number of elements of
+    /// `frames` which have been updated.
     ///
     /// The number of entries updated will be less than or equal to
     /// the length of `frames`. Entries will be updated sequentially
     /// from the start of `frames` until the end.
     ///
-    /// Returns the number of elements of `frames` which have been
-    /// updated.
-    ///
     /// Free frames should be added back on to either the
-    /// [`FillQueue`](super::FillQueue) for data receipt or the
-    /// [`TxQueue`](crate::socket::TxQueue) for data transmission.
+    /// [`FillQueue`](crate::FillQueue) for data receipt or the
+    /// [`TxQueue`](crate::TxQueue) for data transmission.
     ///
     /// # Safety
     ///
     /// The underlying [`Umem`](super::Umem) of the passed `frames`
-    /// and this [`CompQueue`] must be the same.
+    /// and this `CompQueue` must be the same.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;

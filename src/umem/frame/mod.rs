@@ -57,15 +57,13 @@ impl Frame {
         }
     }
 
-    /// The frame's address.
-    ///
-    /// This address represents the start of the packet data segment.
+    /// The starting address of this frame's packet data segment.
     #[inline]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
-    /// The current length of the packet data segment.
+    /// The current length of this frame's packet data segment.
     #[inline]
     pub fn len(&self) -> usize {
         util::min_usize(self.lens.data, self.mtu)
@@ -100,7 +98,7 @@ impl Frame {
     /// accesses must not be mutably accessed anywhere else at the
     /// same time, either in userspace or by the kernel.
     #[inline]
-    pub unsafe fn get(&self) -> (Headroom, Data) {
+    pub unsafe fn segments(&self) -> (Headroom, Data) {
         let (h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
 
         let headroom_len = util::min_usize(self.lens.headroom, h.len);
@@ -157,7 +155,7 @@ impl Frame {
     /// accesses must not be mutably or immutably accessed anywhere
     /// else at the same time, either in userspace or by the kernel.
     #[inline]
-    pub unsafe fn get_mut(&mut self) -> (HeadroomMut, DataMut) {
+    pub unsafe fn segments_mut(&mut self) -> (HeadroomMut, DataMut) {
         let (h, d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
 
         (

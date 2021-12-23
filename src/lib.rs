@@ -7,9 +7,10 @@
 //! or a more [detailed
 //! overview](http://vger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf).
 //!
-//! Some simple examples may be found in the `examples` directory in
-//! the GitHub repo, including an example of use in a multithreaded
-//! context and another using shared UMEM.
+//! Some simple examples may be found in the
+//! [`examples`](https://github.com/DouglasGray/xsk-rs/tree/master/examples)
+//! directory in the GitHub repo, including an example of use in a
+//! multithreaded context and another using shared UMEM.
 //!
 //! ### Usage
 //!

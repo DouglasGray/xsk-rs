@@ -290,7 +290,7 @@ mod tests {
                 )
             };
 
-            let (mut headroom, mut data) = unsafe { frame.get_mut() };
+            let (mut headroom, mut data) = unsafe { frame.segments_mut() };
 
             headroom
                 .cursor()

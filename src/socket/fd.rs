@@ -83,7 +83,7 @@ impl Fd {
         self.pollfd_write.poll(timeout_ms)
     }
 
-    /// Returns socket statistics.
+    /// Returns [`Socket](crate::Socket) statistics.
     #[inline]
     pub fn xdp_statistics(&self) -> io::Result<XdpStatistics> {
         let mut stats = xdp_statistics::default();
@@ -135,7 +135,7 @@ impl AsRawFd for Fd {
     }
 }
 
-/// AF_XDP socket statistics.
+/// AF_XDP [`Socket`](crate::Socket) statistics.
 ///
 /// Can be retrieved by calling [`xdp_statistics`](Fd::xdp_statistics).
 #[derive(Default, Debug, Clone, Copy)]

@@ -11,6 +11,7 @@
 - remove lifetimes by packaging the various queues with Arc'd UMEM or
   sockets where needed to ensure they don't outlive what they depend
   on.
+- bump libs, e.g. libbpf-sys to 0.6.0-1
 
 ## [0.2.4] - 2021-07-10
 

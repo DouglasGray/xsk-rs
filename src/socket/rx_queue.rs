@@ -27,26 +27,23 @@ impl RxQueue {
     }
 
     /// Populate `frames` with information on packets received on the
-    /// rx ring.
+    /// rx ring. Returns the number of elements of `frames` which have
+    /// been updated with received packet information, namely their
+    /// frame address and length.
     ///
     /// The number of entries updated will be less than or equal to
     /// the length of `frames`. Entries will be updated sequentially
     /// from the start of `frames` until the end.
     ///
-    /// Returns the number of elements of `frames` which have been
-    /// updated with received packet information, namely their frame
-    /// address and length.
-    ///
     /// Once the contents of the consumed frames have been dealt with
     /// and are no longer required, the frames should eventually be
-    /// added back on to either the
-    /// [`FillQueue`](crate::umem::FillQueue) or the
-    /// [`TxQueue`](super::TxQueue).
+    /// added back on to either the [`FillQueue`](crate::FillQueue) or
+    /// the [`TxQueue`](crate::TxQueue).
     ///
     /// # Safety
     ///
     /// The underlying [`Umem`](crate::umem::Umem) of the passed
-    /// `frames` and this [`RxQueue`] must be the same.
+    /// `frames` and this `RxQueue` must be the same.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;

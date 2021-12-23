@@ -25,16 +25,12 @@ impl TxQueue {
     }
 
     /// Let the kernel know that the contents of `frames` are ready to
-    /// be transmitted.
+    /// be transmitted. Returns the number of frames submitted to the
+    /// kernel.
     ///
     /// Note that if the length of `frames` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be submitted for transmission.
-    ///
-    /// This function returns the number of frames submitted to the
-    /// kernel for transmission. Due to the constraint mentioned in
-    /// the above paragraph, this should always be the length of
-    /// `frames` or `0`.
     ///
     /// # Safety
     ///

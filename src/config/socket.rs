@@ -148,7 +148,7 @@ impl ConfigBuilder {
     }
 }
 
-/// Config for an AF_XDP [`Socket`](crate::socket::Socket) instance.
+/// Config for an AF_XDP [`Socket`](crate::Socket) instance.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     rx_queue_size: QueueSize,
