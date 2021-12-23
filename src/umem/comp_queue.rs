@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use crate::ring::XskRingCons;
 
@@ -80,3 +80,9 @@ impl CompQueue {
 }
 
 unsafe impl Send for CompQueue {}
+
+impl fmt::Debug for CompQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("CompQueue").finish()
+    }
+}

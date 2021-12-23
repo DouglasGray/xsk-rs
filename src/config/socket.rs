@@ -11,26 +11,49 @@ use std::{
 use super::QueueSize;
 
 bitflags! {
+    /// Libbpf flags.
     pub struct LibbpfFlags: u32 {
+        /// Set to avoid loading of default XDP program on socket
+        /// creation.
         const XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD = 1;
     }
 }
 
 bitflags! {
+    /// XDP flags.
+    ///
+    /// Some may not be applicable if an XDP program is already loaded
+    /// on the target interface.
     pub struct XdpFlags: u32 {
+        /// Fail if an XDP program is already loaded on the target
+        /// interface.
         const XDP_FLAGS_UPDATE_IF_NOEXIST = 1;
+        /// Force generic/SKB mode.
         const XDP_FLAGS_SKB_MODE = 2;
+        /// Force driver mode. The driver must support XDP.
         const XDP_FLAGS_DRV_MODE = 4;
+        /// Offload to hardware. The NIC must support XDP.
         const XDP_FLAGS_HW_MODE = 8;
-        const XDP_FLAGS_REPLACE = 16;
     }
 }
 
 bitflags! {
+    /// Bind flags.
     pub struct BindFlags: u16 {
-        const XDP_UMEM_SHARED_MEMORY = 1;
+        /// Forces copy-mode.
         const XDP_COPY = 2;
+        /// Forces zero-copy mode. Socket creation will fail if not
+        /// available.
         const XDP_ZEROCOPY = 4;
+        /// If set, the driver may go to sleep, meaning the
+        /// [`FillQueue`](crate::FillQueue) and/or
+        /// [`TxQueue`](crate::TxQueue) will need waking up (using the
+        /// `*_wakeup` or `poll` functions available on either
+        /// struct). It is recommended to enable this flag as it often
+        /// leads to better performance but especially if the driver
+        /// and application are running on the same core. More details
+        /// in the
+        /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
         const XDP_USE_NEED_WAKEUP = 8;
     }
 }
@@ -40,11 +63,12 @@ bitflags! {
 pub struct Interface(CString);
 
 impl Interface {
+    /// Creates a new `Interface` instance.
     pub fn new(name: CString) -> Self {
         Self(name)
     }
 
-    pub fn as_cstr(&self) -> &CStr {
+    pub(crate) fn as_cstr(&self) -> &CStr {
         &self.0
     }
 }
@@ -80,35 +104,45 @@ pub struct ConfigBuilder {
 }
 
 impl ConfigBuilder {
+    /// Creates a new [`SocketConfigBuilder`](ConfigBuilder) instance
+    /// with default queue sizes set to the `libbpf` defaults and with
+    /// no flags set.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Set the [`RxQueue`](crate::RxQueue) size.
     pub fn rx_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.rx_queue_size = size;
         self
     }
 
+    /// Set the [`TxQueue`](crate::RxQueue) size.
     pub fn tx_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.tx_queue_size = size;
         self
     }
 
+    /// Set the [`LibbpfFlags`]. Default is no flags set.
     pub fn libbpf_flags(&mut self, flags: LibbpfFlags) -> &mut Self {
         self.config.libbpf_flags = flags;
         self
     }
 
+    /// Set the [`XdpFlags`]. Default is no flags set.
     pub fn xdp_flags(&mut self, flags: XdpFlags) -> &mut Self {
         self.config.xdp_flags = flags;
         self
     }
 
+    /// Set the socket [`BindFlags`]. Default is no flags set.
     pub fn bind_flags(&mut self, flags: BindFlags) -> &mut Self {
         self.config.bind_flags = flags;
         self
     }
 
+    /// Build a [`SocketConfig`](Config) instance using the values set
+    /// in this builder.
     pub fn build(&self) -> Config {
         self.config
     }
@@ -125,26 +159,32 @@ pub struct Config {
 }
 
 impl Config {
+    /// Creates a [`SocketConfigBuilder`](ConfigBuilder) instance.
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
 
+    /// The socket's [`RxQueue`](crate::RxQueue) size.
     pub fn rx_queue_size(&self) -> QueueSize {
         self.rx_queue_size
     }
 
+    /// The socket's [`TxQueue`](crate::TxQueue) size.
     pub fn tx_queue_size(&self) -> QueueSize {
         self.tx_queue_size
     }
 
+    /// The [`LibbpfFlags`] set.
     pub fn libbpf_flags(&self) -> &LibbpfFlags {
         &self.libbpf_flags
     }
 
+    /// The [`XdpFlags`] set.
     pub fn xdp_flags(&self) -> &XdpFlags {
         &self.xdp_flags
     }
 
+    /// The [`BindFlags`] set.
     pub fn bind_flags(&self) -> &BindFlags {
         &self.bind_flags
     }

@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::{fmt, io, sync::Arc};
 
 use crate::{
     ring::XskRingCons,
@@ -16,8 +16,6 @@ pub struct RxQueue {
     fd: Fd,
     _socket: Arc<Socket>,
 }
-
-unsafe impl Send for RxQueue {}
 
 impl RxQueue {
     pub(super) fn new(ring: XskRingCons, socket: Arc<Socket>) -> Self {
@@ -111,14 +109,23 @@ impl RxQueue {
         self.fd.poll_read(poll_timeout)
     }
 
-    /// The [`Socket`]'s file descriptor.
+    /// A reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd(&self) -> &Fd {
         &self.fd
     }
 
+    /// A mutable reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
+    }
+}
+
+unsafe impl Send for RxQueue {}
+
+impl fmt::Debug for RxQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RxQueue").finish()
     }
 }

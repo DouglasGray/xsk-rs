@@ -22,6 +22,8 @@ use crate::util;
 pub struct QueueSize(u32);
 
 impl QueueSize {
+    /// Create a new `QueueSize` instance. Fails if `size` is not a
+    /// power of two.
     pub fn new(size: u32) -> Result<Self, QueueSizeError> {
         if !util::is_pow_of_two(size) {
             Err(QueueSizeError(size))
@@ -30,6 +32,7 @@ impl QueueSize {
         }
     }
 
+    /// The queue size.
     pub fn get(&self) -> u32 {
         self.0
     }
@@ -60,6 +63,7 @@ impl error::Error for QueueSizeError {}
 pub struct FrameSize(u32);
 
 impl FrameSize {
+    /// Create a new `FrameSize` instance. Fails if `size` is smaller than 2048.
     pub fn new(size: u32) -> Result<Self, FrameSizeError> {
         if size < 2048 {
             Err(FrameSizeError(size))
@@ -68,6 +72,7 @@ impl FrameSize {
         }
     }
 
+    /// The frame size.
     pub fn get(&self) -> u32 {
         self.0
     }

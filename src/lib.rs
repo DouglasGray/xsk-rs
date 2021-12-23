@@ -99,20 +99,24 @@
 //!
 //! panic!("no matching packets received")
 //! ```
-#![warn(unsafe_op_in_unsafe_fn)]
+#![deny(missing_docs)]
+#![deny(rustdoc::missing_doc_code_examples)]
+#![deny(missing_debug_implementations)]
+#![deny(unsafe_op_in_unsafe_fn)]
 use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(all(target_pointer_width = "64", target_family = "unix"))] {
         pub mod umem;
+        pub use umem::{frame::Frame, CompQueue, FillQueue, Umem};
+
         pub mod socket;
+        pub use socket::{RxQueue, Socket, TxQueue};
+
         pub mod config;
 
         mod ring;
         mod util;
-
-        mod prelude;
-        pub use prelude::*;
 
         #[cfg(test)]
         mod tests {

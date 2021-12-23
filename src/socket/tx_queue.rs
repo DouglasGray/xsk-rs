@@ -1,5 +1,5 @@
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
-use std::{io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
+use std::{fmt, io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
 
 use crate::{ring::XskRingProd, umem::frame::Frame, util};
 
@@ -14,8 +14,6 @@ pub struct TxQueue {
     fd: Fd,
     _socket: Arc<Socket>,
 }
-
-unsafe impl Send for TxQueue {}
 
 impl TxQueue {
     pub(super) fn new(ring: XskRingProd, socket: Arc<Socket>) -> Self {
@@ -139,14 +137,23 @@ impl TxQueue {
         self.fd.poll_write(poll_timeout)
     }
 
-    /// The [`Socket`]'s file descriptor.
+    /// A reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd(&self) -> &Fd {
         &self.fd
     }
 
+    /// A mutable reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.fd
+    }
+}
+
+unsafe impl Send for TxQueue {}
+
+impl fmt::Debug for TxQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TxQueue").finish()
     }
 }

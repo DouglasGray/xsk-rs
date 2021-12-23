@@ -5,7 +5,7 @@ mod cursor;
 pub use cursor::Cursor;
 
 use core::slice;
-use std::{borrow::Borrow, ops::Deref};
+use std::{borrow::Borrow, fmt, ops::Deref};
 
 use super::mmap::framed::FramedMmap;
 
@@ -26,7 +26,7 @@ pub(crate) struct FrameDesc {
     pub options: u32,
 }
 
-/// The lengths of a frame's data and headroom segments.
+/// The lengths of a frame's packet data and headroom segments.
 #[derive(Debug, Default, Clone, Copy)]
 struct SegmentLengths {
     headroom: usize,
@@ -45,8 +45,8 @@ pub struct Frame {
 impl Frame {
     /// # Safety
     ///
-    /// `addr` must be the starting address of the data segment of
-    /// some frame belonging to `framed_mmap`.
+    /// `addr` must be the starting address of the packet data segment
+    /// of some frame belonging to `framed_mmap`.
     pub(super) unsafe fn new(addr: usize, mtu: usize, framed_mmap: FramedMmap) -> Self {
         Self {
             addr,
@@ -57,37 +57,42 @@ impl Frame {
         }
     }
 
-    /// The frame's address. This address is the start of the data segment.
+    /// The frame's address.
+    ///
+    /// This address represents the start of the packet data segment.
     #[inline]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
-    /// The current length of the data segment.
+    /// The current length of the packet data segment.
     #[inline]
     pub fn len(&self) -> usize {
         util::min_usize(self.lens.data, self.mtu)
     }
 
-    /// Returns `true` if the length of the data segment (i.e. what
-    /// was received from the kernel or will be transmitted to) is
-    /// zero.
+    /// Returns `true` if the length of the packet data segment
+    /// (i.e. what was received from the kernel or will be
+    /// transmitted) is zero.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.lens.data == 0
     }
 
+    /// Frame options.
     #[inline]
     pub fn options(&self) -> u32 {
         self.options
     }
 
+    /// Set the frame options. Will be included in the descriptor
+    /// passed to the kernel, along with the frame address and length.
     #[inline]
     pub fn set_options(&mut self, options: u32) {
         self.options = options
     }
 
-    /// The frame's headroom and data segments.
+    /// The frame's headroom and packet data segments.
     ///
     /// # Safety
     ///
@@ -127,7 +132,7 @@ impl Frame {
         }
     }
 
-    /// The frame's data segment
+    /// The frame's packet data segment
     ///
     /// # Safety
     ///
@@ -143,7 +148,8 @@ impl Frame {
         }
     }
 
-    /// Mutable references to the frame's headroom and data segments.
+    /// Mutable references to the frame's headroom and packet data
+    /// segments.
     ///
     /// # Safety
     ///
@@ -181,7 +187,7 @@ impl Frame {
         }
     }
 
-    /// A mutable reference to the frame's data segment.
+    /// A mutable reference to the frame's packet data segment.
     ///
     /// # Safety
     ///
@@ -199,8 +205,8 @@ impl Frame {
     /// # Safety
     ///
     /// The address in `desc` must be the starting address of the
-    /// data segment of a frame belonging to the same underlying
-    /// [`Umem`](super::Umem) as this frame.
+    /// packet data segment of a frame belonging to the same
+    /// underlying [`Umem`](super::Umem) as this frame.
     #[inline]
     pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
         self.addr = desc.addr;
@@ -221,6 +227,17 @@ impl Frame {
     }
 }
 
+impl fmt::Debug for Frame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Frame")
+            .field("addr", &self.addr)
+            .field("mtu", &self.mtu)
+            .field("lens", &self.lens)
+            .field("options", &self.options)
+            .finish()
+    }
+}
+
 /// Headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Headroom<'umem> {
@@ -228,14 +245,13 @@ pub struct Headroom<'umem> {
 }
 
 impl Headroom<'_> {
-    /// Returns this headroom segment's contents, up to the current
-    /// cursor position.
+    /// Returns this segment's contents, up to its current length.
     ///
-    /// Note that headroom cursor position isn't reset in between
-    /// updates to the frame's descriptor. So, for example, if you write
-    /// to this headroom and then transmit its frame, if you then use
-    /// the same frame for receiving a packet then the headroom
-    /// contents will be the same.
+    /// Note that headroom length isn't changed in between updates to
+    /// the frame's descriptor. So, for example, if you write to this
+    /// headroom and then transmit its frame, if you then use the same
+    /// frame for receiving a packet then the headroom contents will
+    /// be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         self.contents
@@ -275,14 +291,13 @@ pub struct HeadroomMut<'umem> {
 }
 
 impl<'umem> HeadroomMut<'umem> {
-    /// Returns this headroom segment's contents, up to the current
-    /// cursor position.
+    /// Returns this segment's contents, up to its current length.
     ///
-    /// Note that headroom cursor position isn't reset in between
-    /// updates to the frame's descriptor. So, for example, if you write
-    /// to this headroom and then transmit its frame, if you then use
-    /// the same frame for receiving a packet then the headroom
-    /// contents will be the same.
+    /// Note that headroom length isn't changed in between updates to
+    /// the frame's descriptor. So, for example, if you write to this
+    /// headroom and then transmit its frame, if you then use the same
+    /// frame for receiving a packet then the headroom contents will
+    /// be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         let len = util::min_usize(*self.len, self.buf.len());
@@ -332,15 +347,16 @@ impl Deref for HeadroomMut<'_> {
     }
 }
 
-/// Data segment of a [`Umem`](crate::umem::Umem) frame.
+/// Packet data segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Data<'umem> {
     contents: &'umem [u8],
 }
 
 impl Data<'_> {
-    /// Returns this data segment's contents, up to the current
-    /// cursor position.
+    /// Returns this segment's contents, up to its current length.
+    ///
+    /// Will change as packets are sent or received using this frame.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         self.contents
@@ -379,8 +395,9 @@ pub struct DataMut<'umem> {
 }
 
 impl<'umem> DataMut<'umem> {
-    /// Returns this data segment's contents, up to the current
-    /// cursor position.
+    /// Returns this segment's contents, up to its current length.
+    ///
+    /// Will change as packets are sent or received using this frame.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         let len = util::min_usize(*self.len, self.buf.len());

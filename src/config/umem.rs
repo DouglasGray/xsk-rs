@@ -14,30 +14,40 @@ pub struct ConfigBuilder {
 }
 
 impl ConfigBuilder {
+    /// Creates a new [`UmemConfigBuilder`](ConfigBuilder) instance.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Set the frame size.
     pub fn frame_size(&mut self, size: FrameSize) -> &mut Self {
         self.config.frame_size = size;
         self
     }
 
+    /// Set the [`FillQueue`](crate::FillQueue) size.
     pub fn fill_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.fill_queue_size = size;
         self
     }
 
+    /// Set the [`CompQueue`](crate::CompQueue) size.
     pub fn comp_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.comp_queue_size = size;
         self
     }
 
+    /// Set the frame headroom.
     pub fn frame_headroom(&mut self, headroom: u32) -> &mut Self {
         self.config.frame_headroom = headroom;
         self
     }
 
+    /// Build a [`UmemConfig`](Config) instance using the values set
+    /// in this builder.
+    ///
+    /// May fail if some of the values are incompatible. For example,
+    /// if the requested frame headroom exceeds the frame size.
     pub fn build(&self) -> Result<Config, ConfigBuildError> {
         let frame_size = self.config.frame_size.get();
         let total_headroom = XDP_PACKET_HEADROOM + self.config.frame_headroom;
@@ -71,26 +81,38 @@ pub struct Config {
 }
 
 impl Config {
+    /// Creates a [`UmemConfigBuilder`](ConfigBuilder) instance.
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
 
+    /// The size of each frame in the [`Umem`](crate::Umem).
     pub fn frame_size(&self) -> FrameSize {
         self.frame_size
     }
 
+    /// The [`FillQueue`](crate::FillQueue) size.
     pub fn fill_queue_size(&self) -> QueueSize {
         self.fill_queue_size
     }
 
+    /// The [`CompQueue`](crate::CompQueue) size.
     pub fn comp_queue_size(&self) -> QueueSize {
         self.comp_queue_size
     }
 
+    /// The user headroom available in each frame. Not to be confused
+    /// with [`XDP_PACKET_HEADROOM`] which is the amount of headroom
+    /// reserved by XDP.
     pub fn frame_headroom(&self) -> u32 {
         self.frame_headroom
     }
 
+    /// The maximum transmission unit, or the length of the packet
+    /// data segment of the frame.
+    ///
+    /// Is defined as the frame size minus both the XDP headroom and
+    /// user headroom.
     pub fn mtu(&self) -> u32 {
         self.frame_size.get() - (XDP_PACKET_HEADROOM + self.frame_headroom)
     }

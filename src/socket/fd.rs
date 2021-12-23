@@ -3,6 +3,7 @@
 use libbpf_sys::{xdp_statistics, XDP_STATISTICS};
 use libc::{EINTR, POLLIN, POLLOUT, SOL_XDP};
 use std::{
+    fmt,
     io::{self, ErrorKind},
     mem,
     os::unix::prelude::{AsRawFd, RawFd},
@@ -114,6 +115,12 @@ impl Fd {
     }
 }
 
+impl fmt::Debug for Fd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Fd").field("id", &self.id).finish()
+    }
+}
+
 impl AsRawFd for Fd {
     /// The inner file descriptor.
     ///
@@ -129,35 +136,43 @@ impl AsRawFd for Fd {
 }
 
 /// AF_XDP socket statistics.
+///
+/// Can be retrieved by calling [`xdp_statistics`](Fd::xdp_statistics).
 #[derive(Default, Debug, Clone, Copy)]
 pub struct XdpStatistics(xdp_statistics);
 
 impl XdpStatistics {
-    #[inline]
-    pub fn rx_dropped(&self) -> u64 {
-        self.0.rx_dropped
-    }
-
+    /// Received packets dropped due to an invalid descriptor.
     #[inline]
     pub fn rx_invalid_descs(&self) -> u64 {
         self.0.rx_invalid_descs
     }
 
-    #[inline]
-    pub fn tx_invalid_descs(&self) -> u64 {
-        self.0.tx_invalid_descs
-    }
-
+    /// Received packets dropped due to rx ring being full.
     #[inline]
     pub fn rx_ring_full(&self) -> u64 {
         self.0.rx_ring_full
     }
 
+    /// Received packets dropped for other reasons.
+    #[inline]
+    pub fn rx_dropped(&self) -> u64 {
+        self.0.rx_dropped
+    }
+
+    /// Packets to be sent but dropped due to an invalid desccriptor.
+    #[inline]
+    pub fn tx_invalid_descs(&self) -> u64 {
+        self.0.tx_invalid_descs
+    }
+
+    /// Items failed to be retrieved from fill ring.
     #[inline]
     pub fn rx_fill_ring_empty_descs(&self) -> u64 {
         self.0.rx_fill_ring_empty_descs
     }
 
+    /// Items failed to be retrieved from tx ring.
     #[inline]
     pub fn tx_ring_empty_descs(&self) -> u64 {
         self.0.tx_ring_empty_descs

@@ -186,6 +186,12 @@ impl Socket {
     }
 }
 
+impl fmt::Debug for Socket {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Socket").field("fd", &self.fd).finish()
+    }
+}
+
 /// Error detailing why [`Socket`] creation failed.
 #[derive(Debug)]
 pub struct SocketCreateError {

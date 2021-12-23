@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::{fmt, io, sync::Arc};
 
 use crate::{ring::XskRingProd, socket::Fd};
 
@@ -120,3 +120,9 @@ impl FillQueue {
 }
 
 unsafe impl Send for FillQueue {}
+
+impl fmt::Debug for FillQueue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FillQueue").finish()
+    }
+}

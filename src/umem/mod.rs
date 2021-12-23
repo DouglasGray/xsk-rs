@@ -217,6 +217,12 @@ impl Umem {
     }
 }
 
+impl fmt::Debug for Umem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Umem").finish()
+    }
+}
+
 /// Error detailing why [`Umem`] creation failed.
 #[derive(Debug)]
 pub struct UmemCreateError {
