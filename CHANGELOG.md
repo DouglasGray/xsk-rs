@@ -1,6 +1,16 @@
 # Changelog
 
 ## [Unreleased]
+- rework UMEM access by moving it into frames + delineate between
+  frame headroom and packet data sections + add cursors for convenient
+  writing
+- support shared UMEM
+- support retrieving XDP statistics
+- change config to enforce restrictions on certain vals early (e.g
+  queue sizes)
+- remove lifetimes by packaging the various queues with Arc'd UMEM or
+  sockets where needed to ensure they don't outlive what they depend
+  on.
 
 ## [0.2.4] - 2021-07-10
 
