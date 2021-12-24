@@ -6,7 +6,9 @@ pub use inner::*;
 mod inner {
     use super::*;
 
-    use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_PRIVATE, PROT_READ, PROT_WRITE};
+    use libc::{
+        MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_POPULATE, MAP_SHARED, PROT_READ, PROT_WRITE,
+    };
     use log::error;
     use std::ptr::{self, NonNull};
 
@@ -39,11 +41,12 @@ mod inner {
 
     impl Mmap {
         pub fn new(len: usize, use_huge_pages: bool) -> io::Result<Self> {
-            let prot = PROT_READ | PROT_WRITE;
-            let file = -1;
-            let offset = 0;
-
-            let mut flags = MAP_ANONYMOUS | MAP_PRIVATE;
+            // MAP_ANONYMOUS: mapping not backed by a file.
+            // MAP_SHARED: shares this mapping, so changes are visible
+            // to other processes mapping the same file.
+            // MAP_POPULATE: pre-populate page tables, reduces
+            // blocking on page faults later.
+            let mut flags = MAP_ANONYMOUS | MAP_SHARED | MAP_POPULATE;
 
             if use_huge_pages {
                 flags |= MAP_HUGETLB;
@@ -53,10 +56,10 @@ mod inner {
                 libc::mmap(
                     ptr::null_mut(),
                     len,
-                    prot,
+                    PROT_READ | PROT_WRITE, // prot
                     flags,
-                    file,
-                    offset as libc::off_t,
+                    -1,               // file
+                    0 as libc::off_t, // offset
                 )
             };
 
