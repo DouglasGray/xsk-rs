@@ -37,21 +37,21 @@ pub struct Frame {
     options: u32,
     lens: SegmentLengths,
     layout: FrameLayout,
-    mmap: Mmap,
+    umem: Mmap,
 }
 
 impl Frame {
     /// # Safety
     ///
     /// `addr` must be the starting address of the packet data segment
-    /// of some frame belonging to `framed_mmap`.
-    pub(super) unsafe fn new(addr: usize, frame_layout: FrameLayout, mmap: Mmap) -> Self {
+    /// of some frame belonging to `umem`.
+    pub(super) unsafe fn new(addr: usize, frame_layout: FrameLayout, umem: Mmap) -> Self {
         Self {
             addr,
             options: 0,
             lens: SegmentLengths::default(),
             layout: frame_layout,
-            mmap,
+            umem,
         }
     }
 
@@ -91,12 +91,12 @@ impl Frame {
     #[inline]
     unsafe fn headroom_ptr(&self) -> *mut u8 {
         let addr = self.addr - self.layout.frame_headroom;
-        unsafe { self.mmap.offset(addr) as *mut u8 }
+        unsafe { self.umem.offset(addr) as *mut u8 }
     }
 
     #[inline]
     unsafe fn data_ptr(&self) -> *mut u8 {
-        unsafe { self.mmap.offset(self.addr) as *mut u8 }
+        unsafe { self.umem.offset(self.addr) as *mut u8 }
     }
 
     /// The frame's headroom and packet data segments.
@@ -424,7 +424,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn check_writes_persist() {
+    fn writes_persist() {
         let layout = FrameLayout {
             _xdp_headroom: 0,
             frame_headroom: 512,
@@ -491,7 +491,7 @@ mod tests {
     }
 
     #[test]
-    fn check_writes_are_contiguous() {
+    fn writes_are_contiguous() {
         let layout = FrameLayout {
             _xdp_headroom: 4,
             frame_headroom: 8,
@@ -524,7 +524,6 @@ mod tests {
             .flatten()
             .collect();
 
-        // Create framed mmap and frames and write some data to them
         let frame_size = layout.frame_size();
 
         let mmap = Mmap::new(frame_count * frame_size, false).unwrap();

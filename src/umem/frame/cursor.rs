@@ -130,4 +130,21 @@ mod tests {
         assert_eq!(pos, 0);
         assert_eq!(&buf, &[0; 32]);
     }
+
+    #[test]
+    fn set_pos_cannot_exceed_buf_len() {
+        let mut pos = 0;
+        let mut buf = [0; 32];
+
+        let mut cursor = Cursor::new(&mut pos, &mut buf[..]);
+
+        cursor.set_pos(1);
+        assert_eq!(cursor.pos(), 1);
+
+        cursor.set_pos(32);
+        assert_eq!(cursor.pos(), 32);
+
+        cursor.set_pos(33);
+        assert_eq!(cursor.pos(), 32);
+    }
 }
