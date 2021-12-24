@@ -9,8 +9,6 @@ use std::{borrow::Borrow, fmt, ops::Deref};
 
 use super::{mmap::Mmap, FrameLayout};
 
-use crate::util;
-
 /// A [`Umem`](super::Umem) frame descriptor.
 ///
 /// Used to pass frame information between the kernel and
@@ -66,7 +64,7 @@ impl Frame {
     /// The current length of this frame's packet data segment.
     #[inline]
     pub fn len(&self) -> usize {
-        util::min_usize(self.lens.data, self.layout.mtu)
+        self.lens.data
     }
 
     /// Returns `true` if the length of the packet data segment
@@ -122,10 +120,8 @@ impl Frame {
     pub unsafe fn headroom(&self) -> Headroom {
         let headroom_ptr = unsafe { self.headroom_ptr() };
 
-        let headroom_len = util::min_usize(self.lens.headroom, self.layout.frame_headroom);
-
         Headroom {
-            contents: unsafe { &slice::from_raw_parts(headroom_ptr, headroom_len) },
+            contents: unsafe { &slice::from_raw_parts(headroom_ptr, self.lens.headroom) },
         }
     }
 
@@ -138,10 +134,8 @@ impl Frame {
     pub unsafe fn data(&self) -> Data {
         let data_ptr = unsafe { self.data_ptr() };
 
-        let data_len = util::min_usize(self.lens.data, self.layout.mtu);
-
         Data {
-            contents: unsafe { &slice::from_raw_parts(data_ptr, data_len) },
+            contents: unsafe { &slice::from_raw_parts(data_ptr, self.lens.data) },
         }
     }
 
@@ -209,7 +203,8 @@ impl Frame {
     pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
         self.addr = desc.addr;
         self.options = desc.options;
-        self.lens.data = desc.len; // Leave the headroom cursor position where it is
+        self.lens.data = desc.len;
+        // Leave the headroom cursor position where it is
     }
 
     /// # Safety
@@ -219,8 +214,8 @@ impl Frame {
     /// as this frame.
     #[inline]
     pub(crate) unsafe fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
-        desc.addr = self.addr as u64;
-        desc.options = self.options;
+        desc.addr = self.addr() as u64;
+        desc.options = self.options();
         desc.len = self.len() as u32;
     }
 }
@@ -298,27 +293,13 @@ impl<'umem> HeadroomMut<'umem> {
     /// be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        let len = util::min_usize(*self.len, self.buf.len());
-        &self.buf[..len]
+        &self.buf[..*self.len]
     }
 
     /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
         Cursor::new(self.len, self.buf)
-    }
-
-    /// Returns a reference to this segment's underlying memory and a
-    /// `usize` which is the length of whatever data is currently
-    /// contained in this segment.
-    ///
-    /// If you write to this slice then you must also update the
-    /// accompanying `usize` accordingly. You can use the
-    /// [`cursor`](HeadroomMut::cursor) method to avoid having to do
-    /// this manually.
-    #[inline]
-    pub fn buf_and_len(&'umem mut self) -> (&mut [u8], &mut usize) {
-        (&mut self.buf, &mut self.len)
     }
 }
 
@@ -398,27 +379,13 @@ impl<'umem> DataMut<'umem> {
     /// Will change as packets are sent or received using this frame.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        let len = util::min_usize(*self.len, self.buf.len());
-        &self.buf[..len]
+        &self.buf[..*self.len]
     }
 
     /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&'umem mut self) -> Cursor<'umem> {
         Cursor::new(self.len, self.buf)
-    }
-
-    /// Returns a reference to this segment's underlying memory and a
-    /// `usize` which is the length of whatever data is currently
-    /// contained in this segment.
-    ///
-    /// If you write to this slice then you must also update the
-    /// accompanying `usize` accordingly. You can use the
-    /// [`cursor`](DataMut::cursor) method to avoid having to do
-    /// this manually.
-    #[inline]
-    pub fn buf_and_len(&'umem mut self) -> (&mut [u8], &mut usize) {
-        (&mut self.buf, &mut self.len)
     }
 }
 

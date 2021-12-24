@@ -31,7 +31,7 @@ impl<'a> Cursor<'a> {
     /// Sets the cursor's write position.
     #[inline]
     pub fn set_pos(&mut self, pos: usize) {
-        *self.pos = pos;
+        *self.pos = util::min_usize(pos, self.buf.len());
     }
 
     /// The length of the underlying buffer.
