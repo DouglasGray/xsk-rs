@@ -91,6 +91,12 @@ pub struct Umem {
 impl Umem {
     /// Create a new UMEM instance backed by an anonymous memory
     /// mapped region.
+    ///
+    /// Setting `use_huge_pages` to `true` will instructed `mmap()` to
+    /// allocate the underlying memory using huge pages. If you are
+    /// getting errors as a result of this, check that the
+    /// `HugePages_Total` setting is non-zero when you run `cat
+    /// /proc/meminfo`.
     pub fn new(
         config: UmemConfig,
         frame_count: NonZeroU32,
