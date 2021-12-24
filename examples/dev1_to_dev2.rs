@@ -14,8 +14,8 @@ use std::{
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 use xsk_rs::{
-    BindFlags, CompQueue, FillQueue, Frame, FrameSize, Interface, QueueSize, RxQueue, Socket,
-    SocketConfig, TxQueue, Umem, UmemConfig,
+    config::{BindFlags, FrameSize, Interface, QueueSize, SocketConfig, UmemConfig},
+    CompQueue, FillQueue, Frame, RxQueue, Socket, TxQueue, Umem,
 };
 
 mod setup;

@@ -1,6 +1,9 @@
 use std::{convert::TryInto, io::Write, net::Ipv4Addr, str, thread};
 use tokio::runtime::Runtime;
-use xsk_rs::{Socket, SocketConfig, Umem, UmemConfig};
+use xsk_rs::{
+    config::{SocketConfig, UmemConfig},
+    Socket, Umem,
+};
 
 #[allow(dead_code)]
 mod setup;

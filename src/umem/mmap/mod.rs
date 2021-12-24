@@ -10,7 +10,6 @@ cfg_if! {
         use std::ptr::{self, NonNull};
 
         /// An anonymous memory mapped region.
-        #[derive(Clone)]
         pub struct Mmap {
             addr: NonNull<libc::c_void>,
             len: usize,
@@ -78,7 +77,6 @@ cfg_if! {
 
     } else {
         /// A mocked [`Mmap`] that uses a [`Vec`] internally.
-        #[derive(Clone)]
         pub struct Mmap {
             inner: Vec<u8>
         }
