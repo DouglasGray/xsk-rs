@@ -1,10 +1,7 @@
 //! Types for interacting with and creating a [`Umem`].
 
 mod mmap;
-use mmap::{
-    framed::{FrameLayout, FramedMmap},
-    Mmap,
-};
+use mmap::Mmap;
 
 pub mod frame;
 use frame::Frame;
@@ -69,19 +66,15 @@ unsafe impl Send for XskUmem {}
 pub(crate) struct UmemInner {
     umem: Mutex<XskUmem>,
     saved_fq_and_cq: Mutex<Option<(XskRingProd, XskRingCons)>>,
-    mmap: Arc<Mmap>,
+    _mmap: Mmap,
 }
 
 impl UmemInner {
-    fn new(
-        umem: XskUmem,
-        saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>,
-        mmap: Arc<Mmap>,
-    ) -> Self {
+    fn new(umem: XskUmem, saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>, mmap: Mmap) -> Self {
         Self {
             umem: Mutex::new(umem),
             saved_fq_and_cq: Mutex::new(saved_fq_and_cq),
-            mmap,
+            _mmap: mmap,
         }
     }
 }
@@ -108,7 +101,7 @@ impl Umem {
 
         let mmap_len = frame_size * frame_count;
 
-        let mut mmap = Mmap::new(mmap_len, use_huge_pages).map_err(|e| UmemCreateError {
+        let mmap = Mmap::new(mmap_len, use_huge_pages).map_err(|e| UmemCreateError {
             reason: "failed to create underlying mmap region",
             err: e,
         })?;
@@ -120,7 +113,7 @@ impl Umem {
         let err = unsafe {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
-                mmap.as_mut(),
+                mmap.as_mut_ptr(),
                 mmap_len as u64,
                 fq.as_mut(),
                 cq.as_mut(),
@@ -159,31 +152,24 @@ impl Umem {
             });
         }
 
-        let inner = UmemInner::new(xsk_umem, Some((fq, cq)), Arc::new(mmap));
+        let inner = UmemInner::new(xsk_umem, Some((fq, cq)), mmap.clone());
 
         let xdp_headroom = XDP_PACKET_HEADROOM as usize;
         let frame_headroom = config.frame_headroom() as usize;
         let mtu = frame_size - (xdp_headroom + frame_headroom);
 
-        let framed_mmap = FramedMmap::new(
-            FrameLayout {
-                xdp_headroom,
-                frame_headroom,
-                mtu,
-            },
-            Arc::clone(&inner.mmap),
-        )
-        .map_err(|e| UmemCreateError {
-            reason: "failed to split underlying mmap region into frames",
-            err: e,
-        })?;
+        let frame_layout = FrameLayout {
+            _xdp_headroom: xdp_headroom,
+            frame_headroom,
+            mtu,
+        };
 
         let mut frame_descs: Vec<Frame> = Vec::with_capacity(frame_count);
 
         for i in 0..frame_count {
             let addr = (i * frame_size) + xdp_headroom + frame_headroom;
 
-            frame_descs.push(unsafe { Frame::new(addr, mtu, framed_mmap.clone()) });
+            frame_descs.push(unsafe { Frame::new(addr, frame_layout, mmap.clone()) });
         }
 
         let umem = Umem {
@@ -239,5 +225,20 @@ impl fmt::Display for UmemCreateError {
 impl Error for UmemCreateError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         Some(self.err.borrow())
+    }
+}
+
+/// Dimensions of a [`Umem`] frame.
+#[derive(Debug, Clone, Copy)]
+struct FrameLayout {
+    _xdp_headroom: usize,
+    frame_headroom: usize,
+    mtu: usize,
+}
+
+impl FrameLayout {
+    #[cfg(test)]
+    fn frame_size(&self) -> usize {
+        self._xdp_headroom + self.frame_headroom + self.mtu
     }
 }

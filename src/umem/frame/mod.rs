@@ -7,7 +7,7 @@ pub use cursor::Cursor;
 use core::slice;
 use std::{borrow::Borrow, fmt, ops::Deref};
 
-use super::mmap::framed::FramedMmap;
+use super::{mmap::Mmap, FrameLayout};
 
 use crate::util;
 
@@ -36,10 +36,10 @@ struct SegmentLengths {
 /// A single frame of some [`Umem`](super::Umem).
 pub struct Frame {
     addr: usize,
-    mtu: usize,
-    lens: SegmentLengths,
     options: u32,
-    framed_mmap: FramedMmap,
+    lens: SegmentLengths,
+    layout: FrameLayout,
+    mmap: Mmap,
 }
 
 impl Frame {
@@ -47,13 +47,13 @@ impl Frame {
     ///
     /// `addr` must be the starting address of the packet data segment
     /// of some frame belonging to `framed_mmap`.
-    pub(super) unsafe fn new(addr: usize, mtu: usize, framed_mmap: FramedMmap) -> Self {
+    pub(super) unsafe fn new(addr: usize, frame_layout: FrameLayout, mmap: Mmap) -> Self {
         Self {
             addr,
-            mtu,
-            lens: SegmentLengths::default(),
             options: 0,
-            framed_mmap,
+            lens: SegmentLengths::default(),
+            layout: frame_layout,
+            mmap,
         }
     }
 
@@ -66,7 +66,7 @@ impl Frame {
     /// The current length of this frame's packet data segment.
     #[inline]
     pub fn len(&self) -> usize {
-        util::min_usize(self.lens.data, self.mtu)
+        util::min_usize(self.lens.data, self.layout.mtu)
     }
 
     /// Returns `true` if the length of the packet data segment
@@ -90,6 +90,17 @@ impl Frame {
         self.options = options
     }
 
+    #[inline]
+    unsafe fn headroom_ptr(&self) -> *mut u8 {
+        let addr = self.addr - self.layout.frame_headroom;
+        unsafe { self.mmap.offset(addr) as *mut u8 }
+    }
+
+    #[inline]
+    unsafe fn data_ptr(&self) -> *mut u8 {
+        unsafe { self.mmap.offset(self.addr) as *mut u8 }
+    }
+
     /// The frame's headroom and packet data segments.
     ///
     /// # Safety
@@ -99,19 +110,7 @@ impl Frame {
     /// same time, either in userspace or by the kernel.
     #[inline]
     pub unsafe fn segments(&self) -> (Headroom, Data) {
-        let (h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
-
-        let headroom_len = util::min_usize(self.lens.headroom, h.len);
-        let data_len = util::min_usize(self.lens.data, d.len);
-
-        (
-            Headroom {
-                contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
-            },
-            Data {
-                contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
-            },
-        )
+        unsafe { (self.headroom(), self.data()) }
     }
 
     /// The frame's headroom segment.
@@ -121,12 +120,12 @@ impl Frame {
     /// See [`get`](Frame::get).
     #[inline]
     pub unsafe fn headroom(&self) -> Headroom {
-        let (h, _d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
+        let headroom_ptr = unsafe { self.headroom_ptr() };
 
-        let headroom_len = util::min_usize(self.lens.headroom, h.len);
+        let headroom_len = util::min_usize(self.lens.headroom, self.layout.frame_headroom);
 
         Headroom {
-            contents: unsafe { &slice::from_raw_parts(h.addr, headroom_len) },
+            contents: unsafe { &slice::from_raw_parts(headroom_ptr, headroom_len) },
         }
     }
 
@@ -137,12 +136,12 @@ impl Frame {
     /// See [`get`](Frame::get).
     #[inline]
     pub unsafe fn data(&self) -> Data {
-        let (_h, d) = unsafe { self.framed_mmap.get_unchecked(self.addr) };
+        let data_ptr = unsafe { self.data_ptr() };
 
-        let data_len = util::min_usize(self.lens.data, d.len);
+        let data_len = util::min_usize(self.lens.data, self.layout.mtu);
 
         Data {
-            contents: unsafe { &slice::from_raw_parts(d.addr, data_len) },
+            contents: unsafe { &slice::from_raw_parts(data_ptr, data_len) },
         }
     }
 
@@ -156,16 +155,17 @@ impl Frame {
     /// else at the same time, either in userspace or by the kernel.
     #[inline]
     pub unsafe fn segments_mut(&mut self) -> (HeadroomMut, DataMut) {
-        let (h, d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
+        let headroom_ptr = unsafe { self.headroom_ptr() };
+        let data_ptr = unsafe { self.data_ptr() };
 
         (
             HeadroomMut {
                 len: &mut self.lens.headroom,
-                buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
+                buf: unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) },
             },
             DataMut {
                 len: &mut self.lens.data,
-                buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
+                buf: unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) },
             },
         )
     }
@@ -177,11 +177,11 @@ impl Frame {
     /// See [`get_mut`](Frame::get_mut).
     #[inline]
     pub unsafe fn headroom_mut(&mut self) -> HeadroomMut {
-        let (h, _d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
+        let headroom_ptr = unsafe { self.headroom_ptr() };
 
         HeadroomMut {
             len: &mut self.lens.headroom,
-            buf: unsafe { slice::from_raw_parts_mut(h.addr, h.len) },
+            buf: unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) },
         }
     }
 
@@ -192,11 +192,11 @@ impl Frame {
     /// See [`get_mut`](Frame::get_mut).
     #[inline]
     pub unsafe fn data_mut(&mut self) -> DataMut {
-        let (_h, d) = unsafe { self.framed_mmap.get_unchecked_mut(self.addr) };
+        let data_ptr = unsafe { self.data_ptr() };
 
         DataMut {
             len: &mut self.lens.data,
-            buf: unsafe { slice::from_raw_parts_mut(d.addr, d.len) },
+            buf: unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) },
         }
     }
 
@@ -229,7 +229,7 @@ impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Frame")
             .field("addr", &self.addr)
-            .field("mtu", &self.mtu)
+            .field("mtu", &self.layout)
             .field("lens", &self.lens)
             .field("options", &self.options)
             .finish()
@@ -442,5 +442,161 @@ impl Deref for DataMut<'_> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.contents()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::slice;
+    use std::io::{self, Write};
+
+    use libbpf_sys::xdp_desc;
+
+    use crate::umem::{Frame, Mmap};
+
+    use super::*;
+
+    #[test]
+    fn check_writes_persist() {
+        let layout = FrameLayout {
+            _xdp_headroom: 0,
+            frame_headroom: 512,
+            mtu: 2048,
+        };
+
+        let frame_size = layout.frame_size();
+
+        let mmap = Mmap::new(16 * frame_size, false).unwrap();
+
+        let mut frame_0 =
+            unsafe { Frame::new(0 * frame_size + layout.frame_headroom, layout, mmap.clone()) };
+
+        let mut frame_1 =
+            unsafe { Frame::new(1 * frame_size + layout.frame_headroom, layout, mmap.clone()) };
+
+        let mut desc = xdp_desc::default();
+
+        unsafe { frame_0.data_mut() }
+            .cursor()
+            .write_all(b"hello")
+            .unwrap();
+
+        unsafe {
+            frame_0.write_xdp_desc(&mut desc);
+        }
+
+        assert_eq!(desc.addr, (0 * frame_size + layout.frame_headroom) as u64);
+        assert_eq!(desc.len, 5);
+        assert_eq!(desc.options, 0);
+
+        unsafe { frame_1.data_mut() }
+            .cursor()
+            .write_all(b"world!")
+            .unwrap();
+
+        unsafe {
+            frame_1.write_xdp_desc(&mut desc);
+        }
+
+        assert_eq!(desc.addr, (1 * frame_size + layout.frame_headroom) as u64);
+        assert_eq!(desc.len, 6);
+        assert_eq!(desc.options, 0);
+
+        assert_eq!(
+            unsafe {
+                slice::from_raw_parts(
+                    mmap.offset(0 * frame_size + layout.frame_headroom) as *const u8,
+                    5,
+                )
+            },
+            b"hello"
+        );
+
+        assert_eq!(
+            unsafe {
+                slice::from_raw_parts(
+                    mmap.offset(1 * frame_size + layout.frame_headroom) as *const u8,
+                    6,
+                )
+            },
+            b"world!"
+        );
+    }
+
+    #[test]
+    fn check_writes_are_contiguous() {
+        let layout = FrameLayout {
+            _xdp_headroom: 4,
+            frame_headroom: 8,
+            mtu: 12,
+        };
+
+        let frame_count = 4;
+
+        // An arbitrary layout
+        let xdp_headroom_segment = [0, 0, 0, 0];
+        let frame_headroom_segment = [1, 1, 1, 1, 1, 1, 1, 1];
+        let data_segment = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2];
+
+        let mut cursor = io::Cursor::new(Vec::new());
+
+        cursor.write_all(&xdp_headroom_segment).unwrap();
+        cursor.write_all(&frame_headroom_segment).unwrap();
+        cursor.write_all(&data_segment).unwrap();
+
+        let base_layout: Vec<u8> = cursor.into_inner();
+
+        let expected_layout: Vec<u8> = (0..frame_count as u8)
+            .into_iter()
+            .map(|i| {
+                base_layout
+                    .iter()
+                    .map(|el| el * (i + 1))
+                    .collect::<Vec<_>>()
+            })
+            .flatten()
+            .collect();
+
+        // Create framed mmap and frames and write some data to them
+        let frame_size = layout.frame_size();
+
+        let mmap = Mmap::new(frame_count * frame_size, false).unwrap();
+
+        (0..frame_count).into_iter().for_each(|i| {
+            let mut frame = unsafe {
+                Frame::new(
+                    (i * frame_size) + layout._xdp_headroom + layout.frame_headroom,
+                    layout,
+                    mmap.clone(),
+                )
+            };
+
+            let (mut headroom, mut data) = unsafe { frame.segments_mut() };
+
+            headroom
+                .cursor()
+                .write_all(
+                    &frame_headroom_segment
+                        .iter()
+                        .map(|el| el * (i as u8 + 1))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+
+            data.cursor()
+                .write_all(
+                    &data_segment
+                        .iter()
+                        .map(|el| el * (i as u8 + 1))
+                        .collect::<Vec<_>>(),
+                )
+                .unwrap();
+        });
+
+        // Check they match
+        let mmap_region =
+            unsafe { slice::from_raw_parts(mmap.as_mut_ptr() as *const u8, mmap.len()) };
+
+        assert_eq!(mmap_region, expected_layout)
     }
 }
