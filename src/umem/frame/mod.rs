@@ -321,7 +321,7 @@ pub struct HeadroomMut<'umem> {
     buf: &'umem mut [u8],
 }
 
-impl<'umem> HeadroomMut<'umem> {
+impl HeadroomMut<'_> {
     /// Returns this segment's contents, up to its current length.
     ///
     /// Note that headroom length isn't changed in between updates to
@@ -336,7 +336,7 @@ impl<'umem> HeadroomMut<'umem> {
 
     /// A cursor for writing to the underlying memory.
     #[inline]
-    pub fn cursor(&'umem mut self) -> Cursor<'umem> {
+    pub fn cursor(&mut self) -> Cursor<'_> {
         Cursor::new(self.len, self.buf)
     }
 }
@@ -411,7 +411,7 @@ pub struct DataMut<'umem> {
     buf: &'umem mut [u8],
 }
 
-impl<'umem> DataMut<'umem> {
+impl DataMut<'_> {
     /// Returns this segment's contents, up to its current length.
     ///
     /// Will change as packets are sent or received using this frame.
@@ -422,7 +422,7 @@ impl<'umem> DataMut<'umem> {
 
     /// A cursor for writing to the underlying memory.
     #[inline]
-    pub fn cursor(&'umem mut self) -> Cursor<'umem> {
+    pub fn cursor(&mut self) -> Cursor<'_> {
         Cursor::new(self.len, self.buf)
     }
 }
