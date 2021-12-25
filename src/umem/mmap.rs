@@ -66,8 +66,8 @@ mod inner {
                     len,
                     PROT_READ | PROT_WRITE, // prot
                     flags,
-                    -1,               // file
-                    0 as libc::off_t, // offset
+                    -1, // file
+                    0,  // offset
                 )
             };
 

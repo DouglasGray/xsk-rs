@@ -147,7 +147,7 @@ impl Frame {
         let headroom_ptr = unsafe { self.headroom_ptr() };
 
         Headroom {
-            contents: unsafe { &slice::from_raw_parts(headroom_ptr, self.lens.headroom) },
+            contents: unsafe { slice::from_raw_parts(headroom_ptr, self.lens.headroom) },
         }
     }
 
@@ -162,7 +162,7 @@ impl Frame {
         let data_ptr = unsafe { self.data_ptr() };
 
         Data {
-            contents: unsafe { &slice::from_raw_parts(data_ptr, self.lens.data) },
+            contents: unsafe { slice::from_raw_parts(data_ptr, self.lens.data) },
         }
     }
 

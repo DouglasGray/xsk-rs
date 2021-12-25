@@ -1,17 +1,24 @@
 # Changelog
 
 ## [Unreleased]
-- rework UMEM access by moving it into frames + delineate between
-  frame headroom and packet data sections + add cursors for convenient
-  writing
+
+## Added
 - support shared UMEM
 - support retrieving XDP statistics
-- change config to enforce restrictions on certain vals early (e.g
-  queue sizes)
-- remove lifetimes by packaging the various queues with Arc'd UMEM or
-  sockets where needed to ensure they don't outlive what they depend
-  on.
-- bump libs, e.g. libbpf-sys to 0.6.0-1
+- new frame struct to allow more granular UMEM access along with
+  clearer separation between headroom and packet data. Includes a
+  cursor for convenient writing
+- config builders and add extra types to enforce restrictions on
+  certain values / sizes (e.g queue sizes)
+
+## Changed
+- bump libs, e.g. `libbpf-sys` to 0.6.0-1
+
+## Removed
+- got rid of lifetimes by packaging the various queues with an `Arc`'d
+  UMEM or socket where needed to ensure they don't outlive what they
+  depend on. Shouldn't cause any slowdown in the single threaded case
+  since the `Arc`s aren't dereferenced in the fast path
 
 ## [0.2.4] - 2021-07-10
 
