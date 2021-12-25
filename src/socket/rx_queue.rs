@@ -42,8 +42,8 @@ impl RxQueue {
     ///
     /// # Safety
     ///
-    /// The underlying [`Umem`](crate::umem::Umem) of the passed
-    /// `frames` and this `RxQueue` must be the same.
+    /// The frames passed to this queue must belong to the same
+    /// [`Umem`](super::Umem) that this instance is tied to.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;
@@ -69,6 +69,9 @@ impl RxQueue {
                     desc.options = (*recv_pkt_desc).options;
                 }
 
+                // SAFETY: unsafe contract of this function guarantees
+                // this frame belongs to the same UMEM as this queue,
+                // so descriptor values will be valid.
                 unsafe {
                     frame.set_desc(&desc);
                 }

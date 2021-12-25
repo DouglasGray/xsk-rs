@@ -35,19 +35,24 @@ struct XskUmem(NonNull<xsk_umem>);
 impl XskUmem {
     /// # Safety
     ///
-    /// Requires that there are no other copies or clones of `ptr`.
+    /// Only one instance of this struct may exist since it deletes
+    /// the UMEM as part of its [`Drop`] impl. If there are copies or
+    /// clones of `ptr` then care must be taken to ensure they aren't
+    /// used once this struct goes out of scope, and that they don't
+    /// delete the UMEM themselves.
     unsafe fn new(ptr: NonNull<xsk_umem>) -> Self {
         Self(ptr)
     }
 
-    fn as_mut(&mut self) -> &mut xsk_umem {
-        // Safety: ok as we own the only pointer to the UMEM.
-        unsafe { self.0.as_mut() }
+    fn as_mut_ptr(&self) -> *mut xsk_umem {
+        self.0.as_ptr()
     }
 }
 
 impl Drop for XskUmem {
     fn drop(&mut self) {
+        // SAFETY: unsafe constructor contract guarantees that the
+        // UMEM has not been deleted already.
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.0.as_ptr()) };
 
         if err != 0 {
@@ -128,7 +133,12 @@ impl Umem {
         };
 
         let xsk_umem = match NonNull::new(umem_ptr) {
-            Some(init_umem) => unsafe { XskUmem::new(init_umem) },
+            Some(umem_ptr) => {
+                // SAFETY: this is the only `XskUmem` instance for
+                // this pointer, and no other pointers to the UMEM
+                // exist.
+                unsafe { XskUmem::new(umem_ptr) }
+            }
             None => {
                 return Err(UmemCreateError {
                     reason: "returned UMEM pointer is null",
@@ -175,6 +185,8 @@ impl Umem {
         for i in 0..frame_count {
             let addr = (i * frame_size) + xdp_headroom + frame_headroom;
 
+            // SAFETY: `addr` is the start of a packet data segment of
+            // some frame belonging to this UMEM's `mmap`.
             frame_descs.push(unsafe { Frame::new(addr, frame_layout, mmap.clone()) });
         }
 
@@ -200,12 +212,12 @@ impl Umem {
     #[inline]
     pub(crate) fn with_ptr_and_saved_queues<F, T>(&self, mut f: F) -> T
     where
-        F: FnMut(&mut xsk_umem, &mut Option<(XskRingProd, XskRingCons)>) -> T,
+        F: FnMut(*mut xsk_umem, &mut Option<(XskRingProd, XskRingCons)>) -> T,
     {
-        let mut umem = self.inner.umem.lock().unwrap();
+        let umem = self.inner.umem.lock().unwrap();
         let saved_fq_and_cq = &mut self.inner.saved_fq_and_cq.lock().unwrap();
 
-        f(umem.as_mut(), saved_fq_and_cq)
+        f(umem.as_mut_ptr(), saved_fq_and_cq)
     }
 }
 

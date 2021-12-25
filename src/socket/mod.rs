@@ -33,7 +33,11 @@ struct XskSocket(NonNull<xsk_socket>);
 impl XskSocket {
     /// # Safety
     ///
-    /// Requires that there are no other copies or clones of `ptr`.
+    /// Only one instance of this struct may exist since it deletes
+    /// the socket as part of its [`Drop`] impl. If there are copies or
+    /// clones of `ptr` then care must be taken to ensure they aren't
+    /// used once this struct goes out of scope, and that they don't
+    /// delete the socket themselves.
     unsafe fn new(ptr: NonNull<xsk_socket>) -> Self {
         Self(ptr)
     }
@@ -41,6 +45,8 @@ impl XskSocket {
 
 impl Drop for XskSocket {
     fn drop(&mut self) {
+        // SAFETY: unsafe constructor contract guarantees that the
+        // socket has not been deleted already.
         unsafe {
             libbpf_sys::xsk_socket__delete(self.0.as_mut());
         }
@@ -117,7 +123,12 @@ impl Socket {
         };
 
         let xsk_socket = match NonNull::new(xsk_ptr) {
-            Some(init_xsk) => unsafe { XskSocket::new(init_xsk) },
+            Some(init_xsk) => {
+                // SAFETY: this is the only `XskSocket` instance for
+                // this pointer, and no other pointers to the socket
+                // exist.
+                unsafe { XskSocket::new(init_xsk) }
+            }
             None => {
                 return Err(SocketCreateError {
                     reason: "returned socket pointer was null",

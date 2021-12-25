@@ -32,11 +32,15 @@ impl FillQueue {
     ///
     /// # Safety
     ///
-    /// This function is unsafe as it is possible to cause a data
-    /// race by simultaneously submitting the same frame descriptor to
-    /// the fill ring and the Tx ring, for example. Once the frames
-    /// have been submitted they should not be used again until
-    /// consumed again via the [`RxQueue`](crate::socket::RxQueue).
+    /// This function is unsafe as it is possible to cause a data race
+    /// if used improperly. For example, by simultaneously submitting
+    /// the same frame descriptor to this `FillQueue` and the
+    /// [`TxQueue`](crate::TxQueue). Once the frames have been
+    /// submitted to this queue they should not be used again until
+    /// consumed via the [`RxQueue`](crate::RxQueue).
+    ///
+    /// Furthermore, the frames passed to this queue must belong to
+    /// the same [`Umem`](super::Umem) that this instance is tied to.
     #[inline]
     pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
         let nb = frames.len() as u64;

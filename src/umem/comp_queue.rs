@@ -40,8 +40,8 @@ impl CompQueue {
     ///
     /// # Safety
     ///
-    /// The underlying [`Umem`](super::Umem) of the passed `frames`
-    /// and this `CompQueue` must be the same.
+    /// The frames passed to this queue must belong to the same
+    /// [`Umem`](super::Umem) that this instance is tied to.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;
@@ -65,6 +65,9 @@ impl CompQueue {
                 data_desc.len = 0;
                 data_desc.options = 0;
 
+                // SAFETY: unsafe contract of this function guarantees
+                // this frame belongs to the same UMEM as this queue,
+                // so descriptor values will be valid.
                 unsafe { frame.set_desc(&data_desc) };
 
                 idx += 1;

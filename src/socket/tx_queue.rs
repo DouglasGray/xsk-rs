@@ -35,10 +35,14 @@ impl TxQueue {
     /// # Safety
     ///
     /// This function is unsafe as it is possible to cause a data race
-    /// by simultaneously submitting the same frame descriptor to the
-    /// tx ring and the fill ring, for example.  Once any frames have
-    /// been submitted they should not be used again until consumed
-    /// via the [`CompQueue`](crate::umem::CompQueue).
+    /// if used improperly. For example, by simultaneously submitting
+    /// the same frame descriptor to this `TxQueue` and the
+    /// [`FillQueue`](crate::FillQueue). Once the frames have been
+    /// submitted to this queue they should not be used again until
+    /// consumed via the [`CompQueue`](crate::CompQueue).
+    ///
+    /// Furthermore, the frames passed to this queue must belong to
+    /// the same [`Umem`](super::Umem) that this instance is tied to.
     #[inline]
     pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
         let nb = frames.len() as u64;
@@ -56,6 +60,9 @@ impl TxQueue {
                 let send_pkt_desc =
                     unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
+                // SAFETY: unsafe contract of this function guarantees
+                // this frame belongs to the same UMEM as this queue,
+                // so descriptor values will be valid.
                 unsafe { frame.write_xdp_desc(&mut *send_pkt_desc) };
 
                 idx += 1;

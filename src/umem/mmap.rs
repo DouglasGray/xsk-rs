@@ -18,7 +18,14 @@ mod inner {
     }
 
     impl MmapInner {
-        fn new(addr: NonNull<libc::c_void>, len: usize) -> Self {
+        /// # Safety
+        ///
+        /// Only one instance of this struct may exist since it unmaps
+        /// the allocated memory as part of its [`Drop`] impl. If
+        /// there are copies or clones of `addr` then care must be
+        /// taken to ensure they aren't used once this struct goes out
+        /// of scope, and that they don't unmap the memory themselves.
+        unsafe fn new(addr: NonNull<libc::c_void>, len: usize) -> Self {
             Self { addr, len }
         }
     }
@@ -66,10 +73,16 @@ mod inner {
             if addr == MAP_FAILED {
                 Err(io::Error::last_os_error())
             } else {
-                let inner = MmapInner::new(
-                    NonNull::new(addr).expect("ptr non-null since we confirmed `mmap()` succeeded"),
-                    len,
-                );
+                // SAFETY: this is the only `MmapInner` instance for
+                // this pointer, and no other pointers to the mmap'd
+                // region exist.
+                let inner = unsafe {
+                    MmapInner::new(
+                        NonNull::new(addr)
+                            .expect("ptr non-null since we confirmed `mmap()` succeeded"),
+                        len,
+                    )
+                };
 
                 Ok(Mmap {
                     inner: Arc::new(inner),
@@ -77,12 +90,19 @@ mod inner {
             }
         }
 
+        /// Get a pointer to the start of the memory mapped region.
         #[inline]
         pub fn as_mut_ptr(&self) -> *mut libc::c_void {
             self.inner.addr.as_ptr()
         }
 
         #[inline]
+        /// Get a pointer to some address within the `mmap`d area,
+        /// calculated as an offset from the start of the region.
+        ///
+        /// # Safety
+        ///
+        /// The resulting offset pointer must be within the `mmap`d region.
         pub unsafe fn offset(&self, offset: usize) -> *mut libc::c_void {
             unsafe { self.as_mut_ptr().add(offset as usize) }
         }
@@ -124,7 +144,7 @@ mod inner {
 
 unsafe impl Send for Mmap {}
 
-// Safety: this impl is only safe in the context of this library. The
+// SAFETY: this impl is only safe in the context of this library. The
 // only mutators of the mmap'd region are the frames, which write to
 // disjoint sections (assuming the unsafe requirements are upheld).
 unsafe impl Sync for Mmap {}

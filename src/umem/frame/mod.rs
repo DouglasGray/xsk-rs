@@ -41,6 +41,10 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Create a new frame which belongs to `umem`, whose packet data
+    /// segment starts at `addr` and with a layout described by
+    /// `frame_layout.`
+    ///
     /// # Safety
     ///
     /// `addr` must be the starting address of the packet data segment
@@ -89,12 +93,24 @@ impl Frame {
     }
 
     #[inline]
+    /// Retrieve a pointer to the headroom segment of this frame.
+    ///
+    /// # Safety
+    ///
+    /// This frame's current `addr` must point to the start of a
+    /// packet data segment of a frame comprising the underlying UMEM.
     unsafe fn headroom_ptr(&self) -> *mut u8 {
         let addr = self.addr - self.layout.frame_headroom;
         unsafe { self.umem.offset(addr) as *mut u8 }
     }
 
     #[inline]
+    /// Retrieve a pointer to the packet data segment of this frame.
+    ///
+    /// # Safety
+    ///
+    /// This frame's current `addr` must point to the start of a
+    /// packet data segment of a frame comprising the underlying UMEM.
     unsafe fn data_ptr(&self) -> *mut u8 {
         unsafe { self.umem.offset(self.addr) as *mut u8 }
     }
@@ -108,6 +124,15 @@ impl Frame {
     /// same time, either in userspace or by the kernel.
     #[inline]
     pub unsafe fn segments(&self) -> (Headroom, Data) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable references to these slices at the same
+        // time.
         unsafe { (self.headroom(), self.data()) }
     }
 
@@ -118,6 +143,7 @@ impl Frame {
     /// See [`get`](Frame::get).
     #[inline]
     pub unsafe fn headroom(&self) -> Headroom {
+        // SAFETY: see `segments`.
         let headroom_ptr = unsafe { self.headroom_ptr() };
 
         Headroom {
@@ -132,6 +158,7 @@ impl Frame {
     /// See [`get`](Frame::get).
     #[inline]
     pub unsafe fn data(&self) -> Data {
+        // SAFETY: see `segments`.
         let data_ptr = unsafe { self.data_ptr() };
 
         Data {
@@ -149,6 +176,15 @@ impl Frame {
     /// else at the same time, either in userspace or by the kernel.
     #[inline]
     pub unsafe fn segments_mut(&mut self) -> (HeadroomMut, DataMut) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable or immutable references to these
+        // slices at the same time.
         let headroom_ptr = unsafe { self.headroom_ptr() };
         let data_ptr = unsafe { self.data_ptr() };
 
@@ -171,6 +207,7 @@ impl Frame {
     /// See [`get_mut`](Frame::get_mut).
     #[inline]
     pub unsafe fn headroom_mut(&mut self) -> HeadroomMut {
+        // SAFETY: see `segments_mut`.
         let headroom_ptr = unsafe { self.headroom_ptr() };
 
         HeadroomMut {
@@ -186,6 +223,7 @@ impl Frame {
     /// See [`get_mut`](Frame::get_mut).
     #[inline]
     pub unsafe fn data_mut(&mut self) -> DataMut {
+        // SAFETY: see `segments_mut`.
         let data_ptr = unsafe { self.data_ptr() };
 
         DataMut {
@@ -210,8 +248,8 @@ impl Frame {
     /// # Safety
     ///
     /// The provided `desc` must ultimately be passed to a ring that
-    /// is associated with the same underlying [`Umem`](super::Umem)
-    /// as this frame.
+    /// is tied to the same underlying [`Umem`](super::Umem) as this
+    /// frame.
     #[inline]
     pub(crate) unsafe fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
         desc.addr = self.addr() as u64;
