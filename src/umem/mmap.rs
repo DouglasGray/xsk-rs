@@ -43,7 +43,8 @@ mod inner {
     /// An anonymous memory mapped region.
     #[derive(Clone)]
     pub struct Mmap {
-        inner: Arc<MmapInner>,
+        addr: NonNull<libc::c_void>, // Store a copy to avoid double deref.
+        _inner: Arc<MmapInner>,
     }
 
     impl Mmap {
@@ -73,19 +74,23 @@ mod inner {
             if addr == MAP_FAILED {
                 Err(io::Error::last_os_error())
             } else {
+                let addr =
+                    NonNull::new(addr).expect("ptr non-null since we confirmed `mmap()` succeeded");
+
                 // SAFETY: this is the only `MmapInner` instance for
-                // this pointer, and no other pointers to the mmap'd
-                // region exist.
-                let inner = unsafe {
-                    MmapInner::new(
-                        NonNull::new(addr)
-                            .expect("ptr non-null since we confirmed `mmap()` succeeded"),
-                        len,
-                    )
-                };
+                // this pointer. `Mmap` also owns a copy of the raw
+                // pointer for quicker access, but it lives alongside
+                // an `Arc<MmapInner>` so will never outlive this
+                // struct. `Frame` is the only other place this raw
+                // pointer is used. However each of these own a copy
+                // of `Mmap` and do not expose the raw pointer
+                // publicly, so any pointers used there will not
+                // outlive this struct either.
+                let inner = unsafe { MmapInner::new(addr, len) };
 
                 Ok(Mmap {
-                    inner: Arc::new(inner),
+                    addr,
+                    _inner: Arc::new(inner),
                 })
             }
         }
@@ -93,16 +98,16 @@ mod inner {
         /// Get a pointer to the start of the memory mapped region.
         #[inline]
         pub fn as_mut_ptr(&self) -> *mut libc::c_void {
-            self.inner.addr.as_ptr()
+            self.addr.as_ptr()
         }
 
-        #[inline]
         /// Get a pointer to some address within the `mmap`d area,
         /// calculated as an offset from the start of the region.
         ///
         /// # Safety
         ///
         /// The resulting offset pointer must be within the `mmap`d region.
+        #[inline]
         pub unsafe fn offset(&self, offset: usize) -> *mut libc::c_void {
             unsafe { self.as_mut_ptr().add(offset as usize) }
         }
