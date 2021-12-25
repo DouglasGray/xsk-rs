@@ -7,20 +7,21 @@ A Rust interface for Linux AF_XDP sockets using libbpf.
 For more information please see the [networking docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
 or a more [detailed overview](http://vger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf).
 
-Inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire/ocaml-xsk).
+Initially inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire/ocaml-xsk).
 
 ### Examples
 
-A couple can be found in the `examples` directory. A simple example of
+A few may be found in the `examples` directory. A simple example of
 moving bytes between two sockets via a veth pair can be found in
-`hello_xdp.rs`, while a slightly more complex example of sending and
-receiving eth frames (also via a veth pair) is in `dev2_to_dev1.rs`,
-which includes a single-threaded and multi-threaded
-implementation. Note that neither example will be indicative of actual
-performance, since binding the sockets to the veth pair means that
-packets will pass through the kernel network stack.
+`examples/hello_xdp.rs`, while a slightly more complex example of
+sending and receiving eth frames (also via a veth pair) is in
+`examples/dev2_to_dev1.rs`, which includes a single-threaded and
+multi-threaded implementation. Note that neither example will be
+indicative of actual performance, since binding the sockets to the
+veth pair means that packets will pass through the kernel network
+stack.
 
-An example with shared UMEM is in `shared_umem.rs`.
+An example with shared UMEM is in `examples/shared_umem.rs`.
 
 ### Running tests / examples
 
