@@ -43,7 +43,7 @@ impl RxQueue {
     /// # Safety
     ///
     /// The frames passed to this queue must belong to the same
-    /// [`Umem`](super::Umem) that this instance is tied to.
+    /// [`Umem`](super::Umem) that this `RxQueue` instance is tied to.
     #[inline]
     pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
         let nb = frames.len() as u64;

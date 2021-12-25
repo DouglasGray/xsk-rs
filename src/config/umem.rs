@@ -19,25 +19,32 @@ impl ConfigBuilder {
         Self::default()
     }
 
-    /// Set the frame size.
+    /// Set the frame size. Default is
+    /// [`XSK_UMEM__DEFAULT_FRAME_SIZE`].
     pub fn frame_size(&mut self, size: FrameSize) -> &mut Self {
         self.config.frame_size = size;
         self
     }
 
-    /// Set the [`FillQueue`](crate::FillQueue) size.
+    /// Set the [`FillQueue`](crate::FillQueue) size. Default is
+    /// [`XSK_RING_PROD__DEFAULT_NUM_DESCS`].
     pub fn fill_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.fill_queue_size = size;
         self
     }
 
-    /// Set the [`CompQueue`](crate::CompQueue) size.
+    /// Set the [`CompQueue`](crate::CompQueue) size. Default is
+    /// [`XSK_RING_CONS__DEFAULT_NUM_DESCS`].
     pub fn comp_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.comp_queue_size = size;
         self
     }
 
-    /// Set the frame headroom.
+    /// Set the frame headroom available to the user. Default size is
+    /// [`XSK_UMEM__DEFAULT_FRAME_HEADROOM`].
+    ///
+    /// Not to be confused with [`XDP_PACKET_HEADROOM`] which is the
+    /// amount of headroom reserved by XDP.
     pub fn frame_headroom(&mut self, headroom: u32) -> &mut Self {
         self.config.frame_headroom = headroom;
         self
@@ -81,7 +88,8 @@ pub struct Config {
 }
 
 impl Config {
-    /// Creates a [`UmemConfigBuilder`](ConfigBuilder) instance.
+    /// Creates a new [`UmemConfigBuilder`](ConfigBuilder) instance
+    /// with with sizes as per the `libbpf` defaults.
     pub fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
@@ -101,9 +109,10 @@ impl Config {
         self.comp_queue_size
     }
 
-    /// The user headroom available in each frame. Not to be confused
-    /// with [`XDP_PACKET_HEADROOM`] which is the amount of headroom
-    /// reserved by XDP.
+    /// The frame headroom available to the user.
+    ///
+    /// Not to be confused with [`XDP_PACKET_HEADROOM`] which is the
+    /// amount of headroom reserved by XDP.
     pub fn frame_headroom(&self) -> u32 {
         self.frame_headroom
     }

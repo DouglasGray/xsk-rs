@@ -37,7 +37,7 @@ impl PollFd {
     }
 }
 
-/// A pollable socket file descriptor.
+/// A pollable AF_XDP [`Socket`](crate::Socket) file descriptor.
 pub struct Fd {
     id: i32,
     pollfd_read: PollFd,
@@ -83,7 +83,7 @@ impl Fd {
         self.pollfd_write.poll(timeout_ms)
     }
 
-    /// Returns [`Socket](crate::Socket) statistics.
+    /// Returns [`Socket`](crate::Socket) statistics.
     #[inline]
     pub fn xdp_statistics(&self) -> io::Result<XdpStatistics> {
         let mut stats = xdp_statistics::default();
@@ -126,9 +126,11 @@ impl AsRawFd for Fd {
     ///
     /// May be required, for example, in the case where the default
     /// libbpf program has not been loaded (using the
-    /// `XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD` flag) and the socket's
+    /// [`XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD`] flag) and the socket's
     /// file descriptor must be available to register it in the
     /// `XSKMAP`.
+    ///
+    /// [`XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD`]: crate::config::LibbpfFlags::XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
         self.id

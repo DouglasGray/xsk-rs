@@ -40,7 +40,8 @@ impl FillQueue {
     /// consumed via the [`RxQueue`](crate::RxQueue).
     ///
     /// Furthermore, the frames passed to this queue must belong to
-    /// the same [`Umem`](super::Umem) that this instance is tied to.
+    /// the same [`Umem`](super::Umem) that this `FillQueue` instance
+    /// is tied to.
     #[inline]
     pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
         let nb = frames.len() as u64;

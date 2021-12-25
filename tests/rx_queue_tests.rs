@@ -5,13 +5,13 @@ use setup::{PacketGenerator, Xsk, XskConfig};
 use libbpf_sys::XDP_PACKET_HEADROOM;
 use serial_test::serial;
 use std::{convert::TryInto, io::Write, thread, time::Duration};
-use xsk_rs::config::{FrameSize, QueueSize, SocketConfig, UmemConfig};
+use xsk_rs::config::{FrameSize, QueueSize, SocketConfig, UmemConfig, XDP_UMEM_MIN_CHUNK_SIZE};
 
 const CQ_SIZE: u32 = 4;
 const FQ_SIZE: u32 = 4;
 const TX_Q_SIZE: u32 = 4;
 const RX_Q_SIZE: u32 = 4;
-const FRAME_SIZE: u32 = 2048;
+const FRAME_SIZE: u32 = XDP_UMEM_MIN_CHUNK_SIZE;
 const FRAME_COUNT: u32 = 8;
 const FRAME_HEADROOM: u32 = 512;
 

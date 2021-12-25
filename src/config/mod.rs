@@ -17,6 +17,12 @@ use std::{convert::TryFrom, error, fmt};
 
 use crate::util;
 
+/// The minimum [`Umem`](crate::Umem) frame size.
+///
+/// Matches the constant of the same name defined in the linux source
+/// at `net/xdp/xdp_umem.c`
+pub const XDP_UMEM_MIN_CHUNK_SIZE: u32 = 2048;
+
 /// A ring's buffer size. Must be a power of two.
 #[derive(Debug, Clone, Copy)]
 pub struct QueueSize(u32);
@@ -58,14 +64,16 @@ impl fmt::Display for QueueSizeError {
 
 impl error::Error for QueueSizeError {}
 
-/// The size of a [`Umem`](crate::umem::Umem) frame. Cannot be smaller than 2048.
+/// The size of a [`Umem`](crate::umem::Umem) frame. Cannot be smaller
+/// than [`XDP_UMEM_MIN_CHUNK_SIZE`].
 #[derive(Debug, Clone, Copy)]
 pub struct FrameSize(u32);
 
 impl FrameSize {
-    /// Create a new `FrameSize` instance. Fails if `size` is smaller than 2048.
+    /// Create a new `FrameSize` instance. Fails if `size` is smaller
+    /// than [`XDP_UMEM_MIN_CHUNK_SIZE`].
     pub fn new(size: u32) -> Result<Self, FrameSizeError> {
-        if size < 2048 {
+        if size < XDP_UMEM_MIN_CHUNK_SIZE {
             Err(FrameSizeError(size))
         } else {
             Ok(Self(size))
@@ -92,7 +100,11 @@ pub struct FrameSizeError(u32);
 
 impl fmt::Display for FrameSizeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "expected frame size >= 2048, got {}", self.0)
+        write!(
+            f,
+            "expected frame size >= {}, got {}",
+            XDP_UMEM_MIN_CHUNK_SIZE, self.0
+        )
     }
 }
 
@@ -114,8 +126,8 @@ mod tests {
     #[test]
     fn frame_size_should_reject_values_below_2048() {
         assert!(FrameSize::new(0).is_err());
-        assert!(FrameSize::new(2047).is_err());
-        assert!(FrameSize::new(2048).is_ok());
-        assert!(FrameSize::new(2049).is_ok())
+        assert!(FrameSize::new(XDP_UMEM_MIN_CHUNK_SIZE - 1).is_err());
+        assert!(FrameSize::new(XDP_UMEM_MIN_CHUNK_SIZE).is_ok());
+        assert!(FrameSize::new(XDP_UMEM_MIN_CHUNK_SIZE + 1).is_ok())
     }
 }

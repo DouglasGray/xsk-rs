@@ -105,19 +105,21 @@ pub struct ConfigBuilder {
 
 impl ConfigBuilder {
     /// Creates a new [`SocketConfigBuilder`](ConfigBuilder) instance
-    /// with default queue sizes set to the `libbpf` defaults and with
-    /// no flags set.
+    /// with no flags set and with queue sizes as per the `libbpf`
+    /// defaults.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Set the [`RxQueue`](crate::RxQueue) size.
+    /// Set the [`RxQueue`](crate::RxQueue) size. Default is
+    /// [`XSK_RING_CONS__DEFAULT_NUM_DESCS`].
     pub fn rx_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.rx_queue_size = size;
         self
     }
 
-    /// Set the [`TxQueue`](crate::RxQueue) size.
+    /// Set the [`TxQueue`](crate::RxQueue) size. Default is
+    /// [`XSK_RING_PROD__DEFAULT_NUM_DESCS`].
     pub fn tx_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.tx_queue_size = size;
         self

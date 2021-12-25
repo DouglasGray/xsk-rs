@@ -140,7 +140,7 @@ impl Frame {
     ///
     /// # Safety
     ///
-    /// See [`get`](Frame::get).
+    /// See [`get`](Frame::segments).
     #[inline]
     pub unsafe fn headroom(&self) -> Headroom {
         // SAFETY: see `segments`.
@@ -155,7 +155,7 @@ impl Frame {
     ///
     /// # Safety
     ///
-    /// See [`get`](Frame::get).
+    /// See [`get`](Frame::segments).
     #[inline]
     pub unsafe fn data(&self) -> Data {
         // SAFETY: see `segments`.
@@ -204,7 +204,7 @@ impl Frame {
     ///
     /// # Safety
     ///
-    /// See [`get_mut`](Frame::get_mut).
+    /// See [`get_mut`](Frame::segments_mut).
     #[inline]
     pub unsafe fn headroom_mut(&mut self) -> HeadroomMut {
         // SAFETY: see `segments_mut`.
@@ -220,7 +220,7 @@ impl Frame {
     ///
     /// # Safety
     ///
-    /// See [`get_mut`](Frame::get_mut).
+    /// See [`get_mut`](Frame::segments_mut).
     #[inline]
     pub unsafe fn data_mut(&mut self) -> DataMut {
         // SAFETY: see `segments_mut`.
