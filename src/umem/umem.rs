@@ -1,5 +1,5 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod, xsk_umem, xsk_umem_config, XDP_PACKET_HEADROOM};
-use std::{convert::TryInto, error::Error, fmt, io, marker::PhantomData, mem::MaybeUninit, ptr};
+use std::{convert::TryInto, error::Error, fmt, io, mem::MaybeUninit, ptr};
 
 use crate::socket::{self, Fd};
 
@@ -282,10 +282,6 @@ impl Umem {
 
     pub(crate) fn as_ptr(&self) -> *const xsk_umem {
         self.inner.as_ref()
-    }
-
-    pub(crate) fn as_mut_ptr(&mut self) -> *mut xsk_umem {
-        self.inner.as_mut()
     }
 
     /// Check if trying to access the UMEM region bound by [`addr`,

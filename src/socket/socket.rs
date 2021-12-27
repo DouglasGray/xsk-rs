@@ -5,7 +5,6 @@ use std::{
     error::Error,
     ffi::{CString, NulError},
     fmt, io,
-    marker::PhantomData,
     mem::MaybeUninit,
     ptr,
     sync::Arc,
