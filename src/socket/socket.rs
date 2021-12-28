@@ -101,6 +101,7 @@ impl Socket {
             xdp_flags: config.xdp_flags().bits(),
             bind_flags: config.bind_flags().bits(),
             libbpf_flags: config.libbpf_flags().bits(),
+            __bindgen_padding_0: [0; 2],
         };
 
         let mut xsk_ptr: *mut xsk_socket = ptr::null_mut();
