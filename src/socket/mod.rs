@@ -24,8 +24,7 @@ use crate::{
     umem::{CompQueue, FillQueue, Umem},
 };
 
-/// Wrapper around a pointer to some AF_XDP socket. Guarantees that
-/// the pointer is both non-null and unique.
+/// Wrapper around a pointer to some AF_XDP socket.
 #[derive(Debug)]
 struct XskSocket(NonNull<xsk_socket>);
 

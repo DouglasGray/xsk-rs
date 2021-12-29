@@ -437,7 +437,7 @@ mod tests {
 
         // Check they match
         let mmap_region =
-            unsafe { slice::from_raw_parts(mmap.mmap.as_mut_ptr() as *const u8, mmap.mmap.len()) };
+            unsafe { slice::from_raw_parts(mmap.mmap.offset(0) as *const u8, mmap.mmap.len()) };
 
         assert_eq!(mmap_region, expected_layout)
     }
