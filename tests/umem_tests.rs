@@ -111,7 +111,7 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
 #[tokio::test]
 #[serial]
 async fn writing_to_frame_and_reading_works_as_expected() {
-    let (mut umem, mut descs) = Umem::new(
+    let (umem, mut descs) = Umem::new(
         UmemConfig::builder().frame_headroom(32).build().unwrap(),
         64.try_into().unwrap(),
         false,

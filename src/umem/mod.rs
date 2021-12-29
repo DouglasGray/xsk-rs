@@ -395,7 +395,7 @@ impl Umem {
     /// else at the same time, either in userspace or by the kernel.
     #[inline]
     pub unsafe fn frame_mut<'a>(
-        &'a mut self,
+        &'a self,
         desc: &'a mut FrameDesc,
     ) -> (HeadroomMut<'a>, DataMut<'a>) {
         // SAFETY: unsafe contract in constructor and `set_desc`
@@ -416,7 +416,7 @@ impl Umem {
     ///
     /// See [`get_mut`](Frame::segments_mut).
     #[inline]
-    pub unsafe fn headroom_mut<'a>(&'a mut self, desc: &'a mut FrameDesc) -> HeadroomMut<'a> {
+    pub unsafe fn headroom_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> HeadroomMut<'a> {
         // SAFETY: see `frame_mut`.
         unsafe { self.mmap.headroom_mut(desc) }
     }
@@ -427,7 +427,7 @@ impl Umem {
     ///
     /// See [`get_mut`](Frame::segments_mut).
     #[inline]
-    pub unsafe fn data_mut<'a>(&'a mut self, desc: &'a mut FrameDesc) -> DataMut<'a> {
+    pub unsafe fn data_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> DataMut<'a> {
         // SAFETY: see `frame_mut`.
         unsafe { self.mmap.data_mut(desc) }
     }
