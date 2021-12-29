@@ -28,7 +28,7 @@ async fn tx_queue_produce_tx_size_frames() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
-        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.frames[..4]) }, 4);
+        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.descs[..4]) }, 4);
     }
 
     build_configs_and_run_test(test).await
@@ -40,7 +40,7 @@ async fn tx_queue_produce_gt_tx_size_frames() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
-        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.frames[..5]) }, 0);
+        assert_eq!(unsafe { xsk1.tx_q.produce(&xsk1.descs[..5]) }, 0);
     }
 
     build_configs_and_run_test(test).await
@@ -53,10 +53,10 @@ async fn tx_queue_produce_frames_until_tx_queue_full() {
         let mut xsk1 = dev1.0;
 
         unsafe {
-            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[..2]), 2);
-            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[2..3]), 1);
-            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[3..8]), 0);
-            assert_eq!(xsk1.tx_q.produce(&xsk1.frames[3..4]), 1);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.descs[..2]), 2);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.descs[2..3]), 1);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.descs[3..8]), 0);
+            assert_eq!(xsk1.tx_q.produce(&xsk1.descs[3..4]), 1);
         }
     }
 

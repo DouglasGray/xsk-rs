@@ -15,19 +15,18 @@ use std::{
     error::Error,
     fmt, io,
     ptr::{self, NonNull},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use crate::{
     config::{Interface, SocketConfig},
     ring::{XskRingCons, XskRingProd},
-    umem::UmemInner,
+    umem::{CompQueue, FillQueue, Umem},
 };
-
-use crate::umem::{CompQueue, FillQueue, Umem};
 
 /// Wrapper around a pointer to some AF_XDP socket. Guarantees that
 /// the pointer is both non-null and unique.
+#[derive(Debug)]
 struct XskSocket(NonNull<xsk_socket>);
 
 impl XskSocket {
@@ -53,14 +52,31 @@ impl Drop for XskSocket {
     }
 }
 
+unsafe impl Send for XskSocket {}
+
+#[derive(Debug)]
+struct SocketInner {
+    _socket_ptr: XskSocket,
+    _umem: Umem,
+}
+
+impl SocketInner {
+    fn new(socket_ptr: XskSocket, umem: Umem) -> Self {
+        Self {
+            _socket_ptr: socket_ptr,
+            _umem: umem,
+        }
+    }
+}
+
 /// An AF_XDP socket.
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
+#[derive(Debug)]
 pub struct Socket {
     fd: Fd,
-    _inner: XskSocket,
-    _umem: Arc<UmemInner>,
+    _inner: Arc<Mutex<SocketInner>>,
 }
 
 impl Socket {
@@ -96,7 +112,7 @@ impl Socket {
         if_name: &Interface,
         queue_id: u32,
     ) -> Result<(TxQueue, RxQueue, Option<(FillQueue, CompQueue)>), SocketCreateError> {
-        let mut xsk_ptr = ptr::null_mut();
+        let mut socket_ptr = ptr::null_mut();
         let mut tx_q = XskRingProd::default();
         let mut rx_q = XskRingCons::default();
 
@@ -107,7 +123,7 @@ impl Socket {
                     .unwrap_or_else(|| (XskRingProd::default(), XskRingCons::default()));
 
                 let err = libbpf_sys::xsk_socket__create_shared(
-                    &mut xsk_ptr,
+                    &mut socket_ptr,
                     if_name.as_cstr().as_ptr(),
                     queue_id,
                     xsk_umem,
@@ -122,7 +138,7 @@ impl Socket {
             })
         };
 
-        let xsk_socket = match NonNull::new(xsk_ptr) {
+        let socket_ptr = match NonNull::new(socket_ptr) {
             Some(init_xsk) => {
                 // SAFETY: this is the only `XskSocket` instance for
                 // this pointer, and no other pointers to the socket
@@ -144,7 +160,7 @@ impl Socket {
             });
         }
 
-        let fd = unsafe { libbpf_sys::xsk_socket__fd(xsk_socket.0.as_ref()) };
+        let fd = unsafe { libbpf_sys::xsk_socket__fd(socket_ptr.0.as_ref()) };
 
         if fd < 0 {
             return Err(SocketCreateError {
@@ -153,11 +169,10 @@ impl Socket {
             });
         }
 
-        let socket = Arc::new(Socket {
+        let socket = Socket {
             fd: Fd::new(fd),
-            _inner: xsk_socket,
-            _umem: Arc::clone(umem.inner()),
-        });
+            _inner: Arc::new(Mutex::new(SocketInner::new(socket_ptr, umem.clone()))),
+        };
 
         let tx_q = if tx_q.is_ring_null() {
             return Err(SocketCreateError {
@@ -165,7 +180,7 @@ impl Socket {
                 err: io::Error::from_raw_os_error(err),
             });
         } else {
-            TxQueue::new(tx_q, Arc::clone(&socket))
+            TxQueue::new(tx_q, socket.clone())
         };
 
         let rx_q = if rx_q.is_ring_null() {
@@ -174,14 +189,14 @@ impl Socket {
                 err: io::Error::from_raw_os_error(err),
             });
         } else {
-            RxQueue::new(rx_q, Arc::clone(&socket))
+            RxQueue::new(rx_q, socket)
         };
 
         let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
             (true, true) => None,
             (false, false) => {
-                let fq = FillQueue::new(fq, Arc::clone(umem.inner()));
-                let cq = CompQueue::new(cq, Arc::clone(umem.inner()));
+                let fq = FillQueue::new(fq, umem.clone());
+                let cq = CompQueue::new(cq, umem.clone());
 
                 Some((fq, cq))
             }
@@ -197,9 +212,12 @@ impl Socket {
     }
 }
 
-impl fmt::Debug for Socket {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Socket").field("fd", &self.fd).finish()
+impl Clone for Socket {
+    fn clone(&self) -> Self {
+        Self {
+            fd: self.fd.clone(),
+            _inner: self._inner.clone(),
+        }
     }
 }
 

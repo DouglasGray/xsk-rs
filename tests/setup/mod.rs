@@ -8,7 +8,7 @@ use std::{net::Ipv4Addr, num::NonZeroU32};
 use xsk_rs::{
     config::{Interface, SocketConfig, UmemConfig},
     socket::{RxQueue, Socket, TxQueue},
-    umem::{frame::Frame, CompQueue, FillQueue, Umem},
+    umem::{frame::FrameDesc, CompQueue, FillQueue, Umem},
 };
 
 pub struct Xsk {
@@ -17,7 +17,7 @@ pub struct Xsk {
     pub cq: CompQueue,
     pub tx_q: TxQueue,
     pub rx_q: RxQueue,
-    pub frames: Vec<Frame>,
+    pub descs: Vec<FrameDesc>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ pub fn build_socket_and_umem(
     if_name: &Interface,
     queue_id: u32,
 ) -> Xsk {
-    let (umem, frames) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
+    let (umem, descs) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
 
     let (tx_q, rx_q, fq_and_cq) =
         Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to build socket");
@@ -66,7 +66,7 @@ pub fn build_socket_and_umem(
         cq,
         tx_q,
         rx_q,
-        frames,
+        descs,
     }
 }
 

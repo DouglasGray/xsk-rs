@@ -4,7 +4,7 @@ mod mmap;
 use mmap::Mmap;
 
 pub mod frame;
-use frame::Frame;
+use frame::{Data, DataMut, FrameDesc, Headroom, HeadroomMut};
 
 mod fill_queue;
 pub use fill_queue::FillQueue;
@@ -19,6 +19,7 @@ use std::{
     fmt, io,
     num::NonZeroU32,
     ptr::{self, NonNull},
+    slice,
     sync::{Arc, Mutex},
 };
 
@@ -68,29 +69,171 @@ unsafe impl Send for XskUmem {}
 ///
 /// Note that `umem` must appear before `mmap` to ensure correct drop
 /// order.
-pub(crate) struct UmemInner {
-    umem: Mutex<XskUmem>,
-    saved_fq_and_cq: Mutex<Option<(XskRingProd, XskRingCons)>>,
-    _mmap: Mmap,
+#[derive(Debug)]
+struct UmemInner {
+    umem_ptr: XskUmem,
+    saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>,
 }
 
 impl UmemInner {
-    fn new(umem: XskUmem, saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>, mmap: Mmap) -> Self {
+    fn new(umem_ptr: XskUmem, saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>) -> Self {
         Self {
-            umem: Mutex::new(umem),
-            saved_fq_and_cq: Mutex::new(saved_fq_and_cq),
-            _mmap: mmap,
+            umem_ptr,
+            saved_fq_and_cq,
         }
     }
 }
 
-unsafe impl Send for UmemInner {}
+#[derive(Debug, Clone)]
+struct FramedMmap {
+    layout: FrameLayout,
+    mmap: Mmap,
+}
+
+impl FramedMmap {
+    /// Retrieve a pointer to the headroom segment of this frame.
+    ///
+    /// # Safety
+    ///
+    /// `addr` must point to the start of a packet data segment of a
+    /// frame within this UMEM.
+    #[inline]
+    unsafe fn headroom_ptr(&self, addr: usize) -> *mut u8 {
+        let addr = addr - self.layout.frame_headroom;
+        unsafe { self.mmap.offset(addr) as *mut u8 }
+    }
+
+    /// Retrieve a pointer to the packet data segment of this frame.
+    ///
+    /// # Safety
+    ///
+    /// `addr` must point to the start of a packet data segment of a
+    /// frame within this UMEM.
+    #[inline]
+    unsafe fn data_ptr(&self, addr: usize) -> *mut u8 {
+        unsafe { self.mmap.offset(addr) as *mut u8 }
+    }
+
+    /// The frame's headroom and packet data segments.
+    ///
+    /// # Safety
+    ///
+    /// `desc` must describe a frame that belongs to this
+    /// [`Umem`]. Furthermore, the underlying frame described by
+    /// `desc` must not be mutably accessed anywhere else at the same
+    /// time, either in userspace or by the kernel.
+    #[inline]
+    unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable references to these slices at the same
+        // time.
+        unsafe { (self.headroom(desc), self.data(desc)) }
+    }
+
+    /// The frame's headroom segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get`](Frame::segments).
+    #[inline]
+    unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom {
+        // SAFETY: see `segments`.
+        let headroom_ptr = unsafe { self.headroom_ptr(desc.addr) };
+
+        Headroom::new(unsafe { slice::from_raw_parts(headroom_ptr, desc.lengths.headroom) })
+    }
+
+    /// The frame's packet data segment
+    ///
+    /// # Safety
+    ///
+    /// See [`get`](Frame::segments).
+    #[inline]
+    unsafe fn data(&self, desc: &FrameDesc) -> Data {
+        // SAFETY: see `segments`.
+        let data_ptr = unsafe { self.data_ptr(desc.addr()) };
+
+        Data::new(unsafe { slice::from_raw_parts(data_ptr, desc.lengths.data) })
+    }
+
+    /// Mutable references to the frame's headroom and packet data
+    /// segments.
+    ///
+    /// # Safety
+    ///
+    /// The underlying [`Umem`](super::Umem) region this frame
+    /// accesses must not be mutably or immutably accessed anywhere
+    /// else at the same time, either in userspace or by the kernel.
+    #[inline]
+    unsafe fn frame_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> (HeadroomMut<'a>, DataMut<'a>) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable or immutable references to these
+        // slices at the same time.
+        let headroom_ptr = unsafe { self.headroom_ptr(desc.addr) };
+        let data_ptr = unsafe { self.data_ptr(desc.addr) };
+
+        let headroom =
+            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) };
+
+        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) };
+
+        (
+            HeadroomMut::new(&mut desc.lengths.headroom, headroom),
+            DataMut::new(&mut desc.lengths.data, data),
+        )
+    }
+
+    /// A mutable reference to the frame's headroom segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get_mut`](Frame::segments_mut).
+    #[inline]
+    unsafe fn headroom_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> HeadroomMut<'a> {
+        // SAFETY: see `segments_mut`.
+        let headroom_ptr = unsafe { self.headroom_ptr(desc.addr) };
+
+        let headroom =
+            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) };
+
+        HeadroomMut::new(&mut desc.lengths.headroom, headroom)
+    }
+
+    /// A mutable reference to the frame's packet data segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get_mut`](Frame::segments_mut).
+    #[inline]
+    unsafe fn data_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> DataMut<'a> {
+        // SAFETY: see `segments_mut`.
+        let data_ptr = unsafe { self.data_ptr(desc.addr) };
+
+        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) };
+
+        DataMut::new(&mut desc.lengths.data, data)
+    }
+}
 
 /// A region of virtual contiguous memory divided into equal-sized
 /// frames. It provides the underlying working memory for an AF_XDP
 /// [`Socket`](crate::socket::Socket).
+#[derive(Debug, Clone)]
 pub struct Umem {
-    inner: Arc<UmemInner>,
+    inner: Arc<Mutex<UmemInner>>,
+    mmap: FramedMmap,
 }
 
 impl Umem {
@@ -106,7 +249,7 @@ impl Umem {
         config: UmemConfig,
         frame_count: NonZeroU32,
         use_huge_pages: bool,
-    ) -> Result<(Self, Vec<Frame>), UmemCreateError> {
+    ) -> Result<(Self, Vec<FrameDesc>), UmemCreateError> {
         let frame_size = config.frame_size().get() as usize;
         let frame_count = frame_count.get() as usize;
 
@@ -132,7 +275,7 @@ impl Umem {
             )
         };
 
-        let xsk_umem = match NonNull::new(umem_ptr) {
+        let umem_ptr = match NonNull::new(umem_ptr) {
             Some(umem_ptr) => {
                 // SAFETY: this is the only `XskUmem` instance for
                 // this pointer, and no other pointers to the UMEM
@@ -168,7 +311,7 @@ impl Umem {
             });
         }
 
-        let inner = UmemInner::new(xsk_umem, Some((fq, cq)), mmap.clone());
+        let inner = UmemInner::new(umem_ptr, Some((fq, cq)));
 
         let xdp_headroom = XDP_PACKET_HEADROOM as usize;
         let frame_headroom = config.frame_headroom() as usize;
@@ -180,26 +323,113 @@ impl Umem {
             mtu,
         };
 
-        let mut frame_descs: Vec<Frame> = Vec::with_capacity(frame_count);
+        let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count);
 
         for i in 0..frame_count {
             let addr = (i * frame_size) + xdp_headroom + frame_headroom;
 
-            // SAFETY: `addr` is the start of a packet data segment of
-            // some frame belonging to this UMEM's `mmap`.
-            frame_descs.push(unsafe { Frame::new(addr, frame_layout, mmap.clone()) });
+            frame_descs.push(FrameDesc::new(addr));
         }
 
         let umem = Umem {
-            inner: Arc::new(inner),
+            inner: Arc::new(Mutex::new(inner)),
+            mmap: FramedMmap {
+                layout: frame_layout,
+                mmap,
+            },
         };
 
         Ok((umem, frame_descs))
     }
 
+    /// The frame's headroom and packet data segments.
+    ///
+    /// # Safety
+    ///
+    /// The underlying [`Umem`](super::Umem) region this frame
+    /// accesses must not be mutably accessed anywhere else at the
+    /// same time, either in userspace or by the kernel.
     #[inline]
-    pub(crate) fn inner(&self) -> &Arc<UmemInner> {
-        &self.inner
+    pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable references to these slices at the same
+        // time.
+        unsafe { self.mmap.frame(desc) }
+    }
+
+    /// The frame's headroom segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get`](Frame::segments).
+    #[inline]
+    pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom {
+        // SAFETY: see `frame`.
+        unsafe { self.mmap.headroom(desc) }
+    }
+
+    /// The frame's packet data segment
+    ///
+    /// # Safety
+    ///
+    /// See [`get`](Frame::segments).
+    #[inline]
+    pub unsafe fn data(&self, desc: &FrameDesc) -> Data {
+        // SAFETY: see `frame`.
+        unsafe { self.mmap.data(desc) }
+    }
+
+    /// Mutable references to the frame's headroom and packet data
+    /// segments.
+    ///
+    /// # Safety
+    ///
+    /// The underlying [`Umem`](super::Umem) region this frame
+    /// accesses must not be mutably or immutably accessed anywhere
+    /// else at the same time, either in userspace or by the kernel.
+    #[inline]
+    pub unsafe fn frame_mut<'a>(
+        &'a mut self,
+        desc: &'a mut FrameDesc,
+    ) -> (HeadroomMut<'a>, DataMut<'a>) {
+        // SAFETY: unsafe contract in constructor and `set_desc`
+        // ensures that this frame's current `addr` points to the
+        // start of a packet data segment in its underlying UMEM -
+        // therefore the dereferenced slices are whole and valid
+        // segments.
+        //
+        // The unsafe contract of this function also guarantees there
+        // are no other mutable or immutable references to these
+        // slices at the same time.
+        unsafe { self.mmap.frame_mut(desc) }
+    }
+
+    /// A mutable reference to the frame's headroom segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get_mut`](Frame::segments_mut).
+    #[inline]
+    pub unsafe fn headroom_mut<'a>(&'a mut self, desc: &'a mut FrameDesc) -> HeadroomMut<'a> {
+        // SAFETY: see `frame_mut`.
+        unsafe { self.mmap.headroom_mut(desc) }
+    }
+
+    /// A mutable reference to the frame's packet data segment.
+    ///
+    /// # Safety
+    ///
+    /// See [`get_mut`](Frame::segments_mut).
+    #[inline]
+    pub unsafe fn data_mut<'a>(&'a mut self, desc: &'a mut FrameDesc) -> DataMut<'a> {
+        // SAFETY: see `frame_mut`.
+        unsafe { self.mmap.data_mut(desc) }
     }
 
     /// Intended to be called on socket creation, this passes the
@@ -214,16 +444,9 @@ impl Umem {
     where
         F: FnMut(*mut xsk_umem, &mut Option<(XskRingProd, XskRingCons)>) -> T,
     {
-        let umem = self.inner.umem.lock().unwrap();
-        let saved_fq_and_cq = &mut self.inner.saved_fq_and_cq.lock().unwrap();
+        let mut inner = self.inner.lock().unwrap();
 
-        f(umem.as_mut_ptr(), saved_fq_and_cq)
-    }
-}
-
-impl fmt::Debug for Umem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Umem").finish()
+        f(inner.umem_ptr.as_mut_ptr(), &mut inner.saved_fq_and_cq)
     }
 }
 

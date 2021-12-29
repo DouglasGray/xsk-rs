@@ -1,6 +1,6 @@
 use libbpf_sys::{xsk_ring_cons, xsk_ring_prod};
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct XskRingCons(xsk_ring_cons);
 
 impl XskRingCons {
@@ -19,7 +19,7 @@ impl XskRingCons {
 
 unsafe impl Send for XskRingCons {}
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct XskRingProd(xsk_ring_prod);
 
 impl XskRingProd {

@@ -1,7 +1,7 @@
 use libc::{EAGAIN, EBUSY, ENETDOWN, ENOBUFS, MSG_DONTWAIT};
-use std::{fmt, io, os::unix::prelude::AsRawFd, ptr, sync::Arc};
+use std::{io, os::unix::prelude::AsRawFd, ptr};
 
-use crate::{ring::XskRingProd, umem::frame::Frame, util};
+use crate::{ring::XskRingProd, umem::frame::FrameDesc, util};
 
 use super::{fd::Fd, Socket};
 
@@ -9,19 +9,15 @@ use super::{fd::Fd, Socket};
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).
+#[derive(Debug)]
 pub struct TxQueue {
     ring: XskRingProd,
-    fd: Fd,
-    _socket: Arc<Socket>,
+    socket: Socket,
 }
 
 impl TxQueue {
-    pub(super) fn new(ring: XskRingProd, socket: Arc<Socket>) -> Self {
-        Self {
-            ring,
-            fd: socket.fd.clone(),
-            _socket: socket,
-        }
+    pub(super) fn new(ring: XskRingProd, socket: Socket) -> Self {
+        Self { ring, socket }
     }
 
     /// Let the kernel know that the contents of `frames` are ready to
@@ -45,8 +41,8 @@ impl TxQueue {
     /// the same [`Umem`](super::Umem) that this `TxQueue` instance is
     /// tied to.
     #[inline]
-    pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
-        let nb = frames.len() as u64;
+    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -57,14 +53,14 @@ impl TxQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
-            for frame in frames.iter().take(cnt as usize) {
+            for desc in descs.iter().take(cnt as usize) {
                 let send_pkt_desc =
                     unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
                 // SAFETY: unsafe contract of this function guarantees
                 // this frame belongs to the same UMEM as this queue,
                 // so descriptor values will be valid.
-                unsafe { frame.write_xdp_desc(&mut *send_pkt_desc) };
+                unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
                 idx += 1;
             }
@@ -85,7 +81,7 @@ impl TxQueue {
     ///
     /// See [`produce`](TxQueue::produce).
     #[inline]
-    pub unsafe fn produce_and_wakeup(&mut self, frames: &[Frame]) -> io::Result<usize> {
+    pub unsafe fn produce_and_wakeup(&mut self, frames: &[FrameDesc]) -> io::Result<usize> {
         let cnt = unsafe { self.produce(frames) };
 
         if self.needs_wakeup() {
@@ -103,7 +99,7 @@ impl TxQueue {
     pub fn wakeup(&self) -> io::Result<()> {
         let ret = unsafe {
             libc::sendto(
-                self.fd.as_raw_fd(),
+                self.socket.fd.as_raw_fd(),
                 ptr::null(),
                 0,
                 MSG_DONTWAIT,
@@ -138,26 +134,18 @@ impl TxQueue {
     /// Polls the socket, returning `true` if it is ready to write.
     #[inline]
     pub fn poll(&mut self, poll_timeout: i32) -> io::Result<bool> {
-        self.fd.poll_write(poll_timeout)
+        self.socket.fd.poll_write(poll_timeout)
     }
 
     /// A reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd(&self) -> &Fd {
-        &self.fd
+        &self.socket.fd
     }
 
     /// A mutable reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
-        &mut self.fd
-    }
-}
-
-unsafe impl Send for TxQueue {}
-
-impl fmt::Debug for TxQueue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TxQueue").finish()
+        &mut self.socket.fd
     }
 }

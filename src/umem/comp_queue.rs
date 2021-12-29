@@ -1,11 +1,6 @@
-use std::{fmt, sync::Arc};
-
 use crate::ring::XskRingCons;
 
-use super::{
-    frame::{Frame, FrameDesc},
-    UmemInner,
-};
+use super::{frame::FrameDesc, Umem};
 
 /// Used to transfer ownership of [`Umem`](super::Umem) frames from
 /// kernel-space to user-space.
@@ -15,13 +10,14 @@ use super::{
 ///
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring).
+#[derive(Debug)]
 pub struct CompQueue {
     ring: XskRingCons,
-    _umem: Arc<UmemInner>,
+    _umem: Umem,
 }
 
 impl CompQueue {
-    pub(crate) fn new(ring: XskRingCons, umem: Arc<UmemInner>) -> Self {
+    pub(crate) fn new(ring: XskRingCons, umem: Umem) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -44,8 +40,8 @@ impl CompQueue {
     /// [`Umem`](super::Umem) that this `CompQueue` instance is tied
     /// to.
     #[inline]
-    pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
-        let nb = frames.len() as u64;
+    pub unsafe fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -56,20 +52,14 @@ impl CompQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
-            let mut data_desc = FrameDesc::default();
-
-            for frame in frames.iter_mut().take(cnt as usize) {
+            for desc in descs.iter_mut().take(cnt as usize) {
                 let addr: u64 =
                     unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
 
-                data_desc.addr = addr as usize;
-                data_desc.len = 0;
-                data_desc.options = 0;
-
-                // SAFETY: unsafe contract of this function guarantees
-                // this frame belongs to the same UMEM as this queue,
-                // so descriptor values will be valid.
-                unsafe { frame.set_desc(&data_desc) };
+                desc.addr = addr as usize;
+                desc.lengths.data = 0;
+                desc.lengths.headroom = 0;
+                desc.options = 0;
 
                 idx += 1;
             }
@@ -78,13 +68,5 @@ impl CompQueue {
         }
 
         cnt as usize
-    }
-}
-
-unsafe impl Send for CompQueue {}
-
-impl fmt::Debug for CompQueue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CompQueue").finish()
     }
 }

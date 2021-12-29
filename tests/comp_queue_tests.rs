@@ -6,7 +6,7 @@ use serial_test::serial;
 use std::{convert::TryInto, thread, time::Duration};
 use xsk_rs::{
     config::{QueueSize, SocketConfig, UmemConfig},
-    umem::frame::Frame,
+    umem::frame::FrameDesc,
 };
 
 const CQ_SIZE: u32 = 16;
@@ -33,7 +33,7 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
         let mut xsk1 = dev1.0;
 
         unsafe {
-            assert_eq!(xsk1.cq.consume(&mut xsk1.frames), 0);
+            assert_eq!(xsk1.cq.consume(&mut xsk1.descs), 0);
         }
     }
 
@@ -47,14 +47,14 @@ async fn num_frames_consumed_match_those_produced() {
         let mut xsk1 = dev1.0;
 
         assert_eq!(
-            unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.frames[..2]).unwrap() },
+            unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap() },
             2
         );
 
         // Wait briefly so we don't try to consume too early
         thread::sleep(Duration::from_millis(5));
 
-        assert_eq!(unsafe { xsk1.cq.consume(&mut xsk1.frames) }, 2);
+        assert_eq!(unsafe { xsk1.cq.consume(&mut xsk1.descs) }, 2);
     }
 
     build_configs_and_run_test(test).await
@@ -67,7 +67,7 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
         let mut xsk1 = dev1.0;
         let nb = (FRAME_COUNT / 2) as usize;
 
-        let (tx_frames, rx_frames) = xsk1.frames.split_at_mut(nb);
+        let (tx_frames, rx_frames) = xsk1.descs.split_at_mut(nb);
 
         unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames[..nb]).unwrap() };
 
@@ -80,11 +80,11 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
         assert_eq!(
             &tx_frames[..nb]
                 .iter()
-                .map(Frame::addr)
+                .map(FrameDesc::addr)
                 .collect::<Vec<usize>>(),
             &rx_frames[..nb]
                 .iter()
-                .map(Frame::addr)
+                .map(FrameDesc::addr)
                 .collect::<Vec<usize>>(),
         );
     }

@@ -1,8 +1,8 @@
-use std::{fmt, io, sync::Arc};
+use std::io;
 
 use crate::{ring::XskRingProd, socket::Fd};
 
-use super::{frame::Frame, UmemInner};
+use super::{frame::FrameDesc, Umem};
 
 /// Used to transfer ownership of [`Umem`](super::Umem) frames from
 /// user-space to kernel-space.
@@ -12,13 +12,14 @@ use super::{frame::Frame, UmemInner};
 ///
 /// For more information see the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring).
+#[derive(Debug)]
 pub struct FillQueue {
     ring: XskRingProd,
-    _umem: Arc<UmemInner>,
+    _umem: Umem,
 }
 
 impl FillQueue {
-    pub(crate) fn new(ring: XskRingProd, umem: Arc<UmemInner>) -> Self {
+    pub(crate) fn new(ring: XskRingProd, umem: Umem) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -43,7 +44,7 @@ impl FillQueue {
     /// the same [`Umem`](super::Umem) that this `FillQueue` instance
     /// is tied to.
     #[inline]
-    pub unsafe fn produce(&mut self, frames: &[Frame]) -> usize {
+    pub unsafe fn produce(&mut self, frames: &[FrameDesc]) -> usize {
         let nb = frames.len() as u64;
 
         if nb == 0 {
@@ -58,7 +59,7 @@ impl FillQueue {
             for frame in frames.iter().take(cnt as usize) {
                 unsafe {
                     *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
-                        frame.addr() as u64
+                        frame.addr as u64
                 };
 
                 idx += 1;
@@ -83,7 +84,7 @@ impl FillQueue {
     #[inline]
     pub unsafe fn produce_and_wakeup(
         &mut self,
-        frames: &[Frame],
+        frames: &[FrameDesc],
         socket_fd: &mut Fd,
         poll_timeout: i32,
     ) -> io::Result<usize> {
@@ -118,13 +119,5 @@ impl FillQueue {
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
-    }
-}
-
-unsafe impl Send for FillQueue {}
-
-impl fmt::Debug for FillQueue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FillQueue").finish()
     }
 }

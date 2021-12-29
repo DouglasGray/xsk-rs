@@ -15,7 +15,7 @@ use structopt::StructOpt;
 use tokio::runtime::Runtime;
 use xsk_rs::{
     config::{BindFlags, FrameSize, Interface, QueueSize, SocketConfig, UmemConfig},
-    CompQueue, FillQueue, Frame, RxQueue, Socket, TxQueue, Umem,
+    CompQueue, FillQueue, FrameDesc, RxQueue, Socket, TxQueue, Umem,
 };
 
 mod setup;
@@ -31,7 +31,7 @@ pub struct Xsk {
     pub cq: CompQueue,
     pub tx_q: TxQueue,
     pub rx_q: RxQueue,
-    pub frames: Vec<Frame>,
+    pub descs: Vec<FrameDesc>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -161,8 +161,10 @@ fn dev1_to_dev2_single_thread(
 
     let rx_cfg = config.receiver;
 
-    let tx_frames = &mut xsk_tx.frames;
-    let rx_frames = &mut xsk_rx.frames;
+    let tx_umem = &xsk_tx.umem;
+
+    let tx_descs = &mut xsk_tx.descs;
+    let rx_descs = &mut xsk_rx.descs;
 
     let start = Instant::now();
 
@@ -177,7 +179,7 @@ fn dev1_to_dev2_single_thread(
     let frames_filled = unsafe {
         xsk_rx
             .fq
-            .produce(&rx_frames[..rx_cfg.fq_size.get() as usize])
+            .produce(&rx_descs[..rx_cfg.fq_size.get() as usize])
     };
 
     assert_eq!(frames_filled, rx_cfg.fq_size.get() as usize);
@@ -185,17 +187,17 @@ fn dev1_to_dev2_single_thread(
     log::debug!("frames added to receiver fill queue: {}", frames_filled);
 
     // Write packets to UMEM and populate sender tx queue
-    tx_frames[0..config.max_batch_size]
+    tx_descs[0..config.max_batch_size]
         .iter_mut()
-        .for_each(|frame| {
+        .for_each(|desc| {
             let pkt = pkts.next().unwrap();
 
             unsafe {
-                frame.data_mut().cursor().write_all(&pkt).unwrap();
+                tx_umem.data_mut(desc).cursor().write_all(&pkt).unwrap();
             }
         });
 
-    let mut total_frames_sent = unsafe { xsk_tx.tx_q.produce(&tx_frames[..config.max_batch_size]) };
+    let mut total_frames_sent = unsafe { xsk_tx.tx_q.produce(&tx_descs[..config.max_batch_size]) };
 
     assert_eq!(total_frames_sent, config.max_batch_size);
 
@@ -220,7 +222,7 @@ fn dev1_to_dev2_single_thread(
             match unsafe {
                 xsk_rx
                     .rx_q
-                    .poll_and_consume(&mut tx_frames[..], config.poll_ms_timeout)
+                    .poll_and_consume(&mut tx_descs[..], config.poll_ms_timeout)
                     .unwrap()
             } {
                 0 => {
@@ -242,7 +244,7 @@ fn dev1_to_dev2_single_thread(
                         xsk_rx
                             .fq
                             .produce_and_wakeup(
-                                &rx_frames[..frames_rcvd],
+                                &rx_descs[..frames_rcvd],
                                 fd,
                                 config.poll_ms_timeout,
                             )
@@ -266,7 +268,7 @@ fn dev1_to_dev2_single_thread(
             || total_frames_consumed < config.num_packets_to_send
         {
             // Handle tx
-            match unsafe { xsk_tx.cq.consume(&mut tx_frames[..]) } {
+            match unsafe { xsk_tx.cq.consume(&mut tx_descs[..]) } {
                 0 => {
                     log::debug!("sender comp queue consumed 0 frames");
 
@@ -282,11 +284,11 @@ fn dev1_to_dev2_single_thread(
 
                     if total_frames_sent < config.num_packets_to_send {
                         // Write new data
-                        tx_frames[..frames_rcvd].iter_mut().for_each(|frame| {
+                        tx_descs[..frames_rcvd].iter_mut().for_each(|desc| {
                             let pkt = pkts.next().unwrap();
 
                             unsafe {
-                                frame.data_mut().cursor().write_all(&pkt).unwrap();
+                                tx_umem.data_mut(desc).cursor().write_all(&pkt).unwrap();
                             }
                         });
 
@@ -308,7 +310,7 @@ fn dev1_to_dev2_single_thread(
                         while unsafe {
                             xsk_tx
                                 .tx_q
-                                .produce_and_wakeup(&tx_frames[..frames_to_send])
+                                .produce_and_wakeup(&tx_descs[..frames_to_send])
                                 .unwrap()
                         } != frames_to_send
                         {
@@ -386,7 +388,7 @@ fn dev1_to_dev2_multithreaded(
     let rx_handle = thread::spawn(move || {
         let (mut xsk_rx, _) = rx;
 
-        let rx_frames = &mut xsk_rx.frames;
+        let rx_frames = &mut xsk_rx.descs;
 
         // Populate receiver fill queue
         let frames_filled = unsafe {
@@ -460,19 +462,20 @@ fn dev1_to_dev2_multithreaded(
     });
 
     let tx_handle = thread::spawn(move || {
-        let tx_frames = &mut xsk_tx.frames;
+        let tx_umem = &xsk_tx.umem;
+        let tx_descs = &mut xsk_tx.descs;
 
-        tx_frames[0..max_batch_size].iter_mut().for_each(|frame| {
+        tx_descs[0..max_batch_size].iter_mut().for_each(|frame| {
             let pkt = pkts.next().unwrap();
 
             unsafe {
-                frame.data_mut().cursor().write_all(&pkt).unwrap();
+                tx_umem.data_mut(frame).cursor().write_all(&pkt).unwrap();
             }
         });
 
         let mut total_frames_consumed = 0;
 
-        let mut total_frames_sent = unsafe { xsk_tx.tx_q.produce(&tx_frames[..max_batch_size]) };
+        let mut total_frames_sent = unsafe { xsk_tx.tx_q.produce(&tx_descs[..max_batch_size]) };
 
         assert_eq!(total_frames_sent, max_batch_size);
 
@@ -485,7 +488,7 @@ fn dev1_to_dev2_multithreaded(
         }
 
         while total_frames_consumed < num_frames_to_send {
-            match unsafe { xsk_tx.cq.consume(&mut tx_frames[..]) } {
+            match unsafe { xsk_tx.cq.consume(&mut tx_descs[..]) } {
                 0 => {
                     log::debug!("sender comp queue consumed 0 frames");
 
@@ -501,11 +504,11 @@ fn dev1_to_dev2_multithreaded(
 
                     if total_frames_sent < num_frames_to_send {
                         // Write new data
-                        tx_frames[..frames_rcvd].iter_mut().for_each(|frame| {
+                        tx_descs[..frames_rcvd].iter_mut().for_each(|desc| {
                             let pkt = pkts.next().unwrap();
 
                             unsafe {
-                                frame.data_mut().cursor().write_all(&pkt).unwrap();
+                                tx_umem.data_mut(desc).cursor().write_all(&pkt).unwrap();
                             }
                         });
 
@@ -524,7 +527,7 @@ fn dev1_to_dev2_multithreaded(
                         while unsafe {
                             xsk_tx
                                 .tx_q
-                                .produce_and_wakeup(&tx_frames[..frames_to_send])
+                                .produce_and_wakeup(&tx_descs[..frames_to_send])
                                 .unwrap()
                         } != frames_to_send
                         {
@@ -609,7 +612,7 @@ pub fn build_socket_and_umem(
         cq,
         tx_q,
         rx_q,
-        frames,
+        descs: frames,
     }
 }
 

@@ -11,7 +11,7 @@ use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig};
 
 fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, PacketGenerator)) {
     // This UMEM will be shared between both sockets.
-    let (umem, mut frames) = Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
+    let (umem, mut descs) = Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
         .expect("failed to create UMEM");
 
     // Bind an AF_XDP socket to the interface named `xsk_dev1`, on
@@ -38,20 +38,19 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
 
     // Just split the UMEM frames between the two sockets for
     // convenience.
-    let (dev1_frames, mut dev2_frames) = frames.split_at_mut(16);
+    let (dev1_descs, mut dev2_descs) = descs.split_at_mut(16);
 
     // 1. Add frames to dev2's fill queue so we are ready to receive
     // some packets.
     unsafe {
-        dev2_fq.produce(&dev2_frames);
+        dev2_fq.produce(&dev2_descs);
     }
 
     // 2. Write to the UMEM.
     let pkt = b"Hello, world!";
 
     unsafe {
-        dev1_frames[0]
-            .data_mut()
+        umem.data_mut(&mut dev1_descs[0])
             .cursor()
             .write_all(pkt)
             .expect("failed writing packet to frame")
@@ -61,15 +60,15 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
     println!("sending: {:?}", str::from_utf8(pkt).unwrap());
 
     unsafe {
-        dev1_tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap();
+        dev1_tx_q.produce_and_wakeup(&dev1_descs[..1]).unwrap();
     }
 
     // 4. Read on dev2.
-    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(&mut dev2_frames, 100).unwrap() };
+    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(&mut dev2_descs, 100).unwrap() };
 
     // 5. Confirm that one of the packets we received matches what we expect.
-    for recv_frame in dev2_frames.iter().take(pkts_recvd) {
-        let data = unsafe { recv_frame.data() };
+    for recv_desc in dev2_descs.iter().take(pkts_recvd) {
+        let data = unsafe { umem.data(recv_desc) };
 
         if data.contents() == &pkt[..] {
             println!("received: {:?}", str::from_utf8(data.contents()).unwrap());

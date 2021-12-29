@@ -1,9 +1,6 @@
-use std::{fmt, io, sync::Arc};
+use std::io;
 
-use crate::{
-    ring::XskRingCons,
-    umem::frame::{Frame, FrameDesc},
-};
+use crate::{ring::XskRingCons, umem::frame::FrameDesc};
 
 use super::{fd::Fd, Socket};
 
@@ -11,19 +8,15 @@ use super::{fd::Fd, Socket};
 ///
 /// More details can be found in the
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#rx-ring).
+#[derive(Debug)]
 pub struct RxQueue {
     ring: XskRingCons,
-    fd: Fd,
-    _socket: Arc<Socket>,
+    socket: Socket,
 }
 
 impl RxQueue {
-    pub(super) fn new(ring: XskRingCons, socket: Arc<Socket>) -> Self {
-        Self {
-            ring,
-            fd: socket.fd.clone(),
-            _socket: socket,
-        }
+    pub(super) fn new(ring: XskRingCons, socket: Socket) -> Self {
+        Self { ring, socket }
     }
 
     /// Populate `frames` with information on packets received on the
@@ -45,8 +38,8 @@ impl RxQueue {
     /// The frames passed to this queue must belong to the same
     /// [`Umem`](super::Umem) that this `RxQueue` instance is tied to.
     #[inline]
-    pub unsafe fn consume(&mut self, frames: &mut [Frame]) -> usize {
-        let nb = frames.len() as u64;
+    pub unsafe fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -57,23 +50,15 @@ impl RxQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
-            let mut desc = FrameDesc::default();
-
-            for frame in frames.iter_mut().take(cnt as usize) {
+            for desc in descs.iter_mut().take(cnt as usize) {
                 let recv_pkt_desc =
                     unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(self.ring.as_ref(), idx) };
 
                 unsafe {
                     desc.addr = (*recv_pkt_desc).addr as usize;
-                    desc.len = (*recv_pkt_desc).len as usize;
+                    desc.lengths.data = (*recv_pkt_desc).len as usize;
+                    desc.lengths.headroom = 0;
                     desc.options = (*recv_pkt_desc).options;
-                }
-
-                // SAFETY: unsafe contract of this function guarantees
-                // this frame belongs to the same UMEM as this queue,
-                // so descriptor values will be valid.
-                unsafe {
-                    frame.set_desc(&desc);
                 }
 
                 idx += 1;
@@ -94,7 +79,7 @@ impl RxQueue {
     #[inline]
     pub unsafe fn poll_and_consume(
         &mut self,
-        frames: &mut [Frame],
+        frames: &mut [FrameDesc],
         poll_timeout: i32,
     ) -> io::Result<usize> {
         match self.poll(poll_timeout)? {
@@ -106,26 +91,18 @@ impl RxQueue {
     /// Polls the socket, returning `true` if there is data to read.
     #[inline]
     pub fn poll(&mut self, poll_timeout: i32) -> io::Result<bool> {
-        self.fd.poll_read(poll_timeout)
+        self.socket.fd.poll_read(poll_timeout)
     }
 
     /// A reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd(&self) -> &Fd {
-        &self.fd
+        &self.socket.fd
     }
 
     /// A mutable reference to the underlying [`Socket`]'s file descriptor.
     #[inline]
     pub fn fd_mut(&mut self) -> &mut Fd {
-        &mut self.fd
-    }
-}
-
-unsafe impl Send for RxQueue {}
-
-impl fmt::Debug for RxQueue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RxQueue").finish()
+        &mut self.socket.fd
     }
 }

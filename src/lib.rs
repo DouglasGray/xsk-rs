@@ -109,7 +109,7 @@ use cfg_if::cfg_if;
 cfg_if! {
     if #[cfg(all(target_pointer_width = "64", target_family = "unix"))] {
         pub mod umem;
-        pub use umem::{frame::Frame, CompQueue, FillQueue, Umem};
+        pub use umem::{frame::FrameDesc, CompQueue, FillQueue, Umem};
 
         pub mod socket;
         pub use socket::{RxQueue, Socket, TxQueue};

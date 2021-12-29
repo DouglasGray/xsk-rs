@@ -4,10 +4,28 @@
 mod cursor;
 pub use cursor::Cursor;
 
-use core::slice;
-use std::{borrow::Borrow, fmt, ops::Deref};
+use std::{borrow::Borrow, ops::Deref};
 
-use super::{mmap::Mmap, FrameLayout};
+/// The lengths of a frame's packet data and headroom segments.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct FrameLengths {
+    pub(crate) headroom: usize,
+    pub(crate) data: usize,
+}
+
+impl FrameLengths {
+    /// Current length of the headroom segment.
+    #[inline]
+    pub fn headroom(&self) -> usize {
+        self.headroom
+    }
+
+    /// Current length of the packet data segment.
+    #[inline]
+    pub fn data(&self) -> usize {
+        self.data
+    }
+}
 
 /// A [`Umem`](super::Umem) frame descriptor.
 ///
@@ -17,30 +35,14 @@ use super::{mmap::Mmap, FrameLayout};
 /// address of the data segment of some frame. The `len` field
 /// describes the length (in bytes) of any data stored in that frame,
 /// starting from `addr`.
-#[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct FrameDesc {
-    pub addr: usize,
-    pub len: usize,
-    pub options: u32,
+#[derive(Debug)]
+pub struct FrameDesc {
+    pub(crate) addr: usize,
+    pub(crate) options: u32,
+    pub(crate) lengths: FrameLengths,
 }
 
-/// The lengths of a frame's packet data and headroom segments.
-#[derive(Debug, Default, Clone, Copy)]
-struct SegmentLengths {
-    headroom: usize,
-    data: usize,
-}
-
-/// A single frame of some [`Umem`](super::Umem).
-pub struct Frame {
-    addr: usize,
-    options: u32,
-    lens: SegmentLengths,
-    layout: FrameLayout,
-    umem: Mmap,
-}
-
-impl Frame {
+impl FrameDesc {
     /// Create a new frame which belongs to `umem`, whose packet data
     /// segment starts at `addr` and with a layout described by
     /// `frame_layout.`
@@ -49,13 +51,11 @@ impl Frame {
     ///
     /// `addr` must be the starting address of the packet data segment
     /// of some frame belonging to `umem`.
-    pub(super) unsafe fn new(addr: usize, frame_layout: FrameLayout, umem: Mmap) -> Self {
+    pub(super) fn new(addr: usize) -> Self {
         Self {
             addr,
             options: 0,
-            lens: SegmentLengths::default(),
-            layout: frame_layout,
-            umem,
+            lengths: FrameLengths::default(),
         }
     }
 
@@ -65,18 +65,10 @@ impl Frame {
         self.addr
     }
 
-    /// The current length of this frame's packet data segment.
+    /// Current headroom and packet data lengths for this frame.
     #[inline]
-    pub fn len(&self) -> usize {
-        self.lens.data
-    }
-
-    /// Returns `true` if the length of the packet data segment
-    /// (i.e. what was received from the kernel or will be
-    /// transmitted) is zero.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.lens.data == 0
+    pub fn lengths(&self) -> &FrameLengths {
+        &self.lengths
     }
 
     /// Frame options.
@@ -93,179 +85,10 @@ impl Frame {
     }
 
     #[inline]
-    /// Retrieve a pointer to the headroom segment of this frame.
-    ///
-    /// # Safety
-    ///
-    /// This frame's current `addr` must point to the start of a
-    /// packet data segment of a frame comprising the underlying UMEM.
-    unsafe fn headroom_ptr(&self) -> *mut u8 {
-        let addr = self.addr - self.layout.frame_headroom;
-        unsafe { self.umem.offset(addr) as *mut u8 }
-    }
-
-    #[inline]
-    /// Retrieve a pointer to the packet data segment of this frame.
-    ///
-    /// # Safety
-    ///
-    /// This frame's current `addr` must point to the start of a
-    /// packet data segment of a frame comprising the underlying UMEM.
-    unsafe fn data_ptr(&self) -> *mut u8 {
-        unsafe { self.umem.offset(self.addr) as *mut u8 }
-    }
-
-    /// The frame's headroom and packet data segments.
-    ///
-    /// # Safety
-    ///
-    /// The underlying [`Umem`](super::Umem) region this frame
-    /// accesses must not be mutably accessed anywhere else at the
-    /// same time, either in userspace or by the kernel.
-    #[inline]
-    pub unsafe fn segments(&self) -> (Headroom, Data) {
-        // SAFETY: unsafe contract in constructor and `set_desc`
-        // ensures that this frame's current `addr` points to the
-        // start of a packet data segment in its underlying UMEM -
-        // therefore the dereferenced slices are whole and valid
-        // segments.
-        //
-        // The unsafe contract of this function also guarantees there
-        // are no other mutable references to these slices at the same
-        // time.
-        unsafe { (self.headroom(), self.data()) }
-    }
-
-    /// The frame's headroom segment.
-    ///
-    /// # Safety
-    ///
-    /// See [`get`](Frame::segments).
-    #[inline]
-    pub unsafe fn headroom(&self) -> Headroom {
-        // SAFETY: see `segments`.
-        let headroom_ptr = unsafe { self.headroom_ptr() };
-
-        Headroom {
-            contents: unsafe { slice::from_raw_parts(headroom_ptr, self.lens.headroom) },
-        }
-    }
-
-    /// The frame's packet data segment
-    ///
-    /// # Safety
-    ///
-    /// See [`get`](Frame::segments).
-    #[inline]
-    pub unsafe fn data(&self) -> Data {
-        // SAFETY: see `segments`.
-        let data_ptr = unsafe { self.data_ptr() };
-
-        Data {
-            contents: unsafe { slice::from_raw_parts(data_ptr, self.lens.data) },
-        }
-    }
-
-    /// Mutable references to the frame's headroom and packet data
-    /// segments.
-    ///
-    /// # Safety
-    ///
-    /// The underlying [`Umem`](super::Umem) region this frame
-    /// accesses must not be mutably or immutably accessed anywhere
-    /// else at the same time, either in userspace or by the kernel.
-    #[inline]
-    pub unsafe fn segments_mut(&mut self) -> (HeadroomMut, DataMut) {
-        // SAFETY: unsafe contract in constructor and `set_desc`
-        // ensures that this frame's current `addr` points to the
-        // start of a packet data segment in its underlying UMEM -
-        // therefore the dereferenced slices are whole and valid
-        // segments.
-        //
-        // The unsafe contract of this function also guarantees there
-        // are no other mutable or immutable references to these
-        // slices at the same time.
-        let headroom_ptr = unsafe { self.headroom_ptr() };
-        let data_ptr = unsafe { self.data_ptr() };
-
-        (
-            HeadroomMut {
-                len: &mut self.lens.headroom,
-                buf: unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) },
-            },
-            DataMut {
-                len: &mut self.lens.data,
-                buf: unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) },
-            },
-        )
-    }
-
-    /// A mutable reference to the frame's headroom segment.
-    ///
-    /// # Safety
-    ///
-    /// See [`get_mut`](Frame::segments_mut).
-    #[inline]
-    pub unsafe fn headroom_mut(&mut self) -> HeadroomMut {
-        // SAFETY: see `segments_mut`.
-        let headroom_ptr = unsafe { self.headroom_ptr() };
-
-        HeadroomMut {
-            len: &mut self.lens.headroom,
-            buf: unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) },
-        }
-    }
-
-    /// A mutable reference to the frame's packet data segment.
-    ///
-    /// # Safety
-    ///
-    /// See [`get_mut`](Frame::segments_mut).
-    #[inline]
-    pub unsafe fn data_mut(&mut self) -> DataMut {
-        // SAFETY: see `segments_mut`.
-        let data_ptr = unsafe { self.data_ptr() };
-
-        DataMut {
-            len: &mut self.lens.data,
-            buf: unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) },
-        }
-    }
-
-    /// # Safety
-    ///
-    /// The address in `desc` must be the starting address of the
-    /// packet data segment of a frame belonging to the same
-    /// underlying [`Umem`](super::Umem) as this frame.
-    #[inline]
-    pub(crate) unsafe fn set_desc(&mut self, desc: &FrameDesc) {
-        self.addr = desc.addr;
-        self.options = desc.options;
-        self.lens.data = desc.len;
-        // Leave the headroom cursor position where it is
-    }
-
-    /// # Safety
-    ///
-    /// The provided `desc` must ultimately be passed to a ring that
-    /// is tied to the same underlying [`Umem`](super::Umem) as this
-    /// frame.
-    #[inline]
-    pub(crate) unsafe fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
+    pub(crate) fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
         desc.addr = self.addr() as u64;
         desc.options = self.options();
-        desc.len = self.len() as u32;
-    }
-}
-
-impl fmt::Debug for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Frame")
-            .field("addr", &self.addr)
-            .field("mtu", &self.layout)
-            .field("lens", &self.lens)
-            .field("options", &self.options)
-            .finish()
+        desc.len = self.lengths.data as u32;
     }
 }
 
@@ -275,7 +98,11 @@ pub struct Headroom<'umem> {
     contents: &'umem [u8],
 }
 
-impl Headroom<'_> {
+impl<'umem> Headroom<'umem> {
+    pub(super) fn new(contents: &'umem [u8]) -> Self {
+        Self { contents }
+    }
+
     /// Returns this segment's contents, up to its current length.
     ///
     /// Note that headroom length isn't changed in between updates to
@@ -321,7 +148,11 @@ pub struct HeadroomMut<'umem> {
     buf: &'umem mut [u8],
 }
 
-impl HeadroomMut<'_> {
+impl<'umem> HeadroomMut<'umem> {
+    pub(super) fn new(len: &'umem mut usize, buf: &'umem mut [u8]) -> Self {
+        Self { len, buf }
+    }
+
     /// Returns this segment's contents, up to its current length.
     ///
     /// Note that headroom length isn't changed in between updates to
@@ -370,7 +201,11 @@ pub struct Data<'umem> {
     contents: &'umem [u8],
 }
 
-impl Data<'_> {
+impl<'umem> Data<'umem> {
+    pub(super) fn new(contents: &'umem [u8]) -> Self {
+        Self { contents }
+    }
+
     /// Returns this segment's contents, up to its current length.
     ///
     /// Will change as packets are sent or received using this frame.
@@ -411,7 +246,11 @@ pub struct DataMut<'umem> {
     buf: &'umem mut [u8],
 }
 
-impl DataMut<'_> {
+impl<'umem> DataMut<'umem> {
+    pub(super) fn new(len: &'umem mut usize, buf: &'umem mut [u8]) -> Self {
+        Self { len, buf }
+    }
+
     /// Returns this segment's contents, up to its current length.
     ///
     /// Will change as packets are sent or received using this frame.
@@ -457,9 +296,7 @@ mod tests {
 
     use libbpf_sys::xdp_desc;
 
-    use crate::umem::{Frame, Mmap};
-
-    use super::*;
+    use crate::umem::{FrameDesc, FrameLayout, FramedMmap, Mmap};
 
     #[test]
     fn writes_persist() {
@@ -471,46 +308,49 @@ mod tests {
 
         let frame_size = layout.frame_size();
 
-        let mmap = Mmap::new(16 * frame_size, false).unwrap();
+        let mmap = FramedMmap {
+            layout,
+            mmap: Mmap::new(16 * frame_size, false).unwrap(),
+        };
 
-        let mut frame_0 =
-            unsafe { Frame::new(0 * frame_size + layout.frame_headroom, layout, mmap.clone()) };
+        let mut desc_0 = FrameDesc::new(0 * frame_size + layout.frame_headroom);
 
-        let mut frame_1 =
-            unsafe { Frame::new(1 * frame_size + layout.frame_headroom, layout, mmap.clone()) };
+        let mut desc_1 = FrameDesc::new(1 * frame_size + layout.frame_headroom);
 
-        let mut desc = xdp_desc::default();
+        let mut xdp_desc = xdp_desc::default();
 
-        unsafe { frame_0.data_mut() }
+        unsafe { mmap.data_mut(&mut desc_0) }
             .cursor()
             .write_all(b"hello")
             .unwrap();
 
-        unsafe {
-            frame_0.write_xdp_desc(&mut desc);
-        }
+        desc_0.write_xdp_desc(&mut xdp_desc);
 
-        assert_eq!(desc.addr, (0 * frame_size + layout.frame_headroom) as u64);
-        assert_eq!(desc.len, 5);
-        assert_eq!(desc.options, 0);
+        assert_eq!(
+            xdp_desc.addr,
+            (0 * frame_size + layout.frame_headroom) as u64
+        );
+        assert_eq!(xdp_desc.len, 5);
+        assert_eq!(xdp_desc.options, 0);
 
-        unsafe { frame_1.data_mut() }
+        unsafe { mmap.data_mut(&mut desc_1) }
             .cursor()
             .write_all(b"world!")
             .unwrap();
 
-        unsafe {
-            frame_1.write_xdp_desc(&mut desc);
-        }
+        desc_1.write_xdp_desc(&mut xdp_desc);
 
-        assert_eq!(desc.addr, (1 * frame_size + layout.frame_headroom) as u64);
-        assert_eq!(desc.len, 6);
-        assert_eq!(desc.options, 0);
+        assert_eq!(
+            xdp_desc.addr,
+            (1 * frame_size + layout.frame_headroom) as u64
+        );
+        assert_eq!(xdp_desc.len, 6);
+        assert_eq!(xdp_desc.options, 0);
 
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    mmap.offset(0 * frame_size + layout.frame_headroom) as *const u8,
+                    mmap.mmap.offset(0 * frame_size + layout.frame_headroom) as *const u8,
                     5,
                 )
             },
@@ -520,7 +360,7 @@ mod tests {
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    mmap.offset(1 * frame_size + layout.frame_headroom) as *const u8,
+                    mmap.mmap.offset(1 * frame_size + layout.frame_headroom) as *const u8,
                     6,
                 )
             },
@@ -564,18 +404,16 @@ mod tests {
 
         let frame_size = layout.frame_size();
 
-        let mmap = Mmap::new(frame_count * frame_size, false).unwrap();
+        let mmap = FramedMmap {
+            layout,
+            mmap: Mmap::new(frame_count * frame_size, false).unwrap(),
+        };
 
         (0..frame_count).into_iter().for_each(|i| {
-            let mut frame = unsafe {
-                Frame::new(
-                    (i * frame_size) + layout._xdp_headroom + layout.frame_headroom,
-                    layout,
-                    mmap.clone(),
-                )
-            };
+            let mut desc =
+                FrameDesc::new((i * frame_size) + layout._xdp_headroom + layout.frame_headroom);
 
-            let (mut headroom, mut data) = unsafe { frame.segments_mut() };
+            let (mut headroom, mut data) = unsafe { mmap.frame_mut(&mut desc) };
 
             headroom
                 .cursor()
@@ -599,7 +437,7 @@ mod tests {
 
         // Check they match
         let mmap_region =
-            unsafe { slice::from_raw_parts(mmap.as_mut_ptr() as *const u8, mmap.len()) };
+            unsafe { slice::from_raw_parts(mmap.mmap.as_mut_ptr() as *const u8, mmap.mmap.len()) };
 
         assert_eq!(mmap_region, expected_layout)
     }

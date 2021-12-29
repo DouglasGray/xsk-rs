@@ -1,4 +1,4 @@
-use std::{io, sync::Arc};
+use std::io;
 
 pub use inner::*;
 
@@ -10,8 +10,12 @@ mod inner {
         MAP_ANONYMOUS, MAP_FAILED, MAP_HUGETLB, MAP_POPULATE, MAP_SHARED, PROT_READ, PROT_WRITE,
     };
     use log::error;
-    use std::ptr::{self, NonNull};
+    use std::{
+        ptr::{self, NonNull},
+        sync::{Arc, Mutex},
+    };
 
+    #[derive(Debug)]
     struct MmapInner {
         addr: NonNull<libc::c_void>,
         len: usize,
@@ -40,11 +44,13 @@ mod inner {
         }
     }
 
+    unsafe impl Send for MmapInner {}
+
     /// An anonymous memory mapped region.
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     pub struct Mmap {
         addr: NonNull<libc::c_void>, // Store a copy to avoid double deref.
-        _inner: Arc<MmapInner>,
+        _inner: Arc<Mutex<MmapInner>>,
     }
 
     impl Mmap {
@@ -90,7 +96,7 @@ mod inner {
 
                 Ok(Mmap {
                     addr,
-                    _inner: Arc::new(inner),
+                    _inner: Arc::new(Mutex::new(inner)),
                 })
             }
         }
@@ -118,16 +124,16 @@ mod inner {
 mod inner {
     use super::*;
 
-    /// A mocked [`Mmap`] that uses a [`Vec`] internally.
-    #[derive(Clone)]
+    /// A mocked [`Mmap`] that uses the heap for memory.
+    #[derive(Debug, Clone)]
     pub struct Mmap {
-        inner: Arc<Vec<u8>>,
+        inner: Box<[u8]>,
     }
 
     impl Mmap {
         pub fn new(len: usize, _use_huge_pages: bool) -> io::Result<Self> {
             Ok(Self {
-                inner: Arc::new(vec![0; len]),
+                inner: vec![0; len].into_boxed_slice(),
             })
         }
 
