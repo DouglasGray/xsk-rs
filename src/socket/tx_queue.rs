@@ -48,7 +48,7 @@ impl TxQueue {
             return 0;
         }
 
-        let mut idx: u32 = 0;
+        let mut idx = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 

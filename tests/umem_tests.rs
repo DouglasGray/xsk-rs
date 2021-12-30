@@ -170,11 +170,11 @@ fn send_and_receive_pkt(sender: &mut Xsk, receiver: &mut Xsk, pkt: &[u8]) {
 
         // Check that:
         // 1. Data received matches
-        // 2. Address consumed in comp queue is address of frame written to
-        // 3. Address consumed in rx queue is address of frame added to fill queue
+        // 2. Address consumed in rx queue is address of frame added to fill queue
+        // 3. Address consumed in comp queue is address of frame written to
 
         assert_eq!(receiver.umem.data(&receiver.descs[1]).contents(), pkt);
-        assert_eq!(sender.descs[1].addr(), sender.descs[0].addr());
         assert_eq!(receiver.descs[1].addr(), receiver.descs[0].addr());
+        assert_eq!(sender.descs[1].addr(), sender.descs[0].addr());
     }
 }

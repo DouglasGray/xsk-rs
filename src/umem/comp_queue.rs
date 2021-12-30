@@ -47,13 +47,13 @@ impl CompQueue {
             return 0;
         }
 
-        let mut idx: u32 = 0;
+        let mut idx = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter_mut().take(cnt as usize) {
-                let addr: u64 =
+                let addr =
                     unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
 
                 desc.addr = addr as usize;

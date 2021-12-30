@@ -45,7 +45,7 @@ impl RxQueue {
             return 0;
         }
 
-        let mut idx: u32 = 0;
+        let mut idx = 0;
 
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
 

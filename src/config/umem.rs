@@ -74,11 +74,10 @@ impl ConfigBuilder {
 ///
 /// It's worth noting that the specified `frame_size` is not
 /// necessarily the buffer size that will be available to write data
-/// into. Some of this will be eaten up by
-/// [`XDP_PACKET_HEADROOM`] and any
-/// non-zero `frame_headroom`. Use the [`mtu`](Config::mtu) function
-/// to determine whether the frame is large enough to hold the data
-/// you wish to transmit.
+/// into. Some of this will be eaten up by XDP program headroom
+/// ([`XDP_PACKET_HEADROOM`]) and any non-zero `frame_headroom`. Use
+/// the [`mtu`](Config::mtu) function to determine whether the frame
+/// is large enough to hold the data you wish to transmit.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     frame_size: FrameSize,
@@ -109,10 +108,12 @@ impl Config {
         self.comp_queue_size
     }
 
+    /// The frame headroom reserved for the XDP program.
+    pub fn xdp_headroom(&self) -> u32 {
+        XDP_PACKET_HEADROOM
+    }
+
     /// The frame headroom available to the user.
-    ///
-    /// Not to be confused with [`XDP_PACKET_HEADROOM`] which is the
-    /// amount of headroom reserved by XDP.
     pub fn frame_headroom(&self) -> u32 {
         self.frame_headroom
     }
@@ -123,7 +124,7 @@ impl Config {
     /// Is defined as the frame size minus both the XDP headroom and
     /// user headroom.
     pub fn mtu(&self) -> u32 {
-        self.frame_size.get() - (XDP_PACKET_HEADROOM + self.frame_headroom)
+        self.frame_size.get() - (self.xdp_headroom() + self.frame_headroom)
     }
 }
 

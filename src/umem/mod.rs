@@ -12,7 +12,7 @@ pub use fill_queue::FillQueue;
 mod comp_queue;
 pub use comp_queue::CompQueue;
 
-use libbpf_sys::{xsk_umem, XDP_PACKET_HEADROOM};
+use libbpf_sys::xsk_umem;
 use std::{
     borrow::Borrow,
     error::Error,
@@ -106,20 +106,7 @@ impl Umem {
         frame_count: NonZeroU32,
         use_huge_pages: bool,
     ) -> Result<(Self, Vec<FrameDesc>), UmemCreateError> {
-        let frame_size = config.frame_size().get() as usize;
-        let frame_count_usize = frame_count.get() as usize;
-
-        let xdp_headroom = XDP_PACKET_HEADROOM as usize;
-        let frame_headroom = config.frame_headroom() as usize;
-        let mtu = frame_size - (xdp_headroom + frame_headroom);
-
-        let frame_layout = FrameLayout {
-            _xdp_headroom: xdp_headroom,
-            frame_headroom,
-            mtu,
-        };
-
-        let mmap_len = frame_size * frame_count_usize;
+        let frame_layout = config.into();
 
         let mem = UmemRegion::new(frame_count, frame_layout, use_huge_pages).map_err(|e| {
             UmemCreateError {
@@ -136,7 +123,7 @@ impl Umem {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
                 mem.as_ptr(),
-                mmap_len as u64,
+                mem.len() as u64,
                 fq.as_mut(),
                 cq.as_mut(),
                 &config.into(),
@@ -181,10 +168,14 @@ impl Umem {
 
         let inner = UmemInner::new(umem_ptr, Some((fq, cq)));
 
-        let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count_usize);
+        let frame_count = frame_count.get() as usize;
 
-        for i in 0..frame_count_usize {
-            let addr = (i * frame_size) + xdp_headroom + frame_headroom;
+        let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count);
+
+        for i in 0..frame_count {
+            let addr = (i * frame_layout.frame_size())
+                + frame_layout.xdp_headroom
+                + frame_layout.frame_headroom;
 
             frame_descs.push(FrameDesc::new(addr));
         }
@@ -327,13 +318,31 @@ impl Error for UmemCreateError {
 /// Dimensions of a [`Umem`] frame.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameLayout {
-    _xdp_headroom: usize,
+    xdp_headroom: usize,
     frame_headroom: usize,
     mtu: usize,
 }
 
 impl FrameLayout {
     fn frame_size(&self) -> usize {
-        self._xdp_headroom + self.frame_headroom + self.mtu
+        self.xdp_headroom + self.frame_headroom + self.mtu
+    }
+}
+
+impl From<UmemConfig> for FrameLayout {
+    fn from(c: UmemConfig) -> Self {
+        Self {
+            xdp_headroom: c.xdp_headroom() as usize,
+            frame_headroom: c.frame_headroom() as usize,
+            mtu: c.mtu() as usize,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn config_frame_size_equals_layout_frame_size() {
+        todo!()
     }
 }

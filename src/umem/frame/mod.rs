@@ -86,8 +86,8 @@ impl FrameDesc {
 
     #[inline]
     pub(crate) fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
-        desc.addr = self.addr() as u64;
-        desc.options = self.options();
+        desc.addr = self.addr as u64;
+        desc.options = self.options;
         desc.len = self.lengths.data as u32;
     }
 }
@@ -292,26 +292,27 @@ impl Deref for DataMut<'_> {
 #[cfg(test)]
 mod tests {
     use core::slice;
-    use std::io::{self, Write};
+    use std::{
+        convert::TryInto,
+        io::{self, Write},
+    };
 
     use libbpf_sys::xdp_desc;
 
-    use crate::umem::{FrameDesc, FrameLayout, FramedMmap, Mmap};
+    use crate::umem::{FrameDesc, FrameLayout, UmemRegion};
 
     #[test]
     fn writes_persist() {
         let layout = FrameLayout {
-            _xdp_headroom: 0,
+            xdp_headroom: 0,
             frame_headroom: 512,
             mtu: 2048,
         };
 
+        let frame_count = 16.try_into().unwrap();
         let frame_size = layout.frame_size();
 
-        let mmap = FramedMmap {
-            layout,
-            mmap: Mmap::new(16 * frame_size, false).unwrap(),
-        };
+        let umem_region = UmemRegion::new(frame_count, layout, false).unwrap();
 
         let mut desc_0 = FrameDesc::new(0 * frame_size + layout.frame_headroom);
 
@@ -319,7 +320,7 @@ mod tests {
 
         let mut xdp_desc = xdp_desc::default();
 
-        unsafe { mmap.data_mut(&mut desc_0) }
+        unsafe { umem_region.data_mut(&mut desc_0) }
             .cursor()
             .write_all(b"hello")
             .unwrap();
@@ -333,7 +334,7 @@ mod tests {
         assert_eq!(xdp_desc.len, 5);
         assert_eq!(xdp_desc.options, 0);
 
-        unsafe { mmap.data_mut(&mut desc_1) }
+        unsafe { umem_region.data_mut(&mut desc_1) }
             .cursor()
             .write_all(b"world!")
             .unwrap();
@@ -350,7 +351,10 @@ mod tests {
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    mmap.mmap.offset(0 * frame_size + layout.frame_headroom) as *const u8,
+                    umem_region
+                        .as_ptr()
+                        .add(0 * frame_size + layout.frame_headroom)
+                        as *const u8,
                     5,
                 )
             },
@@ -360,7 +364,10 @@ mod tests {
         assert_eq!(
             unsafe {
                 slice::from_raw_parts(
-                    mmap.mmap.offset(1 * frame_size + layout.frame_headroom) as *const u8,
+                    umem_region
+                        .as_ptr()
+                        .add(1 * frame_size + layout.frame_headroom)
+                        as *const u8,
                     6,
                 )
             },
@@ -371,12 +378,13 @@ mod tests {
     #[test]
     fn writes_are_contiguous() {
         let layout = FrameLayout {
-            _xdp_headroom: 4,
+            xdp_headroom: 4,
             frame_headroom: 8,
             mtu: 12,
         };
 
-        let frame_count = 4;
+        let frame_count = 4.try_into().unwrap();
+        let umem_region = UmemRegion::new(frame_count, layout, false).unwrap();
 
         // An arbitrary layout
         let xdp_headroom_segment = [0, 0, 0, 0];
@@ -391,7 +399,7 @@ mod tests {
 
         let base_layout: Vec<u8> = cursor.into_inner();
 
-        let expected_layout: Vec<u8> = (0..frame_count as u8)
+        let expected_layout: Vec<u8> = (0..frame_count.get() as u8)
             .into_iter()
             .map(|i| {
                 base_layout
@@ -402,18 +410,12 @@ mod tests {
             .flatten()
             .collect();
 
-        let frame_size = layout.frame_size();
+        (0..frame_count.get() as usize).into_iter().for_each(|i| {
+            let mut desc = FrameDesc::new(
+                (i * layout.frame_size()) + layout.xdp_headroom + layout.frame_headroom,
+            );
 
-        let mmap = FramedMmap {
-            layout,
-            mmap: Mmap::new(frame_count * frame_size, false).unwrap(),
-        };
-
-        (0..frame_count).into_iter().for_each(|i| {
-            let mut desc =
-                FrameDesc::new((i * frame_size) + layout._xdp_headroom + layout.frame_headroom);
-
-            let (mut headroom, mut data) = unsafe { mmap.frame_mut(&mut desc) };
+            let (mut headroom, mut data) = unsafe { umem_region.frame_mut(&mut desc) };
 
             headroom
                 .cursor()
@@ -437,7 +439,7 @@ mod tests {
 
         // Check they match
         let mmap_region =
-            unsafe { slice::from_raw_parts(mmap.mmap.offset(0) as *const u8, mmap.mmap.len()) };
+            unsafe { slice::from_raw_parts(umem_region.as_ptr() as *const u8, umem_region.len()) };
 
         assert_eq!(mmap_region, expected_layout)
     }
