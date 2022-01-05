@@ -55,14 +55,15 @@ unsafe impl Send for XskSocket {}
 
 #[derive(Debug)]
 struct SocketInner {
-    _socket_ptr: XskSocket,
+    // `ptr` must appear before `umem` to ensure correct drop order.
+    _ptr: XskSocket,
     _umem: Umem,
 }
 
 impl SocketInner {
-    fn new(socket_ptr: XskSocket, umem: Umem) -> Self {
+    fn new(ptr: XskSocket, umem: Umem) -> Self {
         Self {
-            _socket_ptr: socket_ptr,
+            _ptr: ptr,
             _umem: umem,
         }
     }
@@ -119,7 +120,7 @@ impl Socket {
             umem.with_ptr_and_saved_queues(|xsk_umem, saved_fq_and_cq| {
                 let (mut fq, mut cq) = saved_fq_and_cq
                     .take()
-                    .unwrap_or_else(|| (XskRingProd::default(), XskRingCons::default()));
+                    .unwrap_or_else(|| (Box::default(), Box::default()));
 
                 let err = libbpf_sys::xsk_socket__create_shared(
                     &mut socket_ptr,
@@ -128,8 +129,8 @@ impl Socket {
                     xsk_umem,
                     rx_q.as_mut(),
                     tx_q.as_mut(),
-                    fq.as_mut(),
-                    cq.as_mut(),
+                    fq.as_mut().as_mut(), // double deref due to Box
+                    cq.as_mut().as_mut(),
                     &config.into(),
                 );
 
@@ -194,8 +195,8 @@ impl Socket {
         let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
             (true, true) => None,
             (false, false) => {
-                let fq = FillQueue::new(fq, umem.clone());
-                let cq = CompQueue::new(cq, umem.clone());
+                let fq = FillQueue::new(*fq, umem.clone());
+                let cq = CompQueue::new(*cq, umem.clone());
 
                 Some((fq, cq))
             }

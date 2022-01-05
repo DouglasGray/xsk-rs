@@ -169,3 +169,43 @@ impl fmt::Display for ConfigBuildError {
 }
 
 impl error::Error for ConfigBuildError {}
+
+#[cfg(test)]
+mod tests {
+    use std::convert::TryInto;
+
+    use crate::config::XDP_UMEM_MIN_CHUNK_SIZE;
+
+    use super::*;
+
+    #[test]
+    fn frame_size_must_be_greater_than_total_headroom() {
+        assert!(ConfigBuilder::new()
+            .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - XDP_PACKET_HEADROOM)
+            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+            .build()
+            .is_ok());
+
+        assert!(ConfigBuilder::new()
+            .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - (XDP_PACKET_HEADROOM - 1))
+            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn frame_mtu_has_expected_value() {
+        let frame_headroom = 1024;
+
+        let config = ConfigBuilder::new()
+            .frame_headroom(frame_headroom)
+            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+            .build()
+            .unwrap();
+
+        assert_eq!(
+            config.mtu(),
+            XDP_UMEM_MIN_CHUNK_SIZE - (frame_headroom + XDP_PACKET_HEADROOM)
+        );
+    }
+}

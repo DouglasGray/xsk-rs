@@ -6,14 +6,27 @@ pub use cursor::Cursor;
 
 use std::{borrow::Borrow, ops::Deref};
 
-/// The lengths of a frame's packet data and headroom segments.
+/// The length (in bytes) of data in a frame's packet data and
+/// headroom segments.
+///
+/// Not to be confused with the [`frame_headroom`] and [`mtu`], the
+/// lengths here describe the amount of data that has been written to
+/// either segment, either by the kernel or by the user. Hence they
+/// vary as frames are used to send and receive data.
+///
+/// The two sets of values are related however, in that `headroom`
+/// will always be less than or equal to [`frame_headroom`], and
+/// `data` less than or equal to [`mtu`].
+///
+/// [`frame_headroom`]: crate::config::UmemConfig::frame_headroom
+/// [`mtu`]: crate::config::UmemConfig::mtu
 #[derive(Debug, Default, Clone, Copy)]
-pub struct FrameLengths {
+pub struct SegmentLengths {
     pub(crate) headroom: usize,
     pub(crate) data: usize,
 }
 
-impl FrameLengths {
+impl SegmentLengths {
     /// Current length of the headroom segment.
     #[inline]
     pub fn headroom(&self) -> usize {
@@ -30,44 +43,42 @@ impl FrameLengths {
 /// A [`Umem`](super::Umem) frame descriptor.
 ///
 /// Used to pass frame information between the kernel and
-/// userspace. The `addr` field is an offset in bytes from the start
-/// of the [`Umem`](super::Umem) and corresponds to the starting
-/// address of the data segment of some frame. The `len` field
-/// describes the length (in bytes) of any data stored in that frame,
-/// starting from `addr`.
+/// userspace. `addr` is an offset in bytes from the start of the
+/// [`Umem`](super::Umem) and corresponds to the starting address of
+/// the packet data segment of some frame. `lengths` describes the
+/// length (in bytes) of any data stored in the frame's headroom or
+/// data segments.
 #[derive(Debug)]
 pub struct FrameDesc {
     pub(crate) addr: usize,
     pub(crate) options: u32,
-    pub(crate) lengths: FrameLengths,
+    pub(crate) lengths: SegmentLengths,
 }
 
 impl FrameDesc {
-    /// Create a new frame which belongs to `umem`, whose packet data
-    /// segment starts at `addr` and with a layout described by
-    /// `frame_layout.`
-    ///
-    /// # Safety
+    /// Creates a new frame descriptor.
     ///
     /// `addr` must be the starting address of the packet data segment
-    /// of some frame belonging to `umem`.
+    /// of some [`Umem`](super::Umem) frame.
     pub(super) fn new(addr: usize) -> Self {
         Self {
             addr,
             options: 0,
-            lengths: FrameLengths::default(),
+            lengths: SegmentLengths::default(),
         }
     }
 
-    /// The starting address of this frame's packet data segment.
+    /// The starting address of the packet data segment of the frame
+    /// pointed at by this descriptor.
     #[inline]
     pub fn addr(&self) -> usize {
         self.addr
     }
 
-    /// Current headroom and packet data lengths for this frame.
+    /// Current headroom and packet data lengths for the frame pointed
+    /// at by this descriptor.
     #[inline]
-    pub fn lengths(&self) -> &FrameLengths {
+    pub fn lengths(&self) -> &SegmentLengths {
         &self.lengths
     }
 
@@ -77,8 +88,7 @@ impl FrameDesc {
         self.options
     }
 
-    /// Set the frame options. Will be included in the descriptor
-    /// passed to the kernel, along with the frame address and length.
+    /// Set the frame options.
     #[inline]
     pub fn set_options(&mut self, options: u32) {
         self.options = options
@@ -104,12 +114,6 @@ impl<'umem> Headroom<'umem> {
     }
 
     /// Returns this segment's contents, up to its current length.
-    ///
-    /// Note that headroom length isn't changed in between updates to
-    /// the frame's descriptor. So, for example, if you write to this
-    /// headroom and then transmit its frame, if you then use the same
-    /// frame for receiving a packet then the headroom contents will
-    /// be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         self.contents
@@ -154,18 +158,12 @@ impl<'umem> HeadroomMut<'umem> {
     }
 
     /// Returns this segment's contents, up to its current length.
-    ///
-    /// Note that headroom length isn't changed in between updates to
-    /// the frame's descriptor. So, for example, if you write to this
-    /// headroom and then transmit its frame, if you then use the same
-    /// frame for receiving a packet then the headroom contents will
-    /// be the same.
     #[inline]
     pub fn contents(&self) -> &[u8] {
         &self.buf[..*self.len]
     }
 
-    /// A cursor for writing to the underlying memory.
+    /// A cursor for writing to this segment.
     #[inline]
     pub fn cursor(&mut self) -> Cursor<'_> {
         Cursor::new(self.len, self.buf)

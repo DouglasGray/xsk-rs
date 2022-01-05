@@ -23,11 +23,11 @@ impl FillQueue {
         Self { ring, _umem: umem }
     }
 
-    /// Let the kernel know that the provided `frames` may be used to
-    /// receive data. Returns the number of frames submitted to the
-    /// kernel.
+    /// Let the kernel know that the [`Umem`] frames described by
+    /// `descs` may be used to receive data. Returns the number of
+    /// frames submitted to the kernel.
     ///
-    /// Note that if the length of `frames` is greater than the number
+    /// Note that if the length of `descs` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be handed over to the kernel.
     ///
@@ -44,8 +44,8 @@ impl FillQueue {
     /// the same [`Umem`](super::Umem) that this `FillQueue` instance
     /// is tied to.
     #[inline]
-    pub unsafe fn produce(&mut self, frames: &[FrameDesc]) -> usize {
-        let nb = frames.len() as u64;
+    pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
+        let nb = descs.len() as u64;
 
         if nb == 0 {
             return 0;
@@ -56,7 +56,7 @@ impl FillQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
-            for frame in frames.iter().take(cnt as usize) {
+            for frame in descs.iter().take(cnt as usize) {
                 unsafe {
                     *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
                         frame.addr as u64
@@ -72,8 +72,8 @@ impl FillQueue {
     }
 
     /// Same as [`produce`](FillQueue::produce) but wake up the kernel
-    /// (if required) to let it know there are frames available that
-    /// may be used to receive data.
+    /// if required to let it know there are frames available that may
+    /// be used to receive data.
     ///
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
@@ -84,11 +84,11 @@ impl FillQueue {
     #[inline]
     pub unsafe fn produce_and_wakeup(
         &mut self,
-        frames: &[FrameDesc],
+        descs: &[FrameDesc],
         socket_fd: &mut Fd,
         poll_timeout: i32,
     ) -> io::Result<usize> {
-        let cnt = unsafe { self.produce(frames) };
+        let cnt = unsafe { self.produce(descs) };
 
         if cnt > 0 && self.needs_wakeup() {
             self.wakeup(socket_fd, poll_timeout)?;

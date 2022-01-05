@@ -45,6 +45,17 @@ sudo target/release/examples/dev1_to_dev2 -- [FLAGS] [OPTIONS]
 
 Tested on a 64-bit machine running Linux kernel version 5.14.0.
 
+### Safety
+
+There is a fair amount of unsafe involved with using this library, and
+so the potential for disaster, however if you keep in mind the
+following then there should hopefully be few avenues for catastrophe:
+- When a frame / address has been submitted to the fill queue or tx
+  ring, do not use it again until you have consumed it from either the
+  completion queue or rx ring.
+- Do not use one UMEM's frame descriptors to acess the frame of
+  another, different UMEM.
+
 ### Usage
 
 The below example sends a packet from one interface to another.
@@ -60,7 +71,7 @@ use xsk_rs::{
 fn main() {
     // Create a UMEM for dev1 with 32 frames, whose sizes are
     // specified via the `UmemConfig` instance.
-    let (dev1_umem, mut dev1_frames) =
+    let (dev1_umem, mut dev1_descs) =
         Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
             .expect("failed to create UMEM");
 
@@ -77,9 +88,9 @@ fn main() {
     // Create a UMEM for dev2. Another option is to use the same UMEM
     // as dev1 - to do that we'd just pass `dev1_umem` to the
     // `Socket::new` call. In this case the UMEM would be shared, and
-    // so `dev1_frames` could be used in either context, but each
+    // so `dev1_descs` could be used in either context, but each
     // socket would have its own completion queue and fill queue.
-    let (dev2_umem, mut dev2_frames) =
+    let (dev2_umem, mut dev2_descs) =
         Umem::new(UmemConfig::default(), 32.try_into().unwrap(), false)
             .expect("failed to create UMEM");
 
@@ -98,15 +109,15 @@ fn main() {
     // 1. Add frames to dev2's fill queue so we are ready to receive
     // some packets.
     unsafe {
-        dev2_fq.produce(&dev2_frames);
+        dev2_fq.produce(&dev2_descs);
     }
 
     // 2. Write to dev1's UMEM.
     let pkt = "Hello, world!".as_bytes();
 
     unsafe {
-        dev1_frames[0]
-            .data_mut()
+        dev1_umem
+            .data_mut(&mut dev1_descs[0])
             .cursor()
             .write_all(pkt)
             .expect("failed writing packet to frame")
@@ -116,15 +127,15 @@ fn main() {
     println!("sending: {:?}", str::from_utf8(&pkt).unwrap());
 
     unsafe {
-        dev1_tx_q.produce_and_wakeup(&dev1_frames[..1]).unwrap();
+        dev1_tx_q.produce_and_wakeup(&dev1_descs[..1]).unwrap();
     }
 
     // 4. Read on dev2.
-    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(&mut dev2_frames, 100).unwrap() };
+    let pkts_recvd = unsafe { dev2_rx_q.poll_and_consume(&mut dev2_descs, 100).unwrap() };
 
     // 5. Confirm that one of the packets we received matches what we expect.
-    for recv_frame in dev2_frames.iter().take(pkts_recvd) {
-        let data = unsafe { recv_frame.data() };
+    for recv_desc in dev2_descs.iter().take(pkts_recvd) {
+        let data = unsafe { dev2_umem.data(recv_desc) };
 
         if data.contents() == &pkt[..] {
             println!("received: {:?}", str::from_utf8(data.contents()).unwrap());

@@ -27,10 +27,11 @@ use crate::{
     ring::{XskRingCons, XskRingProd},
 };
 
-/// Wrapper around a pointer to some [`Umem`]. Guarantees
-/// that the pointer is both non-null and unique.
+/// Wrapper around a pointer to some [`Umem`].
 #[derive(Debug)]
 struct XskUmem(NonNull<xsk_umem>);
+
+unsafe impl Send for XskUmem {}
 
 impl XskUmem {
     /// # Safety
@@ -61,23 +62,26 @@ impl Drop for XskUmem {
     }
 }
 
-unsafe impl Send for XskUmem {}
-
-/// Wraps the [`xsk_umem`] pointer and [`Mmap`]'d area together to
-/// ensure they're dropped in tandem.
+/// Wraps the [`Umem`] pointer and any saved fill queue or comp queue
+/// rings. These are required for creation of the socket.
 ///
-/// Note that `umem` must appear before `mmap` to ensure correct drop
-/// order.
+/// When we create the [`Umem`] we pass it pointers to two rings - a
+/// producer and consumer, representing the [`FillQueue`] and
+/// [`CompQueue`] respectively. The underlying C code keeps pointers
+/// to these two queues and pops them when creating a socket for the
+/// first time with this [`Umem`]. Hence we store them here so we
+/// don't prematurely clear up the rings' memory between creating the
+/// [`Umem`] and creating the socket.
 #[derive(Debug)]
 struct UmemInner {
-    umem_ptr: XskUmem,
-    saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>,
+    ptr: XskUmem,
+    saved_fq_and_cq: Option<(Box<XskRingProd>, Box<XskRingCons>)>,
 }
 
 impl UmemInner {
-    fn new(umem_ptr: XskUmem, saved_fq_and_cq: Option<(XskRingProd, XskRingCons)>) -> Self {
+    fn new(ptr: XskUmem, saved_fq_and_cq: Option<(Box<XskRingProd>, Box<XskRingCons>)>) -> Self {
         Self {
-            umem_ptr,
+            ptr,
             saved_fq_and_cq,
         }
     }
@@ -88,12 +92,13 @@ impl UmemInner {
 /// [`Socket`](crate::socket::Socket).
 #[derive(Debug, Clone)]
 pub struct Umem {
+    // `inner` must appear before `mem` to ensure correct drop order.
     inner: Arc<Mutex<UmemInner>>,
     mem: UmemRegion,
 }
 
 impl Umem {
-    /// Create a new UMEM instance backed by an anonymous memory
+    /// Create a new [`Umem`] instance backed by an anonymous memory
     /// mapped region.
     ///
     /// Setting `use_huge_pages` to `true` will instructed `mmap()` to
@@ -116,16 +121,16 @@ impl Umem {
         })?;
 
         let mut umem_ptr = ptr::null_mut();
-        let mut fq = XskRingProd::default();
-        let mut cq = XskRingCons::default();
+        let mut fq: Box<XskRingProd> = Box::default();
+        let mut cq: Box<XskRingCons> = Box::default();
 
         let err = unsafe {
             libbpf_sys::xsk_umem__create(
                 &mut umem_ptr,
                 mem.as_ptr(),
                 mem.len() as u64,
-                fq.as_mut(),
-                cq.as_mut(),
+                fq.as_mut().as_mut(), // double deref due to to Box
+                cq.as_mut().as_mut(),
                 &config.into(),
             )
         };
@@ -139,7 +144,7 @@ impl Umem {
             }
             None => {
                 return Err(UmemCreateError {
-                    reason: "returned UMEM pointer is null",
+                    reason: "UMEM is null",
                     err: io::Error::from_raw_os_error(err),
                 });
             }
@@ -154,14 +159,14 @@ impl Umem {
 
         if fq.is_ring_null() {
             return Err(UmemCreateError {
-                reason: "returned fill queue ring is null",
+                reason: "fill queue ring is null",
                 err: io::Error::from_raw_os_error(err),
             });
         };
 
         if cq.is_ring_null() {
             return Err(UmemCreateError {
-                reason: "returned comp queue ring is null",
+                reason: "comp queue ring is null",
                 err: io::Error::from_raw_os_error(err),
             });
         }
@@ -188,90 +193,89 @@ impl Umem {
         Ok((umem, frame_descs))
     }
 
-    /// The frame's headroom and packet data segments.
+    /// The headroom and packet data segments of the [`Umem`] frame
+    /// pointed at by `desc`. Contents are read-only.
     ///
     /// # Safety
     ///
-    /// The underlying [`Umem`](super::Umem) region this frame
-    /// accesses must not be mutably accessed anywhere else at the
-    /// same time, either in userspace or by the kernel.
+    /// `desc` must correspond to a frame belonging to this
+    /// [`Umem`]. Furthermore, the memory region accessed must not be
+    /// mutably accessed anywhere else at the same time, either in
+    /// userspace or by the kernel.
     #[inline]
     pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
-        // SAFETY: unsafe contract in constructor and `set_desc`
-        // ensures that this frame's current `addr` points to the
-        // start of a packet data segment in its underlying UMEM -
-        // therefore the dereferenced slices are whole and valid
-        // segments.
-        //
-        // The unsafe contract of this function also guarantees there
-        // are no other mutable references to these slices at the same
-        // time.
+        // SAFETY: We know from the unsafe contract of this function that:
+        // a. Accessing the headroom and data segment identified by
+        // `desc` is valid, since it describes a frame in this UMEM.
+        // b. This access is sound since there are no mutable
+        // references to the headroom and data segments.
         unsafe { self.mem.frame(desc) }
     }
 
-    /// The frame's headroom segment.
+    /// The headroom segment of the [`Umem`] frame pointed at by
+    /// `desc`. Contents are read-only.
     ///
     /// # Safety
     ///
-    /// See [`get`](Frame::segments).
+    /// See [`frame`](Self::frame).
     #[inline]
     pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom {
         // SAFETY: see `frame`.
         unsafe { self.mem.headroom(desc) }
     }
 
-    /// The frame's packet data segment
+    /// The data segment of the [`Umem`] frame pointed at by
+    /// `desc`. Contents are read-only.
     ///
     /// # Safety
     ///
-    /// See [`get`](Frame::segments).
+    /// See [`frame`](Self::frame).
     #[inline]
     pub unsafe fn data(&self, desc: &FrameDesc) -> Data {
         // SAFETY: see `frame`.
         unsafe { self.mem.data(desc) }
     }
 
-    /// Mutable references to the frame's headroom and packet data
-    /// segments.
+    /// The headroom and packet data segments of the [`Umem`] frame
+    /// pointed at by `desc`. Contents are writeable.
     ///
     /// # Safety
     ///
-    /// The underlying [`Umem`](super::Umem) region this frame
-    /// accesses must not be mutably or immutably accessed anywhere
-    /// else at the same time, either in userspace or by the kernel.
+    /// `desc` must correspond to a frame belonging to this
+    /// [`Umem`]. Furthermore, the memory region accessed must not be
+    /// mutably or immutably accessed anywhere else at the same time,
+    /// either in userspace or by the kernel.
     #[inline]
     pub unsafe fn frame_mut<'a>(
         &'a self,
         desc: &'a mut FrameDesc,
     ) -> (HeadroomMut<'a>, DataMut<'a>) {
-        // SAFETY: unsafe contract in constructor and `set_desc`
-        // ensures that this frame's current `addr` points to the
-        // start of a packet data segment in its underlying UMEM -
-        // therefore the dereferenced slices are whole and valid
-        // segments.
-        //
-        // The unsafe contract of this function also guarantees there
-        // are no other mutable or immutable references to these
-        // slices at the same time.
+        // SAFETY: We know from the unsafe contract of this function that:
+        // a. Accessing the headroom and data segment identified by
+        // `desc` is valid, since it describes a frame in this UMEM.
+        // b. This access is sound since there are no other mutable or
+        // immutable references to the headroom and data segments.
         unsafe { self.mem.frame_mut(desc) }
     }
 
-    /// A mutable reference to the frame's headroom segment.
+    /// The headroom segment of the [`Umem`] frame pointed at by
+    /// `desc`. Contents are writeable.
     ///
     /// # Safety
     ///
-    /// See [`get_mut`](Frame::segments_mut).
+    /// See [`frame_mut`](Self::frame_mut).
     #[inline]
     pub unsafe fn headroom_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> HeadroomMut<'a> {
         // SAFETY: see `frame_mut`.
         unsafe { self.mem.headroom_mut(desc) }
     }
 
-    /// A mutable reference to the frame's packet data segment.
+    /// The data segment of the [`Umem`] frame pointed at by
+    /// `desc`. Contents are writeable.
     ///
     /// # Safety
     ///
-    /// See [`get_mut`](Frame::segments_mut).
+    /// See [`frame_mut`](Self::frame_mut).
     #[inline]
     pub unsafe fn data_mut<'a>(&'a self, desc: &'a mut FrameDesc) -> DataMut<'a> {
         // SAFETY: see `frame_mut`.
@@ -288,11 +292,11 @@ impl Umem {
     #[inline]
     pub(crate) fn with_ptr_and_saved_queues<F, T>(&self, mut f: F) -> T
     where
-        F: FnMut(*mut xsk_umem, &mut Option<(XskRingProd, XskRingCons)>) -> T,
+        F: FnMut(*mut xsk_umem, &mut Option<(Box<XskRingProd>, Box<XskRingCons>)>) -> T,
     {
         let mut inner = self.inner.lock().unwrap();
 
-        f(inner.umem_ptr.as_mut_ptr(), &mut inner.saved_fq_and_cq)
+        f(inner.ptr.as_mut_ptr(), &mut inner.saved_fq_and_cq)
     }
 }
 
@@ -317,7 +321,7 @@ impl Error for UmemCreateError {
 
 /// Dimensions of a [`Umem`] frame.
 #[derive(Debug, Clone, Copy)]
-pub struct FrameLayout {
+struct FrameLayout {
     xdp_headroom: usize,
     frame_headroom: usize,
     mtu: usize,
@@ -341,8 +345,22 @@ impl From<UmemConfig> for FrameLayout {
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryInto;
+
+    use crate::config::{UmemConfigBuilder, XDP_UMEM_MIN_CHUNK_SIZE};
+
+    use super::*;
+
     #[test]
     fn config_frame_size_equals_layout_frame_size() {
-        todo!()
+        let config = UmemConfigBuilder::new()
+            .frame_headroom(512)
+            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+            .build()
+            .unwrap();
+
+        let layout: FrameLayout = config.into();
+
+        assert_eq!(config.frame_size().get() as usize, layout.frame_size())
     }
 }

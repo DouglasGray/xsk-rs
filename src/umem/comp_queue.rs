@@ -21,14 +21,15 @@ impl CompQueue {
         Self { ring, _umem: umem }
     }
 
-    /// Update `frames` with frames whose contents have been sent
-    /// (after submission via the [`TxQueue`](crate::socket::TxQueue))
-    /// and may now be used again. Returns the number of elements of
-    /// `frames` which have been updated.
+    /// Update `descs` with details of frames whose contents have been
+    /// sent (after submission via the
+    /// [`TxQueue`](crate::socket::TxQueue)) and may now be used
+    /// again. Returns the number of elements of `descs` which have
+    /// been updated.
     ///
     /// The number of entries updated will be less than or equal to
-    /// the length of `frames`. Entries will be updated sequentially
-    /// from the start of `frames` until the end.
+    /// the length of `descs`. Entries will be updated sequentially
+    /// from the start of `descs` until the end.
     ///
     /// Free frames should be added back on to either the
     /// [`FillQueue`](crate::FillQueue) for data receipt or the

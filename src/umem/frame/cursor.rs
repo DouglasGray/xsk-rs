@@ -49,6 +49,8 @@ impl<'a> Cursor<'a> {
     }
 }
 
+// Taken almost verbatim from
+// [`std::io::Cursor`](https://doc.rust-lang.org/src/std/io/cursor.rs.html#437)
 impl Write for Cursor<'_> {
     #[inline]
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {

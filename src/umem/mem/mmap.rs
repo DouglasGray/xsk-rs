@@ -15,7 +15,7 @@ mod inner {
     /// An anonymous memory mapped region.
     #[derive(Debug)]
     pub struct Mmap {
-        addr: NonNull<libc::c_void>, // Store a copy to avoid double deref.
+        addr: NonNull<libc::c_void>,
         len: usize,
     }
 
@@ -53,6 +53,7 @@ mod inner {
             }
         }
 
+        /// Returns a pointer to the start of the mmap'd region.
         #[inline]
         pub fn addr(&self) -> NonNull<libc::c_void> {
             self.addr
@@ -88,7 +89,7 @@ mod inner {
             let mut v = ManuallyDrop::new(v);
 
             Self {
-                ptr: NonNull::new(v.as_mut_ptr()).unwrap(),
+                ptr: NonNull::new(v.as_mut_ptr()).expect("obtained pointer from Vec"),
                 len: v.len(),
                 capacity: v.capacity(),
             }
@@ -110,6 +111,7 @@ mod inner {
             Ok(Self(VecParts::new(vec![0; len])))
         }
 
+        /// Returns a pointer to the start of the mmap'd region.
         #[inline]
         pub fn addr(&self) -> NonNull<libc::c_void> {
             NonNull::new(self.0.ptr.as_ptr() as *mut libc::c_void).unwrap()
