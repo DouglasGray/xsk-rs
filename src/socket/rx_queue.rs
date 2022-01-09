@@ -19,9 +19,9 @@ impl RxQueue {
         Self { ring, socket }
     }
 
-    /// Update `descs` with information describing which [`Umem`]
-    /// frames packets have been received on. Returns the number of
-    /// elements of `descs` which have been updated.
+    /// Update `descs` with information on which [`Umem`] frames have
+    /// received packets. Returns the number of elements of `descs`
+    /// which have been updated.
     ///
     /// The number of entries updated will be less than or equal to
     /// the length of `descs`. Entries will be updated sequentially
@@ -86,12 +86,15 @@ impl RxQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
-            let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
+            let recv_pkt_desc =
+                unsafe { libbpf_sys::_xsk_ring_cons__rx_desc(self.ring.as_ref(), idx) };
 
-            desc.addr = addr as usize;
-            desc.lengths.data = 0;
-            desc.lengths.headroom = 0;
-            desc.options = 0;
+            unsafe {
+                desc.addr = (*recv_pkt_desc).addr as usize;
+                desc.lengths.data = (*recv_pkt_desc).len as usize;
+                desc.lengths.headroom = 0;
+                desc.options = (*recv_pkt_desc).options;
+            }
 
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
         }

@@ -47,7 +47,7 @@ async fn producing_more_than_fq_size_frames_fails() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn produce_frames_repeatedly_until_full() {
+async fn produce_frames_until_full() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 

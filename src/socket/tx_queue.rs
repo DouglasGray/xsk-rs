@@ -88,9 +88,13 @@ impl TxQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
-            unsafe {
-                *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) = desc.addr as u64
-            };
+            let send_pkt_desc =
+                unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
+
+            // SAFETY: unsafe contract of this function guarantees
+            // this frame belongs to the same UMEM as this queue,
+            // so descriptor values will be valid.
+            unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
             unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }

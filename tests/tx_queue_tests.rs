@@ -24,7 +24,7 @@ fn build_configs() -> (UmemConfig, SocketConfig) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn tx_queue_produce_tx_size_frames() {
+async fn producing_tx_size_frames_is_ok() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
@@ -36,7 +36,7 @@ async fn tx_queue_produce_tx_size_frames() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn tx_queue_produce_gt_tx_size_frames() {
+async fn produce_greater_than_tx_size_frames_fails() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
@@ -48,7 +48,7 @@ async fn tx_queue_produce_gt_tx_size_frames() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
-async fn tx_queue_produce_frames_until_tx_queue_full() {
+async fn produce_frames_until_full() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
@@ -58,6 +58,18 @@ async fn tx_queue_produce_frames_until_tx_queue_full() {
             assert_eq!(xsk1.tx_q.produce(&xsk1.descs[3..8]), 0);
             assert_eq!(xsk1.tx_q.produce(&xsk1.descs[3..4]), 1);
         }
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn produce_one_is_ok() {
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+
+        assert_eq!(unsafe { xsk1.tx_q.produce_one(&xsk1.descs[0]) }, 1);
     }
 
     build_configs_and_run_test(test).await
