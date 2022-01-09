@@ -47,14 +47,14 @@ Tested on a 64-bit machine running Linux kernel version 5.14.0.
 
 ### Safety
 
-There is a fair amount of unsafe involved with using this library, and
+There is a fair amount of unsafe involved when using this library, and
 so the potential for disaster, however if you keep in mind the
 following then there should hopefully be few avenues for catastrophe:
 - When a frame / address has been submitted to the fill queue or tx
   ring, do not use it again until you have consumed it from either the
   completion queue or rx ring.
-- Do not use one UMEM's frame descriptors to acess the frame of
-  another, different UMEM.
+- Do not use one UMEM's frame descriptors to access frames of another,
+  different UMEM.
 
 ### Usage
 

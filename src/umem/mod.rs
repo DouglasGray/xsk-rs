@@ -67,11 +67,11 @@ impl Drop for XskUmem {
 ///
 /// When we create the [`Umem`] we pass it pointers to two rings - a
 /// producer and consumer, representing the [`FillQueue`] and
-/// [`CompQueue`] respectively. The underlying C code keeps pointers
-/// to these two queues and pops them when creating a socket for the
-/// first time with this [`Umem`]. Hence we store them here so we
-/// don't prematurely clear up the rings' memory between creating the
-/// [`Umem`] and creating the socket.
+/// [`CompQueue`] respectively. The `xsk_umem` C struct also keeps a
+/// pair of pointers to these two queues and pops them when creating a
+/// socket for the first time with this [`Umem`]. Hence we store them
+/// here so we don't prematurely clear up the rings' memory between
+/// creating the [`Umem`] and creating the socket.
 #[derive(Debug)]
 struct UmemInner {
     ptr: XskUmem,
