@@ -35,6 +35,10 @@ async fn comp_queue_consumes_nothing_if_tx_q_unused() {
         unsafe {
             assert_eq!(xsk1.cq.consume(&mut xsk1.descs), 0);
         }
+
+        unsafe {
+            assert_eq!(xsk1.cq.consume_one(&mut xsk1.descs[0]), 0);
+        }
     }
 
     build_configs_and_run_test(test).await
@@ -62,31 +66,86 @@ async fn num_frames_consumed_match_those_produced() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
+async fn consume_one_should_consume_a_single_frame_even_if_multiple_produced() {
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+
+        assert_eq!(
+            unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap() },
+            2
+        );
+
+        // Wait briefly so we don't try to consume too early
+        thread::sleep(Duration::from_millis(5));
+
+        assert_eq!(unsafe { xsk1.cq.consume_one(&mut xsk1.descs[0]) }, 1);
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
 async fn addr_of_frames_consumed_match_addr_of_those_produced() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
         let nb = (FRAME_COUNT / 2) as usize;
 
+        assert!(nb > 0);
+
         let (tx_frames, rx_frames) = xsk1.descs.split_at_mut(nb);
 
-        unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames[..nb]).unwrap() };
+        assert_eq!(
+            unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames).unwrap() },
+            nb
+        );
 
         // Wait briefly so we don't try to consume too early
         thread::sleep(Duration::from_millis(5));
 
-        unsafe { xsk1.cq.consume(&mut rx_frames[..nb]) };
+        assert_eq!(unsafe { xsk1.cq.consume(&mut rx_frames[..nb]) }, nb);
 
-        // Also ensure that the frame info matches
+        let mut txd_addrs = tx_frames
+            .iter()
+            .map(FrameDesc::addr)
+            .collect::<Vec<usize>>();
+
+        let mut rxd_addrs = rx_frames[..nb]
+            .iter()
+            .map(FrameDesc::addr)
+            .collect::<Vec<usize>>();
+
+        txd_addrs.sort();
+        rxd_addrs.sort();
+
+        assert_eq!(txd_addrs, rxd_addrs);
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn frame_consumed_with_consume_one_should_match_addr_of_one_produced() {
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+        let nb = (FRAME_COUNT / 2) as usize;
+
+        assert!(nb > 0);
+
+        let (tx_frames, rx_frames) = xsk1.descs.split_at_mut(nb);
+
         assert_eq!(
-            &tx_frames[..nb]
-                .iter()
-                .map(FrameDesc::addr)
-                .collect::<Vec<usize>>(),
-            &rx_frames[..nb]
-                .iter()
-                .map(FrameDesc::addr)
-                .collect::<Vec<usize>>(),
+            unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames).unwrap() },
+            nb
         );
+
+        // Wait briefly so we don't try to consume too early
+        thread::sleep(Duration::from_millis(5));
+
+        assert_eq!(unsafe { xsk1.cq.consume_one(&mut rx_frames[0]) }, 1);
+
+        assert!(tx_frames.iter().any(|f| rx_frames[0].addr() == f.addr()));
     }
 
     build_configs_and_run_test(test).await
