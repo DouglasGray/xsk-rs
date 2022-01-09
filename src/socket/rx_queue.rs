@@ -19,24 +19,26 @@ impl RxQueue {
         Self { ring, socket }
     }
 
-    /// Populate `frames` with information on packets received on the
-    /// rx ring. Returns the number of elements of `frames` which have
-    /// been updated with received packet information, namely their
-    /// frame address and length.
+    /// Update `descs` with information describing which [`Umem`]
+    /// frames packets have been received on. Returns the number of
+    /// elements of `descs` which have been updated.
     ///
     /// The number of entries updated will be less than or equal to
-    /// the length of `frames`. Entries will be updated sequentially
-    /// from the start of `frames` until the end.
+    /// the length of `descs`. Entries will be updated sequentially
+    /// from the start of `descs` until the end.
     ///
     /// Once the contents of the consumed frames have been dealt with
     /// and are no longer required, the frames should eventually be
-    /// added back on to either the [`FillQueue`](crate::FillQueue) or
-    /// the [`TxQueue`](crate::TxQueue).
+    /// added back on to either the [`FillQueue`] or the [`TxQueue`].
     ///
     /// # Safety
     ///
     /// The frames passed to this queue must belong to the same
-    /// [`Umem`](super::Umem) that this `RxQueue` instance is tied to.
+    /// [`Umem`] that this `RxQueue` instance is tied to.
+    ///
+    /// [`Umem`]: crate::Umem
+    /// [`FillQueue`]: crate::FillQueue
+    /// [`TxQueue`]: crate::TxQueue
     #[inline]
     pub unsafe fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         let nb = descs.len() as u64;
@@ -70,20 +72,69 @@ impl RxQueue {
         cnt as usize
     }
 
-    /// Same as [`consume`](RxQueue::consume) but poll first to check
-    /// if there is anything to read beforehand.
+    /// Same as [`consume`] but for a single frame descriptor.
     ///
     /// # Safety
     ///
-    /// See [`consume`](RxQueue::consume).
+    /// See [`consume`].
+    ///
+    /// [`consume`]: Self::consume
+    #[inline]
+    pub unsafe fn consume_one(&mut self, desc: &mut FrameDesc) -> usize {
+        let mut idx = 0;
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), 1, &mut idx) };
+
+        if cnt > 0 {
+            let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
+
+            desc.addr = addr as usize;
+            desc.lengths.data = 0;
+            desc.lengths.headroom = 0;
+            desc.options = 0;
+
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
+        }
+
+        cnt as usize
+    }
+
+    /// Same as [`consume`] but poll first to check if there is
+    /// anything to read beforehand.
+    ///
+    /// # Safety
+    ///
+    /// See [`consume`].
+    ///
+    /// [`consume`]: RxQueue::consume
     #[inline]
     pub unsafe fn poll_and_consume(
         &mut self,
-        frames: &mut [FrameDesc],
+        descs: &mut [FrameDesc],
         poll_timeout: i32,
     ) -> io::Result<usize> {
         match self.poll(poll_timeout)? {
-            true => Ok(unsafe { self.consume(frames) }),
+            true => Ok(unsafe { self.consume(descs) }),
+            false => Ok(0),
+        }
+    }
+
+    /// Same as [`poll_and_consume`] but for a single frame descriptor.
+    ///
+    /// # Safety
+    ///
+    /// See [`consume`].
+    ///
+    /// [`poll_and_consume`]: Self::poll_and_consume
+    /// [`consume`]: Self::consume
+    #[inline]
+    pub unsafe fn poll_and_consume_one(
+        &mut self,
+        desc: &mut FrameDesc,
+        poll_timeout: i32,
+    ) -> io::Result<usize> {
+        match self.poll(poll_timeout)? {
+            true => Ok(unsafe { self.consume_one(desc) }),
             false => Ok(0),
         }
     }

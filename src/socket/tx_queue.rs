@@ -20,26 +20,29 @@ impl TxQueue {
         Self { ring, socket }
     }
 
-    /// Let the kernel know that the contents of `frames` are ready to
-    /// be transmitted. Returns the number of frames submitted to the
-    /// kernel.
+    /// Let the kernel know that the frames described by `descs` are
+    /// ready to be transmitted. Returns the number of frames
+    /// submitted to the kernel.
     ///
-    /// Note that if the length of `frames` is greater than the number
+    /// Note that if the length of `descs` is greater than the number
     /// of available spaces on the underlying ring buffer then no
     /// frames at all will be submitted for transmission.
+    ///
+    /// Once the frames have been submitted to this queue they should
+    /// not be used again until consumed via the [`CompQueue`].
     ///
     /// # Safety
     ///
     /// This function is unsafe as it is possible to cause a data race
     /// if used improperly. For example, by simultaneously submitting
-    /// the same frame descriptor to this `TxQueue` and the
-    /// [`FillQueue`](crate::FillQueue). Once the frames have been
-    /// submitted to this queue they should not be used again until
-    /// consumed via the [`CompQueue`](crate::CompQueue).
+    /// the same frame to this `TxQueue` and the [`FillQueue`].
     ///
     /// Furthermore, the frames passed to this queue must belong to
-    /// the same [`Umem`](super::Umem) that this `TxQueue` instance is
-    /// tied to.
+    /// the same [`Umem`] that this `TxQueue` instance is tied to.
+    ///
+    /// [`FillQueue`]: crate::FillQueue
+    /// [`CompQueue`]: crate::CompQueue
+    /// [`Umem`]: crate::Umem
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
         let nb = descs.len() as u64;
@@ -71,18 +74,64 @@ impl TxQueue {
         cnt as usize
     }
 
-    /// Same as [`produce`](TxQueue::produce) but wake up the kernel
-    /// to continue processing produced frames (if required).
+    /// Same as [`produce`] but for a single frame descriptor.
+    ///
+    /// # Safety
+    ///
+    /// See [`produce`].
+    ///
+    /// [`produce`]: Self::produce
+    #[inline]
+    pub unsafe fn produce_one(&mut self, desc: &FrameDesc) -> usize {
+        let mut idx = 0;
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
+
+        if cnt > 0 {
+            unsafe {
+                *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) = desc.addr as u64
+            };
+
+            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+        }
+
+        cnt as usize
+    }
+
+    /// Same as [`produce`] but wake up the kernel to continue
+    /// processing produced frames (if required).
     ///
     /// For more details see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-use-need-wakeup-bind-flag).
     ///
     /// # Safety
     ///
-    /// See [`produce`](TxQueue::produce).
+    /// See [`produce`].
+    ///
+    /// [`produce`]: Self::produce
     #[inline]
-    pub unsafe fn produce_and_wakeup(&mut self, frames: &[FrameDesc]) -> io::Result<usize> {
-        let cnt = unsafe { self.produce(frames) };
+    pub unsafe fn produce_and_wakeup(&mut self, descs: &[FrameDesc]) -> io::Result<usize> {
+        let cnt = unsafe { self.produce(descs) };
+
+        if self.needs_wakeup() {
+            self.wakeup()?;
+        }
+
+        Ok(cnt)
+    }
+
+    /// Same as [`produce_and_wakeup`] but for a single frame
+    /// descriptor.
+    ///
+    /// # Safety
+    ///
+    /// See [`produce`].
+    ///
+    /// [`produce_and_wakeup`]: Self::produce_and_wakeup
+    /// [`produce`]: Self::produce
+    #[inline]
+    pub unsafe fn produce_one_and_wakeup(&mut self, desc: &FrameDesc) -> io::Result<usize> {
+        let cnt = unsafe { self.produce_one(desc) };
 
         if self.needs_wakeup() {
             self.wakeup()?;
@@ -93,8 +142,10 @@ impl TxQueue {
 
     /// Wake up the kernel to continue processing produced frames.
     ///
-    /// See [`produce_and_wakeup`](TxQueue::produce_and_wakeup) for a
-    /// link to docs with further explanation.
+    /// See [`produce_and_wakeup`] for a link to docs with further
+    /// explanation.
+    ///
+    /// [`produce_and_wakeup`]: Self::produce_and_wakeup
     #[inline]
     pub fn wakeup(&self) -> io::Result<()> {
         let ret = unsafe {
@@ -118,14 +169,16 @@ impl TxQueue {
         Ok(())
     }
 
-    /// Check if the
-    /// [`XDP_USE_NEED_WAKEUP`](libbpf_sys::XDP_USE_NEED_WAKEUP) flag
-    /// is set on the tx ring.  If so then this means a call to
-    /// [`wakeup`](TxQueue::wakeup) will be required to continue
-    /// processing produced frames.
+    /// Check if the [`XDP_USE_NEED_WAKEUP`] flag is set on the tx
+    /// ring. If so then this means a call to [`wakeup`] will be
+    /// required to continue processing produced frames.
     ///
-    /// See [`produce_and_wakeup`](TxQueue::produce_and_wakeup) for
-    /// link to docs with further explanation.
+    /// See [`produce_and_wakeup`] for link to docs with further
+    /// explanation.
+    ///
+    /// [`XDP_USE_NEED_WAKEUP`]: libbpf_sys::XDP_USE_NEED_WAKEUP
+    /// [`wakeup`]: Self::wakeup
+    /// [`produce_and_wakeup`]: Self::produce_and_wakeup
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }

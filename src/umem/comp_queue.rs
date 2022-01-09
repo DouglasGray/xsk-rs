@@ -22,24 +22,24 @@ impl CompQueue {
     }
 
     /// Update `descs` with details of frames whose contents have been
-    /// sent (after submission via the
-    /// [`TxQueue`](crate::socket::TxQueue)) and may now be used
-    /// again. Returns the number of elements of `descs` which have
-    /// been updated.
+    /// sent (after submission via the [`TxQueue`]) and may now be
+    /// used again. Returns the number of elements of `descs` which
+    /// have been updated.
     ///
     /// The number of entries updated will be less than or equal to
     /// the length of `descs`. Entries will be updated sequentially
     /// from the start of `descs` until the end.
     ///
-    /// Free frames should be added back on to either the
-    /// [`FillQueue`](crate::FillQueue) for data receipt or the
-    /// [`TxQueue`](crate::TxQueue) for data transmission.
+    /// Free frames should eventually be added back on to either the
+    /// [`FillQueue`] or the [`TxQueue`].
     ///
     /// # Safety
     ///
     /// The frames passed to this queue must belong to the same
-    /// [`Umem`](super::Umem) that this `CompQueue` instance is tied
-    /// to.
+    /// [`Umem`] that this `CompQueue` instance is tied to.
+    ///
+    /// [`TxQueue`]: crate::socket::TxQueue
+    /// [`FillQueue`]: crate::FillQueue
     #[inline]
     pub unsafe fn consume(&mut self, descs: &mut [FrameDesc]) -> usize {
         let nb = descs.len() as u64;
@@ -64,6 +64,33 @@ impl CompQueue {
 
                 idx += 1;
             }
+
+            unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
+        }
+
+        cnt as usize
+    }
+
+    /// Same as [`consume`] but for a single frame descriptor.
+    ///
+    /// # Safety
+    ///
+    /// See [`consume`].
+    ///
+    /// [`consume`]: Self::consume
+    #[inline]
+    pub unsafe fn consume_one(&mut self, desc: &mut FrameDesc) -> usize {
+        let mut idx = 0;
+
+        let cnt = unsafe { libbpf_sys::_xsk_ring_cons__peek(self.ring.as_mut(), 1, &mut idx) };
+
+        if cnt > 0 {
+            let addr = unsafe { *libbpf_sys::_xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
+
+            desc.addr = addr as usize;
+            desc.lengths.data = 0;
+            desc.lengths.headroom = 0;
+            desc.options = 0;
 
             unsafe { libbpf_sys::_xsk_ring_cons__release(self.ring.as_mut(), cnt) };
         }
