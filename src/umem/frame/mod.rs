@@ -48,7 +48,7 @@ impl SegmentLengths {
 /// the packet data segment of some frame. `lengths` describes the
 /// length (in bytes) of any data stored in the frame's headroom or
 /// data segments.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct FrameDesc {
     pub(crate) addr: usize,
     pub(crate) options: u32,
