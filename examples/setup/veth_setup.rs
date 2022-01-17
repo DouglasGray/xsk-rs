@@ -1,14 +1,124 @@
 use futures::stream::TryStreamExt;
 use rtnetlink::Handle;
-use std::net::IpAddr;
-use tokio::sync::oneshot::{Receiver, Sender};
+use std::net::{IpAddr, Ipv4Addr};
+use tokio::{runtime, task};
 
-use super::{LinkIpAddr, VethConfig};
+use super::util::PacketGenerator;
 
-struct VethLink {
+#[derive(Debug, Clone, Copy)]
+enum LinkStatus {
+    Up,
+    Down,
+}
+
+struct VethDev {
     handle: Handle,
-    dev1_index: u32,
-    dev2_index: u32,
+    index: u32,
+    if_name: String,
+}
+
+impl VethDev {
+    async fn set_status(&self, status: LinkStatus) -> anyhow::Result<()> {
+        Ok(match status {
+            LinkStatus::Up => {
+                self.handle.link().set(self.index).up().execute().await?;
+            }
+            LinkStatus::Down => {
+                self.handle.link().set(self.index).down().execute().await?;
+            }
+        })
+    }
+
+    async fn set_addr(&self, addr: Vec<u8>) -> anyhow::Result<()> {
+        self.handle
+            .link()
+            .set(self.index)
+            .address(addr)
+            .execute()
+            .await?;
+
+        Ok(())
+    }
+
+    async fn set_ip_addr(&self, ip_addr: LinkIpAddr) -> anyhow::Result<()> {
+        self.handle
+            .address()
+            .add(
+                self.index,
+                IpAddr::V4(ip_addr.addr.clone()),
+                ip_addr.prefix_len,
+            )
+            .execute()
+            .await?;
+
+        Ok(())
+    }
+}
+
+struct VethPair {
+    dev1: VethDev,
+    dev2: VethDev,
+}
+
+impl VethPair {
+    async fn set_status(&self, status: LinkStatus) -> anyhow::Result<()> {
+        for dev in [&self.dev1, &self.dev2] {
+            dev.set_status(status).await?;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for VethPair {
+    fn drop(&mut self) {
+        let (handle, index, if_name) = (&self.dev1.handle, self.dev1.index, &self.dev1.if_name);
+
+        let res = task::block_in_place(move || {
+            runtime::Handle::current()
+                .block_on(async move { handle.link().del(index).execute().await })
+        });
+
+        if let Err(e) = res {
+            eprintln!("failed to delete link: {:?} (you may need to delete it manually with 'sudo ip link del {}')", e, if_name);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LinkIpAddr {
+    addr: Ipv4Addr,
+    prefix_len: u8,
+}
+
+impl LinkIpAddr {
+    pub fn new(addr: Ipv4Addr, prefix_len: u8) -> Self {
+        LinkIpAddr { addr, prefix_len }
+    }
+
+    pub fn octets(&self) -> [u8; 4] {
+        self.addr.octets()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct VethDevConfig {
+    pub if_name: String,
+    pub addr: [u8; 6],
+    pub ip_addr: LinkIpAddr,
+}
+
+impl VethDevConfig {
+    pub fn if_name(&self) -> &str {
+        &self.if_name
+    }
+
+    pub fn addr(&self) -> [u8; 6] {
+        self.addr
+    }
+
+    pub fn ip_addr(&self) -> LinkIpAddr {
+        self.ip_addr
+    }
 }
 
 async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
@@ -24,35 +134,7 @@ async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
         .index)
 }
 
-async fn set_link_up(handle: &Handle, index: u32) -> anyhow::Result<()> {
-    Ok(handle.link().set(index).up().execute().await?)
-}
-
-async fn set_link_addr(handle: &Handle, index: u32, addr: Vec<u8>) -> anyhow::Result<()> {
-    Ok(handle.link().set(index).address(addr).execute().await?)
-}
-
-async fn set_link_ip_addr(
-    handle: &Handle,
-    index: u32,
-    link_ip_addr: &LinkIpAddr,
-) -> anyhow::Result<()> {
-    Ok(handle
-        .address()
-        .add(
-            index,
-            IpAddr::V4(link_ip_addr.addr.clone()),
-            link_ip_addr.prefix_len,
-        )
-        .execute()
-        .await?)
-}
-
-async fn delete_link(handle: &Handle, index: u32) -> anyhow::Result<()> {
-    Ok(handle.link().del(index).execute().await?)
-}
-
-async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Result<VethLink> {
+async fn build_veth_pair(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Result<VethPair> {
     let (connection, handle, _) = rtnetlink::new_connection().unwrap();
 
     tokio::spawn(connection);
@@ -66,7 +148,7 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 
     let dev1_index = get_link_index(&handle, dev1_if_name).await.expect(
         format!(
-            "failed to retrieve index for dev1. Remove link manually: 'sudo ip link del {}'",
+            "failed to retrieve index for dev1, delete link manually: 'sudo ip link del {}'",
             dev1_if_name
         )
         .as_str(),
@@ -74,105 +156,57 @@ async fn build_veth_link(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 
     let dev2_index = get_link_index(&handle, dev2_if_name).await.expect(
         format!(
-            "failed to retrieve index for dev2. Remove link manually: 'sudo ip link del {}'",
+            "failed to retrieve index for dev2, delete link manually: 'sudo ip link del {}'",
             dev1_if_name
         )
         .as_str(),
     );
 
-    Ok(VethLink {
-        handle,
-        dev1_index,
-        dev2_index,
+    Ok(VethPair {
+        dev1: VethDev {
+            handle: handle.clone(),
+            index: dev1_index,
+            if_name: dev1_if_name.into(),
+        },
+        dev2: VethDev {
+            handle: handle.clone(),
+            index: dev2_index,
+            if_name: dev2_if_name.into(),
+        },
     })
 }
 
-async fn configure_veth_link(veth_link: &VethLink, veth_config: &VethConfig) -> anyhow::Result<()> {
-    set_link_up(&veth_link.handle, veth_link.dev1_index).await?;
-    set_link_up(&veth_link.handle, veth_link.dev2_index).await?;
-
-    set_link_addr(
-        &veth_link.handle,
-        veth_link.dev1_index,
-        veth_config.dev1_addr.to_vec(),
-    )
-    .await?;
-
-    set_link_addr(
-        &veth_link.handle,
-        veth_link.dev2_index,
-        veth_config.dev2_addr.to_vec(),
-    )
-    .await?;
-
-    set_link_ip_addr(
-        &veth_link.handle,
-        veth_link.dev1_index,
-        &veth_config.dev1_ip_addr,
-    )
-    .await?;
-
-    set_link_ip_addr(
-        &veth_link.handle,
-        veth_link.dev2_index,
-        &veth_config.dev2_ip_addr,
-    )
-    .await?;
-
-    Ok(())
-}
-
-pub async fn run_veth_link(
-    veth_config: &VethConfig,
-    startup_signal: Sender<()>,
-    shutdown_signal: Receiver<()>,
-) {
-    async fn delete_link_with_context(handle: &Handle, index: u32, if_name: &str) {
-        delete_link(handle, index).await.expect(
-            format!(
-                "failed to delete link. May need to remove manually: 'sudo ip link del {}'",
-                if_name
-            )
-            .as_str(),
-        )
-    }
-
-    let veth_link = build_veth_link(&veth_config.dev1_if_name, &veth_config.dev2_if_name)
+pub async fn run_with_veth_pair<F, T>(
+    dev1_config: VethDevConfig,
+    dev2_config: VethDevConfig,
+    f: F,
+) -> anyhow::Result<T>
+where
+    F: FnOnce((VethDevConfig, PacketGenerator), (VethDevConfig, PacketGenerator)) -> T
+        + Send
+        + 'static,
+    T: Send + 'static,
+{
+    let veth_pair = build_veth_pair(&dev1_config.if_name(), &dev2_config.if_name())
         .await
         .unwrap();
 
-    if let Err(e) = configure_veth_link(&veth_link, &veth_config).await {
-        eprintln!("error setting up veth pair: {}", e);
+    veth_pair.set_status(LinkStatus::Up).await?;
 
-        delete_link_with_context(
-            &veth_link.handle,
-            veth_link.dev1_index,
-            &veth_config.dev1_if_name,
-        )
-        .await;
+    veth_pair.dev1.set_addr(dev1_config.addr.into()).await?;
+    veth_pair.dev2.set_addr(dev2_config.addr.into()).await?;
 
-        return;
-    }
+    veth_pair.dev1.set_ip_addr(dev1_config.ip_addr).await?;
+    veth_pair.dev2.set_ip_addr(dev2_config.ip_addr).await?;
 
-    // Let spawning thread know that the link is set up
-    if let Err(_) = startup_signal.send(()) {
-        // Receiver gone away
-        delete_link_with_context(
-            &veth_link.handle,
-            veth_link.dev1_index,
-            &veth_config.dev1_if_name,
-        )
-        .await;
+    let dev1_pkt_gen = PacketGenerator::new(dev1_config.clone(), dev2_config.clone());
+    let dev2_pkt_gen = dev1_pkt_gen.clone().into_swapped();
 
-        return;
-    }
+    let res =
+        task::spawn_blocking(move || f((dev1_config, dev1_pkt_gen), (dev2_config, dev2_pkt_gen)))
+            .await;
 
-    let _ = shutdown_signal.await;
+    veth_pair.set_status(LinkStatus::Down).await?;
 
-    delete_link_with_context(
-        &veth_link.handle,
-        veth_link.dev1_index,
-        &veth_config.dev1_if_name,
-    )
-    .await;
+    Ok(res?)
 }
