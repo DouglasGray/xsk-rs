@@ -19,6 +19,8 @@ mod inner {
         len: usize,
     }
 
+    unsafe impl Send for Mmap {}
+
     impl Mmap {
         pub fn new(len: usize, use_huge_pages: bool) -> io::Result<Self> {
             // MAP_ANONYMOUS: mapping not backed by a file.
@@ -83,6 +85,8 @@ mod inner {
         len: usize,
         capacity: usize,
     }
+
+    unsafe impl<T> Send for VecParts<T> {}
 
     impl<T> VecParts<T> {
         fn new(v: Vec<T>) -> Self {
