@@ -61,8 +61,8 @@ impl TxQueue {
                     unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
                 // SAFETY: unsafe contract of this function guarantees
-                // this frame belongs to the same UMEM as this queue,
-                // so descriptor values will be valid.
+                // `desc` describes a frame belonging to the same UMEM as
+                // this queue.
                 unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
                 idx += 1;
@@ -92,8 +92,8 @@ impl TxQueue {
                 unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
             // SAFETY: unsafe contract of this function guarantees
-            // this frame belongs to the same UMEM as this queue,
-            // so descriptor values will be valid.
+            // `desc` describes a frame belonging to the same UMEM as
+            // this queue.
             unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
             unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };

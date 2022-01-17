@@ -59,10 +59,10 @@ impl FillQueue {
         let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
-            for frame in descs.iter().take(cnt as usize) {
+            for desc in descs.iter().take(cnt as usize) {
                 unsafe {
                     *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
-                        frame.addr as u64
+                        desc.addr as u64
                 };
 
                 idx += 1;
