@@ -65,7 +65,10 @@ jobs:
           rustup set profile minimal
           rustup override set "$MIRI_NIGHTLY"
           rustup component add miri
-          cargo miri test --lib
+      - uses: actions-rs/cargo@v1
+        with:
+          command: miri
+          args: test --lib
 
   fmt:
     name: Rustfmt
@@ -77,7 +80,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: rustup component add rustfmt
+          components: rustfmt
       - uses: actions-rs/cargo@v1
         with:
           command: fmt
@@ -96,8 +99,8 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: rustup component add clippy
+          components: clippy
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings -A clippy::new_ret_no_self -A clippy::len_without_is_empty -A clippy::module_inception
+          args: -- -D warnings
