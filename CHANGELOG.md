@@ -1,12 +1,12 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.0] - 2022-01-17
 
 ## Added
 - support shared UMEM
 - support retrieving XDP statistics
-- new frame struct to allow more granular UMEM access along with
-  clearer separation between headroom and packet data. Includes a
+- new frame level structs to allow more granular UMEM access along
+  with clearer separation between headroom and packet data. Includes a
   cursor for convenient writing
 - config builders and add extra types to enforce restrictions on
   certain values / sizes (e.g queue sizes)
