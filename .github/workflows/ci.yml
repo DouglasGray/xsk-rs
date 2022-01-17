@@ -47,6 +47,26 @@ jobs:
           args: --tests
       - run: sudo ./run_all_tests.sh
 
+  miri:
+    name: Miri
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - run: |
+          sudo apt update
+          sudo apt install libelf-dev
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - run: |
+          MIRI_NIGHTLY=nightly-$(curl -s https://rust-lang.github.io/rustup-components-history/x86_64-unknown-linux-gnu/miri)
+          rustup set profile minimal
+          rustup override set "$MIRI_NIGHTLY"
+          rustup component add miri
+          cargo miri test --lib
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
