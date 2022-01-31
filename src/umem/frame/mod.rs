@@ -4,7 +4,10 @@
 mod cursor;
 pub use cursor::Cursor;
 
-use std::{borrow::Borrow, ops::Deref};
+use std::{
+    borrow::{Borrow, BorrowMut},
+    ops::{Deref, DerefMut},
+};
 
 /// The length (in bytes) of data in a frame's packet data and
 /// headroom segments.
@@ -163,6 +166,12 @@ impl<'umem> HeadroomMut<'umem> {
         &self.buf[..*self.len]
     }
 
+    /// Returns a mutable view of this segment's contents, up to its current length.
+    #[inline]
+    pub fn contents_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..*self.len]
+    }
+
     /// A cursor for writing to this segment.
     #[inline]
     pub fn cursor(&mut self) -> Cursor<'_> {
@@ -177,10 +186,24 @@ impl AsRef<[u8]> for HeadroomMut<'_> {
     }
 }
 
+impl AsMut<[u8]> for HeadroomMut<'_> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.contents_mut()
+    }
+}
+
 impl Borrow<[u8]> for HeadroomMut<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
         self.contents()
+    }
+}
+
+impl BorrowMut<[u8]> for HeadroomMut<'_> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [u8] {
+        self.contents_mut()
     }
 }
 
@@ -190,6 +213,13 @@ impl Deref for HeadroomMut<'_> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.contents()
+    }
+}
+
+impl DerefMut for HeadroomMut<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.contents_mut()
     }
 }
 
@@ -257,6 +287,14 @@ impl<'umem> DataMut<'umem> {
         &self.buf[..*self.len]
     }
 
+    /// Returns a mutable view of this segment's contents, up to its current length.
+    ///
+    /// Will change as packets are sent or received using this frame.
+    #[inline]
+    pub fn contents_mut(&mut self) -> &mut [u8] {
+        &mut self.buf[..*self.len]
+    }
+
     /// A cursor for writing to the underlying memory.
     #[inline]
     pub fn cursor(&mut self) -> Cursor<'_> {
@@ -271,10 +309,24 @@ impl AsRef<[u8]> for DataMut<'_> {
     }
 }
 
+impl AsMut<[u8]> for DataMut<'_> {
+    #[inline]
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.contents_mut()
+    }
+}
+
 impl Borrow<[u8]> for DataMut<'_> {
     #[inline]
     fn borrow(&self) -> &[u8] {
         self.contents()
+    }
+}
+
+impl BorrowMut<[u8]> for DataMut<'_> {
+    #[inline]
+    fn borrow_mut(&mut self) -> &mut [u8] {
+        self.contents_mut()
     }
 }
 
@@ -284,6 +336,13 @@ impl Deref for DataMut<'_> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.contents()
+    }
+}
+
+impl DerefMut for DataMut<'_> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.contents_mut()
     }
 }
 
