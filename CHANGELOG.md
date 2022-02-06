@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2022-02-06
+
+## Added
+- add `contents_mut` to `{Data, Headroom}Mut`, along with other
+  convenience traits (`{As, Borrow, Deref}{Mut}`)
+
 ## [0.3.0] - 2022-01-17
 
 ## Added
