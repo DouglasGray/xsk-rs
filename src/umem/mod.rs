@@ -98,7 +98,7 @@ pub struct Umem {
 }
 
 impl Umem {
-    /// Create a new [`Umem`] instance backed by an anonymous memory
+    /// Create a new `Umem` instance backed by an anonymous memory
     /// mapped region.
     ///
     /// Setting `use_huge_pages` to `true` will instructed `mmap()` to
@@ -193,15 +193,26 @@ impl Umem {
         Ok((umem, frame_descs))
     }
 
-    /// The headroom and packet data segments of the [`Umem`] frame
+    /// The headroom and packet data segments of the `Umem` frame
     /// pointed at by `desc`. Contents are read-only.
     ///
     /// # Safety
     ///
     /// `desc` must correspond to a frame belonging to this
-    /// [`Umem`]. Furthermore, the memory region accessed must not be
-    /// mutably accessed anywhere else at the same time, either in
-    /// userspace or by the kernel.
+    /// `Umem`. Passing the descriptor of another `Umem` is very
+    /// likely to result in incorrect memory access, by either
+    /// straddling frames or accessing memory outside the underlying
+    /// `Umem` area.
+    ///
+    /// Furthermore, the memory region accessed must not be mutably
+    /// accessed anywhere else at the same time, either in userspace
+    /// or by the kernel. To ensure this, care should be taken not to
+    /// use the frame after submission to either the [`TxQueue`] or
+    /// [`FillQueue`] until received over the [`CompQueue`] or
+    /// [`RxQueue`] respectively.
+    ///
+    /// [`TxQueue`]: crate::TxQueue
+    /// [`RxQueue`]: crate::RxQueue
     #[inline]
     pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
         // SAFETY: We know from the unsafe contract of this function that:
@@ -212,7 +223,7 @@ impl Umem {
         unsafe { self.mem.frame(desc) }
     }
 
-    /// The headroom segment of the [`Umem`] frame pointed at by
+    /// The headroom segment of the `Umem` frame pointed at by
     /// `desc`. Contents are read-only.
     ///
     /// # Safety
@@ -224,7 +235,7 @@ impl Umem {
         unsafe { self.mem.headroom(desc) }
     }
 
-    /// The data segment of the [`Umem`] frame pointed at by
+    /// The data segment of the `Umem` frame pointed at by
     /// `desc`. Contents are read-only.
     ///
     /// # Safety
@@ -236,15 +247,26 @@ impl Umem {
         unsafe { self.mem.data(desc) }
     }
 
-    /// The headroom and packet data segments of the [`Umem`] frame
+    /// The headroom and packet data segments of the `Umem` frame
     /// pointed at by `desc`. Contents are writeable.
     ///
     /// # Safety
     ///
     /// `desc` must correspond to a frame belonging to this
-    /// [`Umem`]. Furthermore, the memory region accessed must not be
-    /// mutably or immutably accessed anywhere else at the same time,
-    /// either in userspace or by the kernel.
+    /// `Umem`. Passing the descriptor of another `Umem` is very
+    /// likely to result in incorrect memory access, by either
+    /// straddling frames or accessing memory outside the underlying
+    /// `Umem` area.
+    ///
+    /// Furthermore, the memory region accessed must not be mutably or
+    /// immutably accessed anywhere else at the same time, either in
+    /// userspace or by the kernel. To ensure this, care should be
+    /// taken not to use the frame after submission to either the
+    /// [`TxQueue`] or [`FillQueue`] until received over the
+    /// [`CompQueue`] or [`RxQueue`] respectively.
+    ///
+    /// [`TxQueue`]: crate::TxQueue
+    /// [`RxQueue`]: crate::RxQueue
     #[inline]
     pub unsafe fn frame_mut<'a>(
         &'a self,
@@ -258,7 +280,7 @@ impl Umem {
         unsafe { self.mem.frame_mut(desc) }
     }
 
-    /// The headroom segment of the [`Umem`] frame pointed at by
+    /// The headroom segment of the `Umem` frame pointed at by
     /// `desc`. Contents are writeable.
     ///
     /// # Safety
@@ -270,7 +292,7 @@ impl Umem {
         unsafe { self.mem.headroom_mut(desc) }
     }
 
-    /// The data segment of the [`Umem`] frame pointed at by
+    /// The data segment of the `Umem` frame pointed at by
     /// `desc`. Contents are writeable.
     ///
     /// # Safety
