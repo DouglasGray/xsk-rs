@@ -146,9 +146,7 @@ impl Deref for Headroom<'_> {
     }
 }
 
-/// Mutable headroom segment of a [`Umem`](crate::umem::Umem) frame
-/// that allows writing via its [`cursor`](HeadroomMut::cursor)
-/// method.
+/// Mutable headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct HeadroomMut<'umem> {
     len: &'umem mut usize,
@@ -166,13 +164,21 @@ impl<'umem> HeadroomMut<'umem> {
         &self.buf[..*self.len]
     }
 
-    /// Returns a mutable view of this segment's contents, up to its current length.
+    /// Returns a mutable view of this segment's contents, up to its
+    /// current length.
     #[inline]
     pub fn contents_mut(&mut self) -> &mut [u8] {
         &mut self.buf[..*self.len]
     }
 
     /// A cursor for writing to this segment.
+    ///
+    /// Modifications via the cursor will change the length of the
+    /// segment, i.e. the headroom length of the frame descriptor. If
+    /// in-place modifications just need to be made then
+    /// [`contents_mut`] may be sufficient.
+    ///
+    /// [`contents_mut`]: Self::contents_mut
     #[inline]
     pub fn cursor(&mut self) -> Cursor<'_> {
         Cursor::new(self.len, self.buf)
@@ -266,8 +272,8 @@ impl Deref for Data<'_> {
     }
 }
 
-/// Mutable data segment of a [`Umem`](crate::umem::Umem) frame that
-/// allows writing via its [`cursor`](DataMut::cursor) method.
+/// Mutable packet data segment of a [`Umem`](crate::umem::Umem)
+/// frame.
 #[derive(Debug)]
 pub struct DataMut<'umem> {
     len: &'umem mut usize,
@@ -287,7 +293,8 @@ impl<'umem> DataMut<'umem> {
         &self.buf[..*self.len]
     }
 
-    /// Returns a mutable view of this segment's contents, up to its current length.
+    /// Returns a mutable view of this segment's contents, up to its
+    /// current length.
     ///
     /// Will change as packets are sent or received using this frame.
     #[inline]
@@ -295,7 +302,15 @@ impl<'umem> DataMut<'umem> {
         &mut self.buf[..*self.len]
     }
 
-    /// A cursor for writing to the underlying memory.
+    /// A cursor for writing to this segment.
+    ///
+    /// Modifications via the cursor will change the length of the
+    /// segment, i.e. the data length of the frame descriptor, and in
+    /// this case the size of the packet that will be submitted. If
+    /// in-place modifications just need to be made then
+    /// [`contents_mut`] may be sufficient.
+    ///
+    /// [`contents_mut`]: Self::contents_mut
     #[inline]
     pub fn cursor(&mut self) -> Cursor<'_> {
         Cursor::new(self.len, self.buf)
