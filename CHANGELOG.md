@@ -1,10 +1,17 @@
 # Changelog
 
-## [0.4.0] - 2022-02-06
+## [0.4.0] - 2022-02-09
 
 ## Added
 - add `contents_mut` to `{Data, Headroom}Mut`, along with other
   convenience traits (`{As, Borrow, Deref}{Mut}`)
+
+## Changed
+- update `{Data, Headroom}Mut::cursor` docs to clarify when `{Data,
+  Headroom}Mut::contents_mut` might be more appropriate
+- more colour to safety section of `Umem::frame` and `Umem::frame_mut`
+  indicating why using the frame desc of another UMEM might be
+  problematic
 
 ## [0.3.0] - 2022-01-17
 
