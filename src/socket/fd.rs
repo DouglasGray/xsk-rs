@@ -101,7 +101,7 @@ impl Fd {
         };
 
         if err != 0 {
-            return Err(io::Error::from_raw_os_error(err));
+            return Err(io::Error::last_os_error());
         }
 
         if optlen == XDP_STATISTICS_SIZEOF {
