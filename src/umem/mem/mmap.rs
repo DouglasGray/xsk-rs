@@ -68,9 +68,8 @@ mod inner {
 
             if err != 0 {
                 error!(
-                    "`munmap()` failed with error code {}, errno {}",
-                    err,
-                    std::io::Error::last_os_error()
+                    "`munmap()` failed with error: {}",
+                    io::Error::last_os_error()
                 );
             }
         }
