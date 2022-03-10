@@ -57,7 +57,10 @@ impl Drop for XskUmem {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.0.as_ptr()) };
 
         if err != 0 {
-            log::error!("failed to delete umem with error code {}", err);
+            log::error!(
+                "failed to delete umem with error code {}",
+                io::Error::from_raw_os_error(-err)
+            );
         }
     }
 }
@@ -135,6 +138,13 @@ impl Umem {
             )
         };
 
+        if err != 0 {
+            return Err(UmemCreateError {
+                reason: "non-zero error code returned when creating UMEM",
+                err: io::Error::from_raw_os_error(-err),
+            });
+        }
+
         let umem_ptr = match NonNull::new(umem_ptr) {
             Some(umem_ptr) => {
                 // SAFETY: this is the only `XskUmem` instance for
@@ -145,29 +155,22 @@ impl Umem {
             None => {
                 return Err(UmemCreateError {
                     reason: "UMEM is null",
-                    err: io::Error::from_raw_os_error(err),
+                    err: io::Error::from_raw_os_error(-err),
                 });
             }
         };
 
-        if err != 0 {
-            return Err(UmemCreateError {
-                reason: "non-zero error code returned when creating UMEM",
-                err: io::Error::from_raw_os_error(err),
-            });
-        }
-
         if fq.is_ring_null() {
             return Err(UmemCreateError {
                 reason: "fill queue ring is null",
-                err: io::Error::from_raw_os_error(err),
+                err: io::Error::from_raw_os_error(-err),
             });
         };
 
         if cq.is_ring_null() {
             return Err(UmemCreateError {
                 reason: "comp queue ring is null",
-                err: io::Error::from_raw_os_error(err),
+                err: io::Error::from_raw_os_error(-err),
             });
         }
 

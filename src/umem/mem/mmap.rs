@@ -67,7 +67,10 @@ mod inner {
             let err = unsafe { libc::munmap(self.addr.as_ptr(), self.len) };
 
             if err != 0 {
-                error!("`munmap()` failed with error code {}", err);
+                error!(
+                    "`munmap()` failed with error: {}",
+                    io::Error::last_os_error()
+                );
             }
         }
     }
