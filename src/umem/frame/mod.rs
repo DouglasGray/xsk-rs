@@ -105,6 +105,28 @@ impl FrameDesc {
     }
 }
 
+impl Default for FrameDesc {
+    /// Creates an empty frame descriptor with an address of zero and
+    /// segment lengths also set to zero.
+    ///
+    /// Since the address of any descriptors created this way is
+    /// always zero, before using them to write to the [`Umem`] they
+    /// should first be 'initialised' by passing them to either the
+    /// [`RxQueue`] or the [`CompQueue`], so they can be populated
+    /// with the details of a free frame.
+    ///
+    /// [`Umem`]: crate::Umem
+    /// [`RxQueue`]: crate::RxQueue
+    /// [`CompQueue`]: crate::CompQueue
+    fn default() -> Self {
+        Self {
+            addr: 0,
+            options: 0,
+            lengths: Default::default(),
+        }
+    }
+}
+
 /// Headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct Headroom<'umem> {
