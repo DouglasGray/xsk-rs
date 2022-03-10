@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1] - 2022-03-10
+
+## Added
+- provide `FrameDesc` with a `Default` impl to make generating empty
+  descs for rx simpler
+  
+## Fixed
+- negate error codes when calling `io::Error::from_raw_os_error`
+- some `libc` calls just return `-1` on error, not an informative
+  error code so in these cases call `io::Error::last_os_error()`
+  instead of `io::Error::from_raw_os_error(err)`, where `err` is
+  always equal to `-1`...
+
 ## [0.4.0] - 2022-02-09
 
 ## Added

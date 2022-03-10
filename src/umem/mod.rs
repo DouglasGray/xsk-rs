@@ -13,6 +13,7 @@ mod comp_queue;
 pub use comp_queue::CompQueue;
 
 use libbpf_sys::xsk_umem;
+use log::error;
 use std::{
     borrow::Borrow,
     error::Error,
@@ -57,8 +58,8 @@ impl Drop for XskUmem {
         let err = unsafe { libbpf_sys::xsk_umem__delete(self.0.as_ptr()) };
 
         if err != 0 {
-            log::error!(
-                "failed to delete umem with error code {}",
+            error!(
+                "failed to delete UMEM with error: {}",
                 io::Error::from_raw_os_error(-err)
             );
         }
