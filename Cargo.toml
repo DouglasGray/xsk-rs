@@ -1,6 +1,6 @@
 [package]
 name = "xsk-rs"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Douglas Gray <dbgray01@gmail.com>"]
 edition = "2018"
 description = "Rust bindings for Linux AF_XDP sockets"
