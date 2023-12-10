@@ -12,7 +12,7 @@ pub use fill_queue::FillQueue;
 mod comp_queue;
 pub use comp_queue::CompQueue;
 
-use libbpf_sys::xsk_umem;
+use libxdp_sys::xsk_umem;
 use log::error;
 use std::{
     borrow::Borrow,
@@ -55,7 +55,7 @@ impl Drop for XskUmem {
     fn drop(&mut self) {
         // SAFETY: unsafe constructor contract guarantees that the
         // UMEM has not been deleted already.
-        let err = unsafe { libbpf_sys::xsk_umem__delete(self.0.as_ptr()) };
+        let err = unsafe { libxdp_sys::xsk_umem__delete(self.0.as_ptr()) };
 
         if err != 0 {
             error!(
@@ -129,7 +129,7 @@ impl Umem {
         let mut cq: Box<XskRingCons> = Box::default();
 
         let err = unsafe {
-            libbpf_sys::xsk_umem__create(
+            libxdp_sys::xsk_umem__create(
                 &mut umem_ptr,
                 mem.as_ptr(),
                 mem.len() as u64,

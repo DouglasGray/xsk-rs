@@ -2,7 +2,7 @@
 mod setup;
 use setup::{PacketGenerator, Xsk, XskConfig};
 
-use libbpf_sys::XDP_PACKET_HEADROOM;
+use libxdp_sys::XDP_PACKET_HEADROOM;
 use serial_test::serial;
 use std::{convert::TryInto, io::Write};
 use xsk_rs::config::{FrameSize, QueueSize, SocketConfig, UmemConfig, XDP_UMEM_MIN_CHUNK_SIZE};

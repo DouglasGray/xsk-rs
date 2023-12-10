@@ -1,6 +1,7 @@
 use bitflags::bitflags;
-use libbpf_sys::{
-    xsk_socket_config, XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS,
+use libxdp_sys::{
+    xsk_socket_config, xsk_socket_config__bindgen_ty_1, XSK_RING_CONS__DEFAULT_NUM_DESCS,
+    XSK_RING_PROD__DEFAULT_NUM_DESCS,
 };
 use std::{
     convert::{TryFrom, TryInto},
@@ -12,10 +13,10 @@ use super::QueueSize;
 
 bitflags! {
     /// Libbpf flags.
-    pub struct LibbpfFlags: u32 {
+    pub struct LibxdpFlags: u32 {
         /// Set to avoid loading of default XDP program on socket
         /// creation.
-        const XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD = 1;
+        const XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD = 1;
     }
 }
 
@@ -126,8 +127,8 @@ impl ConfigBuilder {
     }
 
     /// Set the [`LibbpfFlags`]. Default is no flags set.
-    pub fn libbpf_flags(&mut self, flags: LibbpfFlags) -> &mut Self {
-        self.config.libbpf_flags = flags;
+    pub fn libbpf_flags(&mut self, flags: LibxdpFlags) -> &mut Self {
+        self.config.libxdp_flags = flags;
         self
     }
 
@@ -155,7 +156,7 @@ impl ConfigBuilder {
 pub struct Config {
     rx_queue_size: QueueSize,
     tx_queue_size: QueueSize,
-    libbpf_flags: LibbpfFlags,
+    libxdp_flags: LibxdpFlags,
     xdp_flags: XdpFlags,
     bind_flags: BindFlags,
 }
@@ -176,9 +177,9 @@ impl Config {
         self.tx_queue_size
     }
 
-    /// The [`LibbpfFlags`] set.
-    pub fn libbpf_flags(&self) -> &LibbpfFlags {
-        &self.libbpf_flags
+    /// The [`LibxdpFlags`] set.
+    pub fn libxdp_flags(&self) -> &LibxdpFlags {
+        &self.libxdp_flags
     }
 
     /// The [`XdpFlags`] set.
@@ -197,7 +198,7 @@ impl Default for Config {
         Self {
             rx_queue_size: QueueSize(XSK_RING_CONS__DEFAULT_NUM_DESCS),
             tx_queue_size: QueueSize(XSK_RING_PROD__DEFAULT_NUM_DESCS),
-            libbpf_flags: LibbpfFlags::empty(),
+            libxdp_flags: LibxdpFlags::empty(),
             xdp_flags: XdpFlags::empty(),
             bind_flags: BindFlags::empty(),
         }
@@ -206,13 +207,16 @@ impl Default for Config {
 
 impl From<Config> for xsk_socket_config {
     fn from(c: Config) -> Self {
+        let xsk_socket_config = xsk_socket_config__bindgen_ty_1 {
+            libxdp_flags: c.libxdp_flags.bits(),
+        };
+
         xsk_socket_config {
             rx_size: c.rx_queue_size.get(),
             tx_size: c.tx_queue_size.get(),
             xdp_flags: c.xdp_flags.bits(),
             bind_flags: c.bind_flags.bits(),
-            libbpf_flags: c.libbpf_flags.bits(),
-            __bindgen_padding_0: Default::default(),
+            __bindgen_anon_1: xsk_socket_config,
         }
     }
 }
