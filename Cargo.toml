@@ -12,7 +12,7 @@ keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 [dependencies]
 bitflags = "2.4.1"
 cfg-if = "1.0.0"
-libc = "0.2.135"
+libc = "0.2.151"
 libxdp-sys = "0.2.0"
 log = "0.4.17"
 
