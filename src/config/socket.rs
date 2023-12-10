@@ -13,6 +13,7 @@ use super::QueueSize;
 
 bitflags! {
     /// Libbpf flags.
+    #[derive(Debug, Clone, Copy)]
     pub struct LibxdpFlags: u32 {
         /// Set to avoid loading of default XDP program on socket
         /// creation.
@@ -25,6 +26,7 @@ bitflags! {
     ///
     /// Some may not be applicable if an XDP program is already loaded
     /// on the target interface.
+    #[derive(Debug, Clone, Copy)]
     pub struct XdpFlags: u32 {
         /// Fail if an XDP program is already loaded on the target
         /// interface.
@@ -40,6 +42,7 @@ bitflags! {
 
 bitflags! {
     /// Bind flags.
+    #[derive(Debug, Clone, Copy)]
     pub struct BindFlags: u16 {
         /// Forces copy-mode.
         const XDP_COPY = 2;
