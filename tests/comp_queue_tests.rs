@@ -1,13 +1,11 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{PacketGenerator, Xsk, XskConfig};
+use setup::{PacketGenerator, Xsk, XskConfig, ETHERNETPACKET};
 
 use serial_test::serial;
-use std::{convert::TryInto, thread, time::Duration};
-use xsk_rs::{
-    config::{QueueSize, SocketConfig, UmemConfig},
-    umem::frame::FrameDesc,
-};
+use std::{convert::TryInto, io::Write, thread, time::Duration};
+use xsk_rs::config::{QueueSize, SocketConfig, UmemConfig};
+use xsk_rs::umem::frame::FrameDesc;
 
 const CQ_SIZE: u32 = 16;
 const TX_Q_SIZE: u32 = 16;
@@ -50,6 +48,16 @@ async fn num_frames_consumed_match_those_produced() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
+        for i in 0..2 {
+            unsafe {
+                xsk1.umem
+                    .data_mut(&mut xsk1.descs[i])
+                    .cursor()
+                    .write_all(&ETHERNETPACKET[..])
+                    .unwrap();
+            }
+        }
+
         assert_eq!(
             unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap() },
             2
@@ -70,6 +78,15 @@ async fn consume_one_should_consume_a_single_frame_even_if_multiple_produced() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;
 
+        for i in 0..2 {
+            unsafe {
+                xsk1.umem
+                    .data_mut(&mut xsk1.descs[i])
+                    .cursor()
+                    .write_all(&ETHERNETPACKET[..])
+                    .unwrap();
+            }
+        }
         assert_eq!(
             unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap() },
             2
@@ -95,6 +112,15 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
 
         let (tx_frames, rx_frames) = xsk1.descs.split_at_mut(nb);
 
+        for i in 0..nb {
+            unsafe {
+                xsk1.umem
+                    .data_mut(&mut tx_frames[i])
+                    .cursor()
+                    .write_all(&ETHERNETPACKET[..])
+                    .unwrap();
+            }
+        }
         assert_eq!(
             unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames).unwrap() },
             nb
@@ -134,6 +160,14 @@ async fn frame_consumed_with_consume_one_should_match_addr_of_one_produced() {
         assert!(nb > 0);
 
         let (tx_frames, rx_frames) = xsk1.descs.split_at_mut(nb);
+
+        unsafe {
+            xsk1.umem
+                .data_mut(&mut tx_frames[0])
+                .cursor()
+                .write_all(&ETHERNETPACKET[..])
+                .unwrap();
+        }
 
         assert_eq!(
             unsafe { xsk1.tx_q.produce_and_wakeup(&tx_frames).unwrap() },
