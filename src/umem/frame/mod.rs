@@ -98,7 +98,7 @@ impl FrameDesc {
     }
 
     #[inline]
-    pub(crate) fn write_xdp_desc(&self, desc: &mut libbpf_sys::xdp_desc) {
+    pub(crate) fn write_xdp_desc(&self, desc: &mut libxdp_sys::xdp_desc) {
         desc.addr = self.addr as u64;
         desc.options = self.options;
         desc.len = self.lengths.data as u32;
@@ -391,7 +391,7 @@ mod tests {
         io::{self, Write},
     };
 
-    use libbpf_sys::xdp_desc;
+    use libxdp_sys::xdp_desc;
 
     use crate::umem::{FrameDesc, FrameLayout, UmemRegion};
 
@@ -412,7 +412,11 @@ mod tests {
 
         let mut desc_1 = FrameDesc::new(1 * frame_size + layout.frame_headroom);
 
-        let mut xdp_desc = xdp_desc::default();
+        let mut xdp_desc = xdp_desc {
+            addr: 0,
+            len: 0,
+            options: 0,
+        };
 
         unsafe { umem_region.data_mut(&mut desc_0) }
             .cursor()

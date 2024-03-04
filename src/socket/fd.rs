@@ -1,7 +1,7 @@
 //! File descriptor utilities.
 
-use libbpf_sys::{xdp_statistics, XDP_STATISTICS};
 use libc::{EINTR, POLLIN, POLLOUT, SOL_XDP};
+use libxdp_sys::{xdp_statistics, XDP_STATISTICS};
 use std::{
     fmt,
     io::{self, ErrorKind},
@@ -86,7 +86,7 @@ impl Fd {
     /// Returns [`Socket`](crate::Socket) statistics.
     #[inline]
     pub fn xdp_statistics(&self) -> io::Result<XdpStatistics> {
-        let mut stats = xdp_statistics::default();
+        let mut stats = XdpStatistics::default();
 
         let mut optlen = XDP_STATISTICS_SIZEOF;
 
@@ -95,7 +95,7 @@ impl Fd {
                 self.as_raw_fd(),
                 SOL_XDP,
                 XDP_STATISTICS as i32,
-                &mut stats as *mut _ as *mut libc::c_void,
+                &mut stats.0 as *mut _ as *mut libc::c_void,
                 &mut optlen,
             )
         };
@@ -105,7 +105,7 @@ impl Fd {
         }
 
         if optlen == XDP_STATISTICS_SIZEOF {
-            Ok(XdpStatistics(stats))
+            Ok(stats)
         } else {
             Err(io::Error::new(
                 ErrorKind::Other,
@@ -140,8 +140,21 @@ impl AsRawFd for Fd {
 /// AF_XDP [`Socket`](crate::Socket) statistics.
 ///
 /// Can be retrieved by calling [`xdp_statistics`](Fd::xdp_statistics).
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct XdpStatistics(xdp_statistics);
+
+impl Default for XdpStatistics {
+    fn default() -> Self {
+        Self(xdp_statistics {
+            rx_dropped: 0,
+            rx_invalid_descs: 0,
+            tx_invalid_descs: 0,
+            rx_ring_full: 0,
+            rx_fill_ring_empty_descs: 0,
+            tx_ring_empty_descs: 0,
+        })
+    }
+}
 
 impl XdpStatistics {
     /// Received packets dropped due to an invalid descriptor.

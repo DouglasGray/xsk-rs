@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{veth_setup, VethDevConfig, Xsk};
+use setup::{veth_setup, VethDevConfig, Xsk, ETHERNET_PACKET};
 
 use serial_test::serial;
 use std::{convert::TryInto, io::Write};
@@ -63,7 +63,7 @@ async fn shared_umem_returns_new_fq_and_cq_when_sockets_are_bound_to_different_d
             descs: receiver_descs,
         };
 
-        send_and_receive_pkt(&mut sender, &mut receiver, "hello".as_bytes());
+        send_and_receive_pkt(&mut sender, &mut receiver, &ETHERNET_PACKET[..]);
     };
 
     let (dev1_config, dev2_config) = setup::default_veth_dev_configs();

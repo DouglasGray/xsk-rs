@@ -45,7 +45,7 @@ impl TxQueue {
     /// [`Umem`]: crate::Umem
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        let nb = descs.len() as u64;
+        let nb = descs.len() as u32;
 
         if nb == 0 {
             return 0;
@@ -53,12 +53,12 @@ impl TxQueue {
 
         let mut idx = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt as usize) {
                 let send_pkt_desc =
-                    unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
+                    unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
                 // SAFETY: unsafe contract of this function guarantees
                 // `desc` describes a frame belonging to the same UMEM as
@@ -68,7 +68,7 @@ impl TxQueue {
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -85,18 +85,18 @@ impl TxQueue {
     pub unsafe fn produce_one(&mut self, desc: &FrameDesc) -> usize {
         let mut idx = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
             let send_pkt_desc =
-                unsafe { libbpf_sys::_xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
+                unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
 
             // SAFETY: unsafe contract of this function guarantees
             // `desc` describes a frame belonging to the same UMEM as
             // this queue.
             unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -180,12 +180,12 @@ impl TxQueue {
     /// See [`produce_and_wakeup`] for link to docs with further
     /// explanation.
     ///
-    /// [`XDP_USE_NEED_WAKEUP`]: libbpf_sys::XDP_USE_NEED_WAKEUP
+    /// [`XDP_USE_NEED_WAKEUP`]: libxdp_sys::XDP_USE_NEED_WAKEUP
     /// [`wakeup`]: Self::wakeup
     /// [`produce_and_wakeup`]: Self::produce_and_wakeup
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
+        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
 
     /// Polls the socket, returning `true` if it is ready to write.

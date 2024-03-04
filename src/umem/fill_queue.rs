@@ -48,7 +48,7 @@ impl FillQueue {
     /// [`RxQueue`]: crate::RxQueue
     #[inline]
     pub unsafe fn produce(&mut self, descs: &[FrameDesc]) -> usize {
-        let nb = descs.len() as u64;
+        let nb = descs.len() as u32;
 
         if nb == 0 {
             return 0;
@@ -56,19 +56,19 @@ impl FillQueue {
 
         let mut idx = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt as usize) {
                 unsafe {
-                    *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
+                    *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
                         desc.addr as u64
                 };
 
                 idx += 1;
             }
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -85,14 +85,14 @@ impl FillQueue {
     pub unsafe fn produce_one(&mut self, desc: &FrameDesc) -> usize {
         let mut idx = 0;
 
-        let cnt = unsafe { libbpf_sys::_xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
             unsafe {
-                *libbpf_sys::_xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) = desc.addr as u64
+                *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) = desc.addr as u64
             };
 
-            unsafe { libbpf_sys::_xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
         }
 
         cnt as usize
@@ -172,10 +172,10 @@ impl FillQueue {
     /// explanation.
     ///
     /// [`produce_and_wakeup`]: Self::produce_and_wakeup
-    /// [`XDP_USE_NEED_WAKEUP`]: libbpf_sys::XDP_USE_NEED_WAKEUP
+    /// [`XDP_USE_NEED_WAKEUP`]: libxdp_sys::XDP_USE_NEED_WAKEUP
     /// [`wakeup`]: Self::wakeup
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libbpf_sys::_xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
+        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
 }

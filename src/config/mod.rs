@@ -4,7 +4,7 @@
 mod socket;
 pub use socket::{
     BindFlags, Config as SocketConfig, ConfigBuilder as SocketConfigBuilder, Interface,
-    LibbpfFlags, XdpFlags,
+    LibxdpFlags, XdpFlags,
 };
 
 mod umem;

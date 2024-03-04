@@ -143,7 +143,7 @@ async fn get_link_index(handle: &Handle, name: &str) -> anyhow::Result<u32> {
     Ok(handle
         .link()
         .get()
-        .set_name_filter(name.into())
+        .match_name(name.into())
         .execute()
         .try_next()
         .await?

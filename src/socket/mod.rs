@@ -9,7 +9,7 @@ pub use rx_queue::RxQueue;
 mod tx_queue;
 pub use tx_queue::TxQueue;
 
-use libbpf_sys::xsk_socket;
+use libxdp_sys::xsk_socket;
 use std::{
     borrow::Borrow,
     error::Error,
@@ -46,7 +46,7 @@ impl Drop for XskSocket {
         // SAFETY: unsafe constructor contract guarantees that the
         // socket has not been deleted already.
         unsafe {
-            libbpf_sys::xsk_socket__delete(self.0.as_mut());
+            libxdp_sys::xsk_socket__delete(self.0.as_mut());
         }
     }
 }
@@ -122,7 +122,7 @@ impl Socket {
                     .take()
                     .unwrap_or_else(|| (Box::default(), Box::default()));
 
-                let err = libbpf_sys::xsk_socket__create_shared(
+                let err = libxdp_sys::xsk_socket__create_shared(
                     &mut socket_ptr,
                     if_name.as_cstr().as_ptr(),
                     queue_id,
@@ -160,7 +160,7 @@ impl Socket {
             }
         };
 
-        let fd = unsafe { libbpf_sys::xsk_socket__fd(socket_ptr.0.as_ref()) };
+        let fd = unsafe { libxdp_sys::xsk_socket__fd(socket_ptr.0.as_ref()) };
 
         if fd < 0 {
             return Err(SocketCreateError {

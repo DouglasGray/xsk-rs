@@ -1,4 +1,4 @@
-use std::{convert::TryInto, io::Write, net::Ipv4Addr, str, thread};
+use std::{convert::TryInto, io::Write, net::Ipv4Addr, thread};
 use tokio::runtime::Runtime;
 use xsk_rs::{
     config::{SocketConfig, UmemConfig},
@@ -7,7 +7,7 @@ use xsk_rs::{
 
 #[allow(dead_code)]
 mod setup;
-use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig};
+use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig, ETHERNET_PACKET};
 
 fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, PacketGenerator)) {
     // This UMEM will be shared between both sockets.
@@ -47,17 +47,15 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
     }
 
     // 2. Write to the UMEM.
-    let pkt = b"Hello, world!";
-
     unsafe {
         umem.data_mut(&mut dev1_descs[0])
             .cursor()
-            .write_all(pkt)
+            .write_all(&ETHERNET_PACKET)
             .expect("failed writing packet to frame")
     }
 
     // 3. Submit the frame to the kernel for transmission.
-    println!("sending: {:?}", str::from_utf8(pkt).unwrap());
+    println!("sending packet");
 
     unsafe {
         dev1_tx_q.produce_and_wakeup(&dev1_descs[..1]).unwrap();
@@ -70,8 +68,8 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
     for recv_desc in dev2_descs.iter().take(pkts_recvd) {
         let data = unsafe { umem.data(recv_desc) };
 
-        if data.contents() == &pkt[..] {
-            println!("received: {:?}", str::from_utf8(data.contents()).unwrap());
+        if data.contents() == &ETHERNET_PACKET {
+            println!("received packet!");
             return;
         }
     }
