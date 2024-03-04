@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{PacketGenerator, Xsk, XskConfig};
+use setup::{PacketGenerator, Xsk, XskConfig, ETHERNETPACKET};
 
 use libxdp_sys::XDP_PACKET_HEADROOM;
 use serial_test::serial;
@@ -106,16 +106,13 @@ async fn consumed_frame_data_matches_what_was_sent() {
             // Add a frame in the dev2 fill queue ready to receive
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
-            // Write to frame of dev 1
-            let sent_pkt = b"hello";
-
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(sent_pkt)
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
-            assert_eq!(xsk1.descs[0].lengths().data(), 5);
+            assert_eq!(xsk1.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Send data
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -123,11 +120,14 @@ async fn consumed_frame_data_matches_what_was_sent() {
             // Read on dev2
             assert_eq!(xsk2.rx_q.poll_and_consume(&mut xsk2.descs, 100).unwrap(), 1);
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Check that the data is correct
-            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), sent_pkt);
-            assert_eq!(xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(), sent_pkt);
+            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), ETHERNETPACKET);
+            assert_eq!(
+                xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(),
+                ETHERNETPACKET
+            );
         }
     }
 
@@ -145,16 +145,13 @@ async fn consume_one_frame_data_matches_what_was_sent() {
             // Add a frame in the dev2 fill queue ready to receive
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
-            // Write to frame of dev 1
-            let sent_pkt = b"hello";
-
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(sent_pkt)
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
-            assert_eq!(xsk1.descs[0].lengths().data(), 5);
+            assert_eq!(xsk1.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Send data
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -167,11 +164,14 @@ async fn consume_one_frame_data_matches_what_was_sent() {
                 1
             );
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Check that the data is correct
-            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), sent_pkt);
-            assert_eq!(xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(), sent_pkt);
+            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), ETHERNETPACKET);
+            assert_eq!(
+                xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(),
+                ETHERNETPACKET
+            );
         }
     }
 
@@ -189,16 +189,13 @@ async fn consumed_frame_addresses_include_xdp_and_frame_headroom() {
             // Add a frame in the dev2 fill queue ready to receive
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
-            // Data to send from dev1
-            let sent_pkt = b"hello";
-
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(sent_pkt)
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
-            assert_eq!(xsk1.descs[0].lengths().data(), 5);
+            assert_eq!(xsk1.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Transmit data
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -206,11 +203,14 @@ async fn consumed_frame_addresses_include_xdp_and_frame_headroom() {
             // Read on dev2
             assert_eq!(xsk2.rx_q.poll_and_consume(&mut xsk2.descs, 100).unwrap(), 1);
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Check that the data is correct
-            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), sent_pkt);
-            assert_eq!(xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(), sent_pkt);
+            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), ETHERNETPACKET);
+            assert_eq!(
+                xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(),
+                ETHERNETPACKET
+            );
 
             // Check addr starts where we expect
             assert_eq!(
@@ -234,16 +234,13 @@ async fn consume_one_frame_address_includes_xdp_and_frame_headroom() {
             // Add a frame in the dev2 fill queue ready to receive
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
-            // Data to send from dev1
-            let sent_pkt = b"hello";
-
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(sent_pkt)
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
-            assert_eq!(xsk1.descs[0].lengths().data(), 5);
+            assert_eq!(xsk1.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Transmit data
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -256,11 +253,14 @@ async fn consume_one_frame_address_includes_xdp_and_frame_headroom() {
                 1
             );
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
 
             // Check that the data is correct
-            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), sent_pkt);
-            assert_eq!(xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(), sent_pkt);
+            assert_eq!(xsk2.umem.data(&xsk2.descs[0]).contents(), ETHERNETPACKET);
+            assert_eq!(
+                xsk2.umem.data_mut(&mut xsk2.descs[0]).contents(),
+                ETHERNETPACKET
+            );
 
             // Check addr starts where we expect
             assert_eq!(
@@ -285,11 +285,11 @@ async fn headroom_len_reset_after_receive() {
             xsk2.umem
                 .headroom_mut(&mut xsk2.descs[0])
                 .cursor()
-                .write_all(b"hello")
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
             assert_eq!(xsk2.descs[0].lengths().data(), 0);
-            assert_eq!(xsk2.descs[0].lengths().headroom(), 5);
+            assert_eq!(xsk2.descs[0].lengths().headroom(), ETHERNETPACKET.len());
 
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
@@ -297,7 +297,7 @@ async fn headroom_len_reset_after_receive() {
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(b"world")
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -305,19 +305,22 @@ async fn headroom_len_reset_after_receive() {
             // Read on dev2
             assert_eq!(xsk2.rx_q.poll_and_consume(&mut xsk2.descs, 100).unwrap(), 1);
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
             assert_eq!(xsk2.descs[0].lengths().headroom(), 0);
 
             // Length reset to zero but data should still be there
             xsk2.umem
                 .headroom_mut(&mut xsk2.descs[0])
                 .cursor()
-                .set_pos(5);
+                .set_pos(ETHERNETPACKET.len());
 
-            assert_eq!(xsk2.umem.headroom(&xsk2.descs[0]).contents(), b"hello");
+            assert_eq!(
+                xsk2.umem.headroom(&xsk2.descs[0]).contents(),
+                &ETHERNETPACKET[..]
+            );
             assert_eq!(
                 xsk2.umem.headroom_mut(&mut xsk2.descs[0]).contents(),
-                b"hello"
+                &ETHERNETPACKET[..]
             );
         }
     }
@@ -337,11 +340,11 @@ async fn consume_one_headroom_len_reset_after_receive() {
             xsk2.umem
                 .headroom_mut(&mut xsk2.descs[0])
                 .cursor()
-                .write_all(b"hello")
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
             assert_eq!(xsk2.descs[0].lengths().data(), 0);
-            assert_eq!(xsk2.descs[0].lengths().headroom(), 5);
+            assert_eq!(xsk2.descs[0].lengths().headroom(), ETHERNETPACKET.len());
 
             assert_eq!(xsk2.fq.produce(&xsk2.descs[0..1]), 1);
 
@@ -349,7 +352,7 @@ async fn consume_one_headroom_len_reset_after_receive() {
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(b"world")
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
@@ -362,19 +365,22 @@ async fn consume_one_headroom_len_reset_after_receive() {
                 1
             );
 
-            assert_eq!(xsk2.descs[0].lengths().data(), 5);
+            assert_eq!(xsk2.descs[0].lengths().data(), ETHERNETPACKET.len());
             assert_eq!(xsk2.descs[0].lengths().headroom(), 0);
 
             // Length reset to zero but data should still be there
             xsk2.umem
                 .headroom_mut(&mut xsk2.descs[0])
                 .cursor()
-                .set_pos(5);
+                .set_pos(ETHERNETPACKET.len());
 
-            assert_eq!(xsk2.umem.headroom(&xsk2.descs[0]).contents(), b"hello");
+            assert_eq!(
+                xsk2.umem.headroom(&xsk2.descs[0]).contents(),
+                &ETHERNETPACKET[..]
+            );
             assert_eq!(
                 xsk2.umem.headroom_mut(&mut xsk2.descs[0]).contents(),
-                b"hello"
+                &ETHERNETPACKET[..]
             );
         }
     }
@@ -395,7 +401,7 @@ async fn xdp_statistics_report_dropped_packet() {
             xsk1.umem
                 .data_mut(&mut xsk1.descs[0])
                 .cursor()
-                .write_all(b"hello")
+                .write_all(&ETHERNETPACKET[..])
                 .unwrap();
 
             assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..1]).unwrap(), 1);
