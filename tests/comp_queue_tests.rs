@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{PacketGenerator, Xsk, XskConfig, ETHERNETPACKET};
+use setup::{PacketGenerator, Xsk, XskConfig, ETHERNET_PACKET};
 
 use serial_test::serial;
 use std::{convert::TryInto, io::Write, thread, time::Duration};
@@ -53,7 +53,7 @@ async fn num_frames_consumed_match_those_produced() {
                 xsk1.umem
                     .data_mut(&mut xsk1.descs[i])
                     .cursor()
-                    .write_all(&ETHERNETPACKET[..])
+                    .write_all(&ETHERNET_PACKET[..])
                     .unwrap();
             }
         }
@@ -83,7 +83,7 @@ async fn consume_one_should_consume_a_single_frame_even_if_multiple_produced() {
                 xsk1.umem
                     .data_mut(&mut xsk1.descs[i])
                     .cursor()
-                    .write_all(&ETHERNETPACKET[..])
+                    .write_all(&ETHERNET_PACKET[..])
                     .unwrap();
             }
         }
@@ -117,7 +117,7 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
                 xsk1.umem
                     .data_mut(&mut tx_frames[i])
                     .cursor()
-                    .write_all(&ETHERNETPACKET[..])
+                    .write_all(&ETHERNET_PACKET[..])
                     .unwrap();
             }
         }
@@ -165,7 +165,7 @@ async fn frame_consumed_with_consume_one_should_match_addr_of_one_produced() {
             xsk1.umem
                 .data_mut(&mut tx_frames[0])
                 .cursor()
-                .write_all(&ETHERNETPACKET[..])
+                .write_all(&ETHERNET_PACKET[..])
                 .unwrap();
         }
 

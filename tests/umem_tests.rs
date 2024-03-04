@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{veth_setup, VethDevConfig, Xsk, ETHERNETPACKET};
+use setup::{veth_setup, VethDevConfig, Xsk, ETHERNET_PACKET};
 
 use serial_test::serial;
 use std::{convert::TryInto, io::Write};
@@ -63,7 +63,7 @@ async fn shared_umem_returns_new_fq_and_cq_when_sockets_are_bound_to_different_d
             descs: receiver_descs,
         };
 
-        send_and_receive_pkt(&mut sender, &mut receiver, &ETHERNETPACKET[..]);
+        send_and_receive_pkt(&mut sender, &mut receiver, &ETHERNET_PACKET[..]);
     };
 
     let (dev1_config, dev2_config) = setup::default_veth_dev_configs();
@@ -73,7 +73,7 @@ async fn shared_umem_returns_new_fq_and_cq_when_sockets_are_bound_to_different_d
         .unwrap();
 }
 
-/* #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
 async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_same_device() {
     let inner = move |dev1_config: VethDevConfig, _dev2_config: VethDevConfig| {
@@ -106,7 +106,7 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
     veth_setup::run_with_veth_pair(inner, dev1_config, dev2_config)
         .await
         .unwrap();
-} */
+}
 
 #[tokio::test]
 #[serial]
