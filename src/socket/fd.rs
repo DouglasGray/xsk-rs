@@ -126,11 +126,11 @@ impl AsRawFd for Fd {
     ///
     /// May be required, for example, in the case where the default
     /// libbpf program has not been loaded (using the
-    /// [`XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD`] flag) and the socket's
+    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`] flag) and the socket's
     /// file descriptor must be available to register it in the
     /// `XSKMAP`.
     ///
-    /// [`XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD`]: crate::config::LibbpfFlags::XSK_LIBBPF_FLAGS_INHIBIT_PROG_LOAD
+    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`]: crate::config::LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD
     #[inline]
     fn as_raw_fd(&self) -> RawFd {
         self.id
