@@ -82,7 +82,7 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
 
         let (_sender_tx_q, _sender_rx_q, sender_fq_and_cq) = Socket::new(
             SocketConfig::builder()
-                .libbpf_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
                 .build(),
             &umem,
             &dev1_config.if_name().parse().unwrap(),
@@ -94,7 +94,7 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
 
         let (_receiver_tx_q, _receiver_rx_q, receiver_fq_and_cq) = Socket::new(
             SocketConfig::builder()
-                .libbpf_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
                 .build(),
             &umem,
             &dev1_config.if_name().parse().unwrap(),

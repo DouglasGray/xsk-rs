@@ -86,21 +86,20 @@ impl Socket {
     /// May require root permissions to create successfully.
     ///
     /// Whether you can expect the returned `Option<(FillQueue,
-    /// CompQueue)>` to be [`Some`](Option::Some) or
-    /// [`None`](Option::None) depends on a couple of things:
+    /// CompQueue)>` to be [`Some`] or [`None`] depends on a couple of
+    /// things:
     ///
     ///  1. If the [`Umem`] is currently shared (i.e. being used for
     ///  >=1 AF_XDP sockets elsewhere):
     ///
-    ///    - If the `(if_name, queue_id)` pair is not bound to,
-    ///    expect [`Some`](Option::Some).
+    ///    - If the `(if_name, queue_id)` pair is not bound to, expect
+    ///    [`Some`].
     ///
     ///    - If the `(if_name, queue_id)` pair is bound to, expect
-    ///    [`None`](Option::None) and use the [`FillQueue`] and
-    ///    [`CompQueue`] originally returned for this pair.
+    ///    [`None`] and use the [`FillQueue`] and [`CompQueue`]
+    ///    originally returned for this pair.
     ///
-    ///  2. If the [`Umem`] is not currently shared, expect
-    ///  [`Some`](Option::Some).
+    ///  2. If the [`Umem`] is not currently shared, expect [`Some`].
     ///
     /// For further details on using a shared [`Umem`] please see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-shared-umem-bind-flag).

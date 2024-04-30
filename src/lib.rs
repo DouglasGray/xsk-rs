@@ -112,7 +112,6 @@
 //! panic!("no matching packets received")
 //! ```
 #![deny(missing_docs)]
-#![deny(rustdoc::missing_doc_code_examples)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_op_in_unsafe_fn)]
 use cfg_if::cfg_if;

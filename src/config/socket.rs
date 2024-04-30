@@ -129,8 +129,8 @@ impl ConfigBuilder {
         self
     }
 
-    /// Set the [`LibbpfFlags`]. Default is no flags set.
-    pub fn libbpf_flags(&mut self, flags: LibxdpFlags) -> &mut Self {
+    /// Set the [`LibxdpFlags`]. Default is no flags set.
+    pub fn libxdp_flags(&mut self, flags: LibxdpFlags) -> &mut Self {
         self.config.libxdp_flags = flags;
         self
     }
