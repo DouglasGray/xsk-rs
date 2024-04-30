@@ -5,7 +5,7 @@ use setup::{veth_setup, VethDevConfig, Xsk, ETHERNET_PACKET};
 use serial_test::serial;
 use std::{convert::TryInto, io::Write};
 use xsk_rs::{
-    config::{SocketConfig, UmemConfig},
+    config::{LibxdpFlags, SocketConfig, UmemConfig},
     Socket, Umem,
 };
 
@@ -81,7 +81,9 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
             Umem::new(UmemConfig::default(), 64.try_into().unwrap(), false).unwrap();
 
         let (_sender_tx_q, _sender_rx_q, sender_fq_and_cq) = Socket::new(
-            SocketConfig::default(),
+            SocketConfig::builder()
+                .libbpf_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                .build(),
             &umem,
             &dev1_config.if_name().parse().unwrap(),
             0,
@@ -91,7 +93,9 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
         assert!(sender_fq_and_cq.is_some());
 
         let (_receiver_tx_q, _receiver_rx_q, receiver_fq_and_cq) = Socket::new(
-            SocketConfig::default(),
+            SocketConfig::builder()
+                .libbpf_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                .build(),
             &umem,
             &dev1_config.if_name().parse().unwrap(),
             0,
