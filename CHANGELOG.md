@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+## Changed
+- use `libxdp-sys` instead of `libbpf-sys`
+
+## [0.5.0] - 2022-10-18
+
+## Changed
+- bump `libbpf-sys` version
+
 ## [0.4.1] - 2022-03-10
 
 ## Added
