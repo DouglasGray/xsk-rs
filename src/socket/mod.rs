@@ -103,9 +103,16 @@ impl Socket {
     ///
     /// For further details on using a shared [`Umem`] please see the
     /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#xdp-shared-umem-bind-flag).
+    ///
+    /// # Safety
+    ///
+    /// If sharing the [`Umem`] and the `(if_name, queue_id)` pair is already bound to, then the
+    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`] flag must be set.
+    ///
+    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`]: crate::config::LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD
     #[allow(clippy::new_ret_no_self)]
     #[allow(clippy::type_complexity)]
-    pub fn new(
+    pub unsafe fn new(
         config: SocketConfig,
         umem: &Umem,
         if_name: &Interface,
