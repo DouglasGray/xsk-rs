@@ -17,12 +17,14 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
 
     // Bind an AF_XDP socket to the interface named `xsk_dev1`, on
     // queue 0.
-    let (mut dev1_tx_q, _dev1_rx_q, _dev1_fq_and_cq) = Socket::new(
-        SocketConfig::default(),
-        &dev1_umem,
-        &dev1.0.if_name().parse().unwrap(),
-        0,
-    )
+    let (mut dev1_tx_q, _dev1_rx_q, _dev1_fq_and_cq) = unsafe {
+        Socket::new(
+            SocketConfig::default(),
+            &dev1_umem,
+            &dev1.0.if_name().parse().unwrap(),
+            0,
+        )
+    }
     .expect("failed to create dev1 socket");
 
     // Create a UMEM for dev2.
@@ -32,12 +34,14 @@ fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, Packe
 
     // Bind an AF_XDP socket to the interface named `xsk_dev2`, on
     // queue 0.
-    let (_dev2_tx_q, mut dev2_rx_q, dev2_fq_and_cq) = Socket::new(
-        SocketConfig::default(),
-        &dev2_umem,
-        &dev2.0.if_name().parse().unwrap(),
-        0,
-    )
+    let (_dev2_tx_q, mut dev2_rx_q, dev2_fq_and_cq) = unsafe {
+        Socket::new(
+            SocketConfig::default(),
+            &dev2_umem,
+            &dev2.0.if_name().parse().unwrap(),
+            0,
+        )
+    }
     .expect("failed to create dev2 socket");
 
     let (mut dev2_fq, _dev2_cq) = dev2_fq_and_cq.expect("missing dev2 fill queue and comp queue");

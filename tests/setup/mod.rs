@@ -58,8 +58,9 @@ pub fn build_socket_and_umem(
 ) -> Xsk {
     let (umem, descs) = Umem::new(umem_config, frame_count, false).expect("failed to build umem");
 
-    let (tx_q, rx_q, fq_and_cq) =
-        Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to build socket");
+    let (tx_q, rx_q, fq_and_cq) = unsafe {
+        Socket::new(socket_config, &umem, if_name, queue_id).expect("failed to build socket")
+    };
 
     let (fq, cq) = fq_and_cq.expect(&format!(
         "missing fill and comp queue - interface {:?} may already be bound to",

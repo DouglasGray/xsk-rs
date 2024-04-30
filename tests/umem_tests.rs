@@ -25,12 +25,14 @@ async fn shared_umem_returns_new_fq_and_cq_when_sockets_are_bound_to_different_d
         let mut sender_descs = descs;
         let receiver_descs = sender_descs.drain((frame_count / 2) as usize..).collect();
 
-        let (sender_tx_q, sender_rx_q, sender_fq_and_cq) = Socket::new(
-            SocketConfig::default(),
-            &umem,
-            &dev1_config.if_name().parse().unwrap(),
-            0,
-        )
+        let (sender_tx_q, sender_rx_q, sender_fq_and_cq) = unsafe {
+            Socket::new(
+                SocketConfig::default(),
+                &umem,
+                &dev1_config.if_name().parse().unwrap(),
+                0,
+            )
+        }
         .unwrap();
 
         let (sender_fq, sender_cq) = sender_fq_and_cq.unwrap();
@@ -44,12 +46,14 @@ async fn shared_umem_returns_new_fq_and_cq_when_sockets_are_bound_to_different_d
             descs: sender_descs,
         };
 
-        let (receiver_tx_q, receiver_rx_q, receiver_fq_and_cq) = Socket::new(
-            SocketConfig::default(),
-            &umem,
-            &dev2_config.if_name().parse().unwrap(),
-            0,
-        )
+        let (receiver_tx_q, receiver_rx_q, receiver_fq_and_cq) = unsafe {
+            Socket::new(
+                SocketConfig::default(),
+                &umem,
+                &dev2_config.if_name().parse().unwrap(),
+                0,
+            )
+        }
         .unwrap();
 
         let (receiver_fq, receiver_cq) = receiver_fq_and_cq.unwrap();
@@ -80,26 +84,30 @@ async fn shared_umem_does_not_return_new_fq_and_cq_when_sockets_are_bound_to_sam
         let (umem, _frames) =
             Umem::new(UmemConfig::default(), 64.try_into().unwrap(), false).unwrap();
 
-        let (_sender_tx_q, _sender_rx_q, sender_fq_and_cq) = Socket::new(
-            SocketConfig::builder()
-                .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
-                .build(),
-            &umem,
-            &dev1_config.if_name().parse().unwrap(),
-            0,
-        )
+        let (_sender_tx_q, _sender_rx_q, sender_fq_and_cq) = unsafe {
+            Socket::new(
+                SocketConfig::builder()
+                    .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                    .build(),
+                &umem,
+                &dev1_config.if_name().parse().unwrap(),
+                0,
+            )
+        }
         .unwrap();
 
         assert!(sender_fq_and_cq.is_some());
 
-        let (_receiver_tx_q, _receiver_rx_q, receiver_fq_and_cq) = Socket::new(
-            SocketConfig::builder()
-                .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
-                .build(),
-            &umem,
-            &dev1_config.if_name().parse().unwrap(),
-            0,
-        )
+        let (_receiver_tx_q, _receiver_rx_q, receiver_fq_and_cq) = unsafe {
+            Socket::new(
+                SocketConfig::builder()
+                    .libxdp_flags(LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD)
+                    .build(),
+                &umem,
+                &dev1_config.if_name().parse().unwrap(),
+                0,
+            )
+        }
         .unwrap();
 
         assert!(receiver_fq_and_cq.is_none());
