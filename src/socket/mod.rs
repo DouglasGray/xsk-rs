@@ -106,8 +106,11 @@ impl Socket {
     ///
     /// # Safety
     ///
-    /// If sharing the [`Umem`] and the `(if_name, queue_id)` pair is already bound to, then the
-    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`] flag must be set.
+    /// If sharing the [`Umem`] and the `(if_name, queue_id)` pair is
+    /// already bound to, then the
+    /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`] flag must be
+    /// set. Otherwise, a double-free may occur when dropping sockets
+    /// if the program has already been detached.
     ///
     /// [`XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD`]: crate::config::LibxdpFlags::XSK_LIBXDP_FLAGS_INHIBIT_PROG_LOAD
     #[allow(clippy::new_ret_no_self)]
