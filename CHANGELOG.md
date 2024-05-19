@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.6.0] - 2024-05-19
+
 ## Changed
 - use `libxdp-sys` instead of `libbpf-sys`
 
