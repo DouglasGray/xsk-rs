@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.6.1] - 2024-05-19
+
+## Changed
+- updated example in readme
+
 ## [0.6.0] - 2024-05-19
 
 ## Changed
