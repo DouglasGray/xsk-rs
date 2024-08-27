@@ -62,7 +62,7 @@ impl From<Opt> for Config {
             rx_q_size: opt.rx_q_size_sender.try_into().unwrap(),
             cq_size: opt.cq_size_sender.try_into().unwrap(),
             fq_size: opt.fq_size_sender.try_into().unwrap(),
-            frame_count: opt.fq_size_sender + opt.cq_size_receiver,
+            frame_count: opt.fq_size_sender + opt.cq_size_sender,
             frame_size: opt.frame_size_sender.try_into().unwrap(),
         };
 
