@@ -622,7 +622,6 @@ fn build_umem_and_socket_config(config: &XskConfig) -> (UmemConfig, SocketConfig
         .frame_size(config.frame_size)
         .fill_queue_size(config.fq_size)
         .comp_queue_size(config.cq_size)
-        .frame_size(config.frame_size)
         .build()
         .unwrap();
 
