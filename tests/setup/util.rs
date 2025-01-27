@@ -1,4 +1,4 @@
-use etherparse::{PacketBuilder, WriteError};
+use etherparse::{err::packet::BuildWriteError, PacketBuilder};
 
 use super::veth_setup::VethDevConfig;
 
@@ -19,7 +19,7 @@ impl PacketGenerator {
         src_port: u16,
         dst_port: u16,
         payload_len: usize,
-    ) -> Result<Vec<u8>, WriteError> {
+    ) -> Result<Vec<u8>, BuildWriteError> {
         let builder = PacketBuilder::ethernet2(
             self.src.addr().unwrap(), // src mac
             self.dst.addr().unwrap(), // dst mac
