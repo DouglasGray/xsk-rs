@@ -7,6 +7,10 @@ A Rust interface for Linux AF_XDP sockets using libxdp.
 For more information please see the [networking docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html)
 or a more [detailed overview](http://vger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf).
 
+An overview of XDP [setup
+dependencies](https://github.com/xdp-project/xdp-tutorial/blob/main/setup_dependencies.org)
+may also come in handy.
+
 Initially inspired by Jesse DuMond's [OCaml implementation](https://github.com/suttonshire/ocaml-xsk).
 
 ### Examples
