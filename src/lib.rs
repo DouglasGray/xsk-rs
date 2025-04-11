@@ -114,6 +114,8 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::doc_lazy_continuation)]
+
 use cfg_if::cfg_if;
 
 cfg_if! {
