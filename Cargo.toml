@@ -10,25 +10,26 @@ readme = "README.md"
 keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 
 [dependencies]
-bitflags = "2.5.0"
+bitflags = "2.8.0"
 cfg-if = "1.0.0"
-libc = "0.2.155"
-libxdp-sys = "0.2.0"
-log = "0.4.21"
+libc = "0.2.169"
+libxdp-sys = "0.2.1"
+log = "0.4.25"
 
 [dev-dependencies]
-anyhow = "1.0.75"
-crossbeam-channel = "0.5.8"
-ctrlc = "3.4.1"
-env_logger = "0.10.1"
-etherparse = "0.13.0"
-futures = "0.3.29"
+anyhow = "1.0.95"
+crossbeam-channel = "0.5.14"
+ctrlc = "3.4.5"
+env_logger = "0.11.6"
+# etherparse = "0.17.0" requires 1.84.0
+etherparse = "0.16.0"
+futures = "0.3.31"
 rand = "0.8.5"
-rtnetlink = "0.14.0"
-serial_test = "2.0.0"
+rtnetlink = "0.14.1"
+serial_test = "3.2.0"
 structopt = "0.3.26"
 
 [dev-dependencies.tokio]
-version = "1.6"
+version = "1.43.0"
 default-features = false
 features =  ["rt-multi-thread", "macros", "sync", "signal", "time"]
