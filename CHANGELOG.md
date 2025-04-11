@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.7.0] - 2025-04-11
+
+## Fixed
+- add missing lifetime to `umem::frame::Data::contents`
+- in the `dev1_to_dev2` example, use the sender completion queue size
+  to calculate sender frame count
+
+## Changed
+- bump dependencies
+
 ## [0.6.1] - 2024-05-19
 
 ## Changed
