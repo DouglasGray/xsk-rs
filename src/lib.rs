@@ -7,6 +7,10 @@
 //! or a more [detailed
 //! overview](http://vger.kernel.org/lpc_net2018_talks/lpc18_paper_af_xdp_perf-v2.pdf).
 //!
+//! An overview of XDP [setup
+//! dependencies](https://github.com/xdp-project/xdp-tutorial/blob/main/setup_dependencies.org)
+//! may also come in handy.
+//!
 //! Some simple examples may be found in the [GitHub
 //! repo](https://github.com/DouglasGray/xsk-rs/tree/master/examples),
 //! including an example of use in a multithreaded context and another
@@ -114,6 +118,8 @@
 #![deny(missing_docs)]
 #![deny(missing_debug_implementations)]
 #![deny(unsafe_op_in_unsafe_fn)]
+#![allow(clippy::doc_lazy_continuation)]
+
 use cfg_if::cfg_if;
 
 cfg_if! {
