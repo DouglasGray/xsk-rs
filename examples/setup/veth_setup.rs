@@ -1,5 +1,5 @@
 use futures::stream::TryStreamExt;
-use rtnetlink::Handle;
+use rtnetlink::{Handle, LinkUnspec, LinkVeth};
 use std::net::{IpAddr, Ipv4Addr};
 use tokio::{runtime, task};
 
@@ -21,10 +21,18 @@ impl VethDev {
     async fn set_status(&self, status: LinkStatus) -> anyhow::Result<()> {
         Ok(match status {
             LinkStatus::Up => {
-                self.handle.link().set(self.index).up().execute().await?;
+                self.handle
+                    .link()
+                    .set(LinkUnspec::new_with_index(self.index).up().build())
+                    .execute()
+                    .await?;
             }
             LinkStatus::Down => {
-                self.handle.link().set(self.index).down().execute().await?;
+                self.handle
+                    .link()
+                    .set(LinkUnspec::new_with_index(self.index).down().build())
+                    .execute()
+                    .await?;
             }
         })
     }
@@ -32,8 +40,7 @@ impl VethDev {
     async fn set_addr(&self, addr: Vec<u8>) -> anyhow::Result<()> {
         self.handle
             .link()
-            .set(self.index)
-            .address(addr)
+            .set(LinkUnspec::new_with_index(self.index).address(addr).build())
             .execute()
             .await?;
 
@@ -79,7 +86,10 @@ impl Drop for VethPair {
         });
 
         if let Err(e) = res {
-            eprintln!("failed to delete link: {:?} (you may need to delete it manually with 'sudo ip link del {}')", e, if_name);
+            eprintln!(
+                "failed to delete link: {:?} (you may need to delete it manually with 'sudo ip link del {}')",
+                e, if_name
+            );
         }
     }
 }
@@ -141,8 +151,7 @@ async fn build_veth_pair(dev1_if_name: &str, dev2_if_name: &str) -> anyhow::Resu
 
     handle
         .link()
-        .add()
-        .veth(dev1_if_name.into(), dev2_if_name.into())
+        .add(LinkVeth::new(dev1_if_name.into(), dev2_if_name.into()).build())
         .execute()
         .await?;
 
