@@ -127,13 +127,11 @@ fn main() {
     }
 
     // 2. Write to dev1's UMEM.
-    let pkt = "Hello, world!".as_bytes();
-
     unsafe {
         dev1_umem
             .data_mut(&mut dev1_descs[0])
             .cursor()
-            .write_all(pkt)
+            .write_all(&ETHERNET_PACKET)
             .expect("failed writing packet to frame")
     }
 
