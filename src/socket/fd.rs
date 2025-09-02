@@ -3,9 +3,7 @@
 use libc::{EINTR, POLLIN, POLLOUT, SOL_XDP};
 use libxdp_sys::{xdp_statistics, XDP_STATISTICS};
 use std::{
-    fmt,
-    io::{self, ErrorKind},
-    mem,
+    fmt, io, mem,
     os::unix::prelude::{AsRawFd, RawFd},
 };
 
@@ -107,8 +105,7 @@ impl Fd {
         if optlen == XDP_STATISTICS_SIZEOF {
             Ok(stats)
         } else {
-            Err(io::Error::new(
-                ErrorKind::Other,
+            Err(io::Error::other(
                 "`optlen` returned from `getsockopt` does not match `xdp_statistics` struct size",
             ))
         }

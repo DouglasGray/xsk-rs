@@ -218,7 +218,7 @@ impl Umem {
     /// [`TxQueue`]: crate::TxQueue
     /// [`RxQueue`]: crate::RxQueue
     #[inline]
-    pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
+    pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom<'_>, Data<'_>) {
         // SAFETY: We know from the unsafe contract of this function that:
         // a. Accessing the headroom and data segment identified by
         // `desc` is valid, since it describes a frame in this UMEM.
@@ -234,7 +234,7 @@ impl Umem {
     ///
     /// See [`frame`](Self::frame).
     #[inline]
-    pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom {
+    pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom<'_> {
         // SAFETY: see `frame`.
         unsafe { self.mem.headroom(desc) }
     }
@@ -246,7 +246,7 @@ impl Umem {
     ///
     /// See [`frame`](Self::frame).
     #[inline]
-    pub unsafe fn data(&self, desc: &FrameDesc) -> Data {
+    pub unsafe fn data(&self, desc: &FrameDesc) -> Data<'_> {
         // SAFETY: see `frame`.
         unsafe { self.mem.data(desc) }
     }
