@@ -91,14 +91,14 @@ impl UmemRegion {
 
     /// See docs for [`super::Umem::frame`].
     #[inline]
-    pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom, Data) {
+    pub unsafe fn frame(&self, desc: &FrameDesc) -> (Headroom<'_>, Data<'_>) {
         // SAFETY: see `super::Umem::frame`
         unsafe { (self.headroom(desc), self.data(desc)) }
     }
 
     /// See docs for [`super::Umem::headroom`].
     #[inline]
-    pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom {
+    pub unsafe fn headroom(&self, desc: &FrameDesc) -> Headroom<'_> {
         // SAFETY: see `frame`.
         let headroom_ptr = unsafe { self.headroom_ptr(desc) };
 
@@ -107,7 +107,7 @@ impl UmemRegion {
 
     /// See docs for [`super::Umem::data`].
     #[inline]
-    pub unsafe fn data(&self, desc: &FrameDesc) -> Data {
+    pub unsafe fn data(&self, desc: &FrameDesc) -> Data<'_> {
         // SAFETY: see `frame`.
         let data_ptr = unsafe { self.data_ptr(desc) };
 
