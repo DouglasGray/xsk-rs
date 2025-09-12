@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{ring::XskRingCons, umem::frame::FrameDesc};
 
-use super::{fd::Fd, Socket};
+use super::{Socket, fd::Fd};
 
 /// The receiving side of an AF_XDP [`Socket`].
 ///

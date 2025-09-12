@@ -1,13 +1,13 @@
 use std::{convert::TryInto, io::Write, net::Ipv4Addr, thread};
 use tokio::runtime::Runtime;
 use xsk_rs::{
-    config::{SocketConfig, UmemConfig},
     Socket, Umem,
+    config::{SocketConfig, UmemConfig},
 };
 
 #[allow(dead_code)]
 mod setup;
-use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig, ETHERNET_PACKET};
+use setup::{ETHERNET_PACKET, LinkIpAddr, PacketGenerator, VethDevConfig, util, veth_setup};
 
 fn hello_xdp(dev1: (VethDevConfig, PacketGenerator), dev2: (VethDevConfig, PacketGenerator)) {
     // This UMEM will be shared between both sockets.

@@ -2,7 +2,7 @@ use std::io;
 
 use crate::{ring::XskRingProd, socket::Fd};
 
-use super::{frame::FrameDesc, Umem};
+use super::{Umem, frame::FrameDesc};
 
 /// Used to transfer ownership of [`Umem`](super::Umem) frames from
 /// user-space to kernel-space.

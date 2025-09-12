@@ -19,11 +19,7 @@ pub fn is_pow_of_two(val: u32) -> bool {
 /// control flow.
 #[inline]
 pub fn min_usize(fst: usize, snd: usize) -> usize {
-    if fst < snd {
-        fst
-    } else {
-        snd
-    }
+    if fst < snd { fst } else { snd }
 }
 
 #[cfg(test)]

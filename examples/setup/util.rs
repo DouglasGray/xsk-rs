@@ -1,5 +1,5 @@
 use crossbeam_channel::{self, Receiver};
-use etherparse::{err::packet::BuildWriteError, PacketBuilder};
+use etherparse::{PacketBuilder, err::packet::BuildWriteError};
 
 use super::veth_setup::VethDevConfig;
 

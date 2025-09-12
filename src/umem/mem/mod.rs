@@ -10,8 +10,8 @@ use std::{
 };
 
 use super::{
-    frame::{Data, DataMut, FrameDesc, Headroom, HeadroomMut},
     FrameLayout,
+    frame::{Data, DataMut, FrameDesc, Headroom, HeadroomMut},
 };
 
 /// A framed, memory mapped region which functions as the working
