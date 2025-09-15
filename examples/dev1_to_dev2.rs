@@ -14,12 +14,12 @@ use std::{
 use structopt::StructOpt;
 use tokio::runtime::Runtime;
 use xsk_rs::{
-    config::{BindFlags, FrameSize, Interface, QueueSize, SocketConfig, UmemConfig},
     CompQueue, FillQueue, FrameDesc, RxQueue, Socket, TxQueue, Umem,
+    config::{BindFlags, FrameSize, Interface, QueueSize, SocketConfig, UmemConfig},
 };
 
 mod setup;
-use setup::{util, veth_setup, LinkIpAddr, PacketGenerator, VethDevConfig};
+use setup::{LinkIpAddr, PacketGenerator, VethDevConfig, util, veth_setup};
 
 // Reqd for the multithreaded case to signal when all packets have
 // been sent

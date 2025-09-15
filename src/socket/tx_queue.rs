@@ -3,7 +3,7 @@ use std::{io, os::unix::prelude::AsRawFd, ptr};
 
 use crate::{ring::XskRingProd, umem::frame::FrameDesc, util};
 
-use super::{fd::Fd, Socket};
+use super::{Socket, fd::Fd};
 
 /// The transmitting side of an AF_XDP [`Socket`].
 ///

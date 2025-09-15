@@ -1,7 +1,6 @@
 use libxdp_sys::{
-    xsk_umem_config, XDP_PACKET_HEADROOM, XSK_RING_CONS__DEFAULT_NUM_DESCS,
-    XSK_RING_PROD__DEFAULT_NUM_DESCS, XSK_UMEM__DEFAULT_FRAME_HEADROOM,
-    XSK_UMEM__DEFAULT_FRAME_SIZE,
+    XDP_PACKET_HEADROOM, XSK_RING_CONS__DEFAULT_NUM_DESCS, XSK_RING_PROD__DEFAULT_NUM_DESCS,
+    XSK_UMEM__DEFAULT_FRAME_HEADROOM, XSK_UMEM__DEFAULT_FRAME_SIZE, xsk_umem_config,
 };
 use std::{error, fmt};
 
@@ -180,17 +179,21 @@ mod tests {
 
     #[test]
     fn frame_size_must_be_greater_than_total_headroom() {
-        assert!(ConfigBuilder::new()
-            .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - XDP_PACKET_HEADROOM)
-            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
-            .build()
-            .is_ok());
+        assert!(
+            ConfigBuilder::new()
+                .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - XDP_PACKET_HEADROOM)
+                .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+                .build()
+                .is_ok()
+        );
 
-        assert!(ConfigBuilder::new()
-            .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - (XDP_PACKET_HEADROOM - 1))
-            .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
-            .build()
-            .is_err());
+        assert!(
+            ConfigBuilder::new()
+                .frame_headroom(XDP_UMEM_MIN_CHUNK_SIZE - (XDP_PACKET_HEADROOM - 1))
+                .frame_size(XDP_UMEM_MIN_CHUNK_SIZE.try_into().unwrap())
+                .build()
+                .is_err()
+        );
     }
 
     #[test]

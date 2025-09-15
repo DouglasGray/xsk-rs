@@ -1,7 +1,7 @@
 //! File descriptor utilities.
 
 use libc::{EINTR, POLLIN, POLLOUT, SOL_XDP};
-use libxdp_sys::{xdp_statistics, XDP_STATISTICS};
+use libxdp_sys::{XDP_STATISTICS, xdp_statistics};
 use std::{
     fmt, io, mem,
     os::unix::prelude::{AsRawFd, RawFd},
@@ -27,11 +27,7 @@ impl PollFd {
             }
         }
 
-        if ret == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        if ret == 0 { Ok(false) } else { Ok(true) }
     }
 }
 

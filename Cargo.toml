@@ -2,7 +2,7 @@
 name = "xsk-rs"
 version = "0.7.0"
 authors = ["Douglas Gray <dbgray01@gmail.com>"]
-edition = "2018"
+edition = "2024"
 description = "Rust bindings for Linux AF_XDP sockets"
 license = "MIT"
 repository = "https://github.com/DouglasGray/xsk-rs"
@@ -13,7 +13,7 @@ keywords = ["AF_XDP", "XSK", "eBPF", "XDP"]
 bitflags = "2.9.0"
 cfg-if = "1.0.0"
 libc = "0.2.171"
-libxdp-sys = "0.2.1"
+libxdp-sys = "0.2.2"
 log = "0.4.27"
 
 [dev-dependencies]
@@ -21,10 +21,10 @@ anyhow = "1.0.97"
 crossbeam-channel = "0.5.15"
 ctrlc = "3.4.6"
 env_logger = "0.11.8"
-etherparse = "0.17.0"
+etherparse = "0.19.0"
 futures = "0.3.31"
 rand = "0.9.0"
-rtnetlink = "0.14.1"
+rtnetlink = "0.18.0"
 serial_test = "3.2.0"
 structopt = "0.3.26"
 

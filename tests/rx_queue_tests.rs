@@ -1,6 +1,6 @@
 #[allow(dead_code)]
 mod setup;
-use setup::{PacketGenerator, Xsk, XskConfig, ETHERNET_PACKET};
+use setup::{ETHERNET_PACKET, PacketGenerator, Xsk, XskConfig};
 
 use libxdp_sys::XDP_PACKET_HEADROOM;
 use serial_test::serial;

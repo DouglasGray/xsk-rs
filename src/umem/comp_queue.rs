@@ -1,6 +1,6 @@
 use crate::ring::XskRingCons;
 
-use super::{frame::FrameDesc, Umem};
+use super::{Umem, frame::FrameDesc};
 
 /// Used to transfer ownership of [`Umem`](super::Umem) frames from
 /// kernel-space to user-space.
