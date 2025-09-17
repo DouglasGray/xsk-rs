@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.8.0] - 2025-09-17
+
+## Changed
+- bumped `libxdp-sys` to version `0.2.2`, which corresponds to `libxdp` version `1.5.5`
+- use rust edition `2024`
+
 ## [0.7.0] - 2025-04-11
 
 ## Fixed
