@@ -25,8 +25,11 @@ use std::{
 /// [`mtu`]: crate::config::UmemConfig::mtu
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SegmentLengths {
-    pub(crate) headroom: usize,
-    pub(crate) data: usize,
+    /// changed both members to be public, see FrameDesc, rstade
+    /// length of the headroom segment
+    pub headroom: usize,
+    /// length of the packet data segment
+    pub data: usize,
 }
 
 impl SegmentLengths {
@@ -51,11 +54,18 @@ impl SegmentLengths {
 /// the packet data segment of some frame. `lengths` describes the
 /// length (in bytes) of any data stored in the frame's headroom or
 /// data segments.
+///
+/// rstade: We need to make the members of this struct public for recreating
+/// FrameDesc instances from raw pointers in protocol data units (PDUs)
+/// Of course, this is inherently unsafe but required for performance reasons.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameDesc {
-    pub(crate) addr: usize,
-    pub(crate) options: u32,
-    pub(crate) lengths: SegmentLengths,
+    /// points to the start of the packet data segment of the frame
+    pub addr: usize,
+    /// options for the frame, such as checksum offloading or VLAN tagging
+    pub options: u32,
+    /// current headroom and packet data lengths for the frame
+    pub lengths: SegmentLengths,
 }
 
 impl FrameDesc {
@@ -63,7 +73,7 @@ impl FrameDesc {
     ///
     /// `addr` must be the starting address of the packet data segment
     /// of some [`Umem`](super::Umem) frame.
-    pub(super) fn new(addr: usize) -> Self {
+    pub fn new(addr: usize) -> Self {
         Self {
             addr,
             options: 0,
