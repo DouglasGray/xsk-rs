@@ -178,4 +178,23 @@ impl FillQueue {
     pub fn needs_wakeup(&self) -> bool {
         unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
     }
+
+    /// Returns the number of free slots available in the fill queue.
+    ///
+    /// This can be used to check how many frames can be produced (submitted)
+    /// to the fill queue without blocking.
+    ///
+    /// # Arguments
+    ///
+    /// * `desired` - The maximum number of free slots you want to check for. The return value
+    ///               will be min(desired, actual_free_slots).
+    #[inline]
+    pub fn nb_free(&self, desired: u32) -> u32 {
+        unsafe {
+            libxdp_sys::xsk_prod_nb_free(
+                self.ring.as_ref() as *const _ as *mut _,
+                desired
+            )
+        }
+    }
 }

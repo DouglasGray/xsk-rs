@@ -97,4 +97,23 @@ impl CompQueue {
 
         cnt as usize
     }
+
+    /// Returns the number of items currently available in the completion queue.
+    ///
+    /// This can be used to check how many completed TX frames are ready to be consumed
+    /// without actually consuming them.
+    ///
+    /// # Arguments
+    ///
+    /// * `desired` - The maximum number of items you want to check for. The return value
+    ///               will be min(desired, actual_available).
+    #[inline]
+    pub fn nb_avail(&self, desired: u32) -> u32 {
+        unsafe {
+            libxdp_sys::xsk_cons_nb_avail(
+                self.ring.as_ref() as *const _ as *mut _,
+                desired
+            )
+        }
+    }
 }

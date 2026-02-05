@@ -159,4 +159,23 @@ impl RxQueue {
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.socket.fd
     }
+
+    /// Returns the number of items currently available in the RX queue.
+    ///
+    /// This can be used to check how many received packets are ready to be consumed
+    /// without actually consuming them.
+    ///
+    /// # Arguments
+    ///
+    /// * `desired` - The maximum number of items you want to check for. The return value
+    ///               will be min(desired, actual_available).
+    #[inline]
+    pub fn nb_avail(&self, desired: u32) -> u32 {
+        unsafe {
+            libxdp_sys::xsk_cons_nb_avail(
+                self.ring.as_ref() as *const _ as *mut _,
+                desired
+            )
+        }
+    }
 }

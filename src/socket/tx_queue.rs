@@ -205,4 +205,23 @@ impl TxQueue {
     pub fn fd_mut(&mut self) -> &mut Fd {
         &mut self.socket.fd
     }
+
+    /// Returns the number of free slots available in the TX queue.
+    ///
+    /// This can be used to check how many frames can be produced (submitted)
+    /// to the TX queue without blocking.
+    ///
+    /// # Arguments
+    ///
+    /// * `desired` - The maximum number of free slots you want to check for. The return value
+    ///               will be min(desired, actual_free_slots).
+    #[inline]
+    pub fn nb_free(&self, desired: u32) -> u32 {
+        unsafe {
+            libxdp_sys::xsk_prod_nb_free(
+                self.ring.as_ref() as *const _ as *mut _,
+                desired
+            )
+        }
+    }
 }
