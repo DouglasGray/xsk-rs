@@ -144,5 +144,29 @@ cfg_if! {
                 assert_eq!(mem::size_of::<usize>(), mem::size_of::<u64>());
             }
         }
+    } else if #[cfg(all(target_pointer_width = "32", target_family = "unix"))] {
+        pub mod umem;
+        pub use umem::{frame::FrameDesc, CompQueue, FillQueue, Umem};
+
+        pub mod socket;
+        pub use socket::{RxQueue, Socket, TxQueue};
+
+        pub mod config;
+
+        mod ring;
+        mod util;
+
+        #[cfg(test)]
+        mod tests {
+            use std::mem;
+
+            #[test]
+            fn ensure_usize_fits_in_u64() {
+                // On 32-bit: usize is 4 bytes, u64 is 8 bytes.
+                // AF_XDP addr fields use u64 but store UMEM offsets (always < 4 GB),
+                // so a 32-bit usize zero-extends safely into u64.
+                assert!(mem::size_of::<usize>() < mem::size_of::<u64>());
+            }
+        }
     }
 }
