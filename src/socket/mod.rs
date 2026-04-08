@@ -122,8 +122,8 @@ impl Socket {
         queue_id: u32,
     ) -> Result<(TxQueue, RxQueue, Option<(FillQueue, CompQueue)>), SocketCreateError> {
         let mut socket_ptr = ptr::null_mut();
-        let mut tx_q = XskRingProd::default();
-        let mut rx_q = XskRingCons::default();
+        let mut tx_q: Box<XskRingProd> = Box::default();
+        let mut rx_q: Box<XskRingCons> = Box::default();
 
         let (err, fq, cq) = unsafe {
             umem.with_ptr_and_saved_queues(|xsk_umem, saved_fq_and_cq| {
@@ -136,8 +136,8 @@ impl Socket {
                     if_name.as_cstr().as_ptr(),
                     queue_id,
                     xsk_umem,
-                    rx_q.as_mut(),
-                    tx_q.as_mut(),
+                    rx_q.as_mut().as_mut(),
+                    tx_q.as_mut().as_mut(),
                     fq.as_mut().as_mut(), // double deref due to Box
                     cq.as_mut().as_mut(),
                     &config.into(),
@@ -189,7 +189,7 @@ impl Socket {
                 err: io::Error::from_raw_os_error(-err),
             });
         } else {
-            TxQueue::new(tx_q, socket.clone())
+            TxQueue::new(*tx_q, socket.clone())
         };
 
         let rx_q = if rx_q.is_ring_null() {
@@ -198,7 +198,7 @@ impl Socket {
                 err: io::Error::from_raw_os_error(-err),
             });
         } else {
-            RxQueue::new(rx_q, socket)
+            RxQueue::new(*rx_q, socket)
         };
 
         let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
