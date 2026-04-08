@@ -189,7 +189,7 @@ impl Socket {
                 err: io::Error::from_raw_os_error(-err),
             });
         } else {
-            TxQueue::new(*tx_q, socket.clone())
+            TxQueue::new(tx_q, socket.clone())
         };
 
         let rx_q = if rx_q.is_ring_null() {
@@ -198,7 +198,7 @@ impl Socket {
                 err: io::Error::from_raw_os_error(-err),
             });
         } else {
-            RxQueue::new(*rx_q, socket)
+            RxQueue::new(rx_q, socket)
         };
 
         let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
