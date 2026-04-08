@@ -14,12 +14,12 @@ use super::{Umem, frame::FrameDesc};
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-fill-ring).
 #[derive(Debug)]
 pub struct FillQueue {
-    ring: XskRingProd,
+    ring: Box<XskRingProd>,
     _umem: Umem,
 }
 
 impl FillQueue {
-    pub(crate) fn new(ring: XskRingProd, umem: Umem) -> Self {
+    pub(crate) fn new(ring: Box<XskRingProd>, umem: Umem) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -56,19 +56,19 @@ impl FillQueue {
 
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut().as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt as usize) {
                 unsafe {
-                    *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) =
+                    *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut().as_mut(), idx) =
                         desc.addr as u64
                 };
 
                 idx += 1;
             }
 
-            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize
@@ -85,14 +85,14 @@ impl FillQueue {
     pub unsafe fn produce_one(&mut self, desc: &FrameDesc) -> usize {
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut().as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
             unsafe {
-                *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut(), idx) = desc.addr as u64
+                *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_mut().as_mut(), idx) = desc.addr as u64
             };
 
-            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize
@@ -176,7 +176,7 @@ impl FillQueue {
     /// [`wakeup`]: Self::wakeup
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
+        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref().as_ref()) != 0 }
     }
 
     /// Returns the number of free slots available in the fill queue.
