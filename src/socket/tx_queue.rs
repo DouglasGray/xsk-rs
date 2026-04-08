@@ -11,12 +11,12 @@ use super::{Socket, fd::Fd};
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#tx-ring).
 #[derive(Debug)]
 pub struct TxQueue {
-    ring: XskRingProd,
+    ring: Box<XskRingProd>,
     socket: Socket,
 }
 
 impl TxQueue {
-    pub(super) fn new(ring: XskRingProd, socket: Socket) -> Self {
+    pub(super) fn new(ring: Box<XskRingProd>, socket: Socket) -> Self {
         Self { ring, socket }
     }
 
@@ -53,12 +53,12 @@ impl TxQueue {
 
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), nb, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut().as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter().take(cnt as usize) {
                 let send_pkt_desc =
-                    unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
+                    unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut().as_mut(), idx) };
 
                 // SAFETY: unsafe contract of this function guarantees
                 // `desc` describes a frame belonging to the same UMEM as
@@ -68,7 +68,7 @@ impl TxQueue {
                 idx += 1;
             }
 
-            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize
@@ -85,18 +85,18 @@ impl TxQueue {
     pub unsafe fn produce_one(&mut self, desc: &FrameDesc) -> usize {
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut(), 1, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_mut().as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
             let send_pkt_desc =
-                unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut(), idx) };
+                unsafe { libxdp_sys::xsk_ring_prod__tx_desc(self.ring.as_mut().as_mut(), idx) };
 
             // SAFETY: unsafe contract of this function guarantees
             // `desc` describes a frame belonging to the same UMEM as
             // this queue.
             unsafe { desc.write_xdp_desc(&mut *send_pkt_desc) };
 
-            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize
@@ -185,7 +185,7 @@ impl TxQueue {
     /// [`produce_and_wakeup`]: Self::produce_and_wakeup
     #[inline]
     pub fn needs_wakeup(&self) -> bool {
-        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref()) != 0 }
+        unsafe { libxdp_sys::xsk_ring_prod__needs_wakeup(self.ring.as_ref().as_ref()) != 0 }
     }
 
     /// Polls the socket, returning `true` if it is ready to write.
