@@ -12,12 +12,12 @@ use super::{Umem, frame::FrameDesc};
 /// [docs](https://www.kernel.org/doc/html/latest/networking/af_xdp.html#umem-completion-ring).
 #[derive(Debug)]
 pub struct CompQueue {
-    ring: XskRingCons,
+    ring: Box<XskRingCons>,
     _umem: Umem,
 }
 
 impl CompQueue {
-    pub(crate) fn new(ring: XskRingCons, umem: Umem) -> Self {
+    pub(crate) fn new(ring: Box<XskRingCons>, umem: Umem) -> Self {
         Self { ring, _umem: umem }
     }
 
@@ -50,12 +50,12 @@ impl CompQueue {
 
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_cons__peek(self.ring.as_mut(), nb, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_cons__peek(self.ring.as_mut().as_mut(), nb, &mut idx) };
 
         if cnt > 0 {
             for desc in descs.iter_mut().take(cnt as usize) {
                 let addr =
-                    unsafe { *libxdp_sys::xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
+                    unsafe { *libxdp_sys::xsk_ring_cons__comp_addr(self.ring.as_ref().as_ref(), idx) };
 
                 desc.addr = addr as usize;
                 desc.lengths.data = 0;
@@ -65,7 +65,7 @@ impl CompQueue {
                 idx += 1;
             }
 
-            unsafe { libxdp_sys::xsk_ring_cons__release(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_cons__release(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize
@@ -82,17 +82,17 @@ impl CompQueue {
     pub unsafe fn consume_one(&mut self, desc: &mut FrameDesc) -> usize {
         let mut idx = 0;
 
-        let cnt = unsafe { libxdp_sys::xsk_ring_cons__peek(self.ring.as_mut(), 1, &mut idx) };
+        let cnt = unsafe { libxdp_sys::xsk_ring_cons__peek(self.ring.as_mut().as_mut(), 1, &mut idx) };
 
         if cnt > 0 {
-            let addr = unsafe { *libxdp_sys::xsk_ring_cons__comp_addr(self.ring.as_ref(), idx) };
+            let addr = unsafe { *libxdp_sys::xsk_ring_cons__comp_addr(self.ring.as_ref().as_ref(), idx) };
 
             desc.addr = addr as usize;
             desc.lengths.data = 0;
             desc.lengths.headroom = 0;
             desc.options = 0;
 
-            unsafe { libxdp_sys::xsk_ring_cons__release(self.ring.as_mut(), cnt) };
+            unsafe { libxdp_sys::xsk_ring_cons__release(self.ring.as_mut().as_mut(), cnt) };
         }
 
         cnt as usize

@@ -204,8 +204,8 @@ impl Socket {
         let fq_and_cq = match (fq.is_ring_null(), cq.is_ring_null()) {
             (true, true) => None,
             (false, false) => {
-                let fq = FillQueue::new(*fq, umem.clone());
-                let cq = CompQueue::new(*cq, umem.clone());
+                let fq = FillQueue::new(fq, umem.clone());
+                let cq = CompQueue::new(cq, umem.clone());
 
                 Some((fq, cq))
             }
