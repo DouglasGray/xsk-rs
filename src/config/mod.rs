@@ -10,7 +10,7 @@ pub use socket::{
 mod umem;
 pub use umem::{
     Config as UmemConfig, ConfigBuildError as UmemConfigBuilderError,
-    ConfigBuilder as UmemConfigBuilder,
+    ConfigBuilder as UmemConfigBuilder, ConfigOpts as UmemConfigOpts,
 };
 
 use std::{convert::TryFrom, error, fmt};

@@ -78,7 +78,7 @@ impl UmemRegion {
         unsafe { self.as_ptr().add(addr) as *mut u8 }
     }
 
-    /// A pointer to the headroom segment of the frame described to by
+    /// A pointer to the data segment of the frame described to by
     /// `desc`.
     ///
     /// # Safety

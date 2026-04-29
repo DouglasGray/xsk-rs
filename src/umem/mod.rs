@@ -27,6 +27,7 @@ use crate::{
     config::UmemConfig,
     ring::{XskRingCons, XskRingProd},
 };
+use crate::config::UmemConfigOpts;
 
 /// Wrapper around a pointer to some [`Umem`].
 #[derive(Debug)]
@@ -172,6 +173,85 @@ impl Umem {
             return Err(UmemCreateError {
                 reason: "comp queue ring is null",
                 err: io::Error::from_raw_os_error(-err),
+            });
+        }
+
+        let inner = UmemInner::new(umem_ptr, Some((fq, cq)));
+
+        let frame_count = frame_count.get() as usize;
+
+        let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count);
+
+        for i in 0..frame_count {
+            let addr = (i * frame_layout.frame_size())
+                + frame_layout.xdp_headroom
+                + frame_layout.frame_headroom;
+
+            frame_descs.push(FrameDesc::new(addr));
+        }
+
+        let umem = Umem {
+            inner: Arc::new(Mutex::new(inner)),
+            mem,
+        };
+
+        Ok((umem, frame_descs))
+    }
+/// same as new but using the latest API of lib_xdp for umem creation, namely xdp_umem_create_opts
+/// this supports flags and metadata
+    pub fn new_with_opts(
+        mut config: UmemConfigOpts,
+        use_huge_pages: bool,
+    ) -> Result<(Self, Vec<FrameDesc>), UmemCreateError> {
+        let frame_layout = config.into();
+        let frame_count = config.frame_count();
+
+        let mem = UmemRegion::new(frame_count, frame_layout, use_huge_pages).map_err(|e| {
+            UmemCreateError {
+                reason: "failed to create mmap'd UMEM region",
+                err: e,
+            }
+        })?;
+
+        let mut fq: Box<XskRingProd> = Box::default();
+        let mut cq: Box<XskRingCons> = Box::default();
+
+        let umem_ptr = unsafe {
+            libxdp_sys::xsk_umem__create_opts(
+                mem.as_ptr(),
+                fq.as_mut().as_mut(), // double deref due to to Box
+                cq.as_mut().as_mut(),
+                &mut config.into(),
+            )
+        };
+
+
+        let umem_ptr = match NonNull::new(umem_ptr) {
+            Some(umem_ptr) => {
+                // SAFETY: this is the only `XskUmem` instance for
+                // this pointer, and no other pointers to the UMEM
+                // exist.
+                unsafe { XskUmem::new(umem_ptr) }
+            }
+            None => {
+                return Err(UmemCreateError {
+                    reason: "UMEM is null",
+                    err: io::Error::last_os_error(),
+                });
+            }
+        };
+
+        if fq.is_ring_null() {
+            return Err(UmemCreateError {
+                reason: "fill queue ring is null",
+                err: io::Error::last_os_error(),
+            });
+        };
+
+        if cq.is_ring_null() {
+            return Err(UmemCreateError {
+                reason: "comp queue ring is null",
+                err: io::Error::last_os_error(),
             });
         }
 
@@ -373,6 +453,13 @@ impl From<UmemConfig> for FrameLayout {
             frame_headroom: c.frame_headroom() as usize,
             mtu: c.mtu() as usize,
         }
+    }
+}
+impl From<UmemConfigOpts> for FrameLayout {
+    #[inline]
+    fn from(c: UmemConfigOpts) -> Self {
+        let cc= UmemConfig::from(c);
+        FrameLayout::from(cc)
     }
 }
 
