@@ -14,7 +14,8 @@ bitflags = "2.9.0"
 cfg-if = "1.0"
 libc = "0.2.180"
 #libxdp-sys = "0.2"
-libxdp-sys = { path = "../libxdp-sys" }
+#libxdp-sys = { path = "../libxdp-sys" }
+libxdp-sys = {git = "https://github.com/ninegamma/libxdp-sys.git", branch = "ninegamma" }
 log = "0.4"
 
 [dev-dependencies]
