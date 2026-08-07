@@ -187,7 +187,7 @@ impl FillQueue {
     /// # Arguments
     ///
     /// * `desired` - The maximum number of free slots you want to check for. The return value
-    ///               will be min(desired, actual_free_slots).
+    ///   will be min(desired, actual_free_slots).
     #[inline]
     pub fn nb_free(&self, desired: u32) -> u32 {
         unsafe {

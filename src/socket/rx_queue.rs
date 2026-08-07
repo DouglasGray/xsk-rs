@@ -168,7 +168,7 @@ impl RxQueue {
     /// # Arguments
     ///
     /// * `desired` - The maximum number of items you want to check for. The return value
-    ///               will be min(desired, actual_available).
+    ///  will be min(desired, actual_available).
     #[inline]
     pub fn nb_avail(&self, desired: u32) -> u32 {
         unsafe {
