@@ -325,11 +325,10 @@ impl Umem {
         f(inner.ptr.as_mut_ptr(), &mut inner.saved_fq_and_cq)
     }
 
-    /// Expose raw UMEM pointer for custom allocators/PDUs;
-    /// points to the beginning of the UMEM buffer
+    /// Returns a raw pointer to the beginning of the UMEM buffer
     #[inline(always)]
-    pub fn as_ptr(&self) -> *mut u8 {
-        self.mem.as_ptr() as *mut u8
+    pub fn as_ptr(&self) -> *const u8 {
+        self.mem.as_ptr() as *const u8
     }
 }
 

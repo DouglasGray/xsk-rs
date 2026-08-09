@@ -103,6 +103,37 @@ async fn consume_one_should_consume_a_single_frame_even_if_multiple_produced() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
+async fn nb_avail_reports_completed_tx_frames_and_honors_desired() {
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+
+        assert_eq!(xsk1.cq.nb_avail(CQ_SIZE), 0);
+
+        for desc in &mut xsk1.descs[..2] {
+            unsafe {
+                xsk1.umem
+                    .data_mut(desc)
+                    .cursor()
+                    .write_all(&ETHERNET_PACKET[..])
+                    .unwrap();
+            }
+        }
+
+        assert_eq!(
+            unsafe { xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap() },
+            2
+        );
+        thread::sleep(Duration::from_millis(5));
+
+        assert_eq!(xsk1.cq.nb_avail(1), 1);
+        assert_eq!(xsk1.cq.nb_avail(CQ_SIZE), 2);
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
 async fn addr_of_frames_consumed_match_addr_of_those_produced() {
     fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
         let mut xsk1 = dev1.0;

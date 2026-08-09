@@ -170,12 +170,7 @@ impl RxQueue {
     /// * `desired` - The maximum number of items you want to check for. The return value
     ///  will be min(desired, actual_available).
     #[inline]
-    pub fn nb_avail(&self, desired: u32) -> u32 {
-        unsafe {
-            libxdp_sys::xsk_cons_nb_avail(
-                self.ring.as_ref() as *const _ as *mut _,
-                desired
-            )
-        }
+    pub fn nb_avail(&mut self, desired: u32) -> u32 {
+        unsafe { libxdp_sys::xsk_cons_nb_avail(self.ring.as_mut().as_mut(), desired) }
     }
 }

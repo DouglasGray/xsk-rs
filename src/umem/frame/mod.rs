@@ -25,11 +25,10 @@ use std::{
 /// [`mtu`]: crate::config::UmemConfig::mtu
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SegmentLengths {
-    /// changed both members to be public, see FrameDesc, rstade
     /// length of the headroom segment
-    pub headroom: usize,
+    pub(crate) headroom: usize,
     /// length of the packet data segment
-    pub data: usize,
+    pub(crate) data: usize,
 }
 
 impl SegmentLengths {
@@ -58,18 +57,11 @@ const XDP_PKT_CONTD: u32 = 1 << 0;
 /// the packet data segment of some frame. `lengths` describes the
 /// length (in bytes) of any data stored in the frame's headroom or
 /// data segments.
-///
-/// rstade: We need to make the members of this struct public for recreating
-/// FrameDesc instances from raw pointers in protocol data units (PDUs)
-/// Of course, this is inherently unsafe but required for performance reasons.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameDesc {
-    /// points to the start of the packet data segment of the frame
-    pub addr: usize,
-    /// options for the frame, such as checksum offloading or VLAN tagging
-    pub options: u32,
-    /// current headroom and packet data lengths for the frame
-    pub lengths: SegmentLengths,
+    pub(crate) addr: usize,
+    pub(crate) options: u32,
+    pub(crate) lengths: SegmentLengths,
 }
 
 impl FrameDesc {
@@ -83,6 +75,18 @@ impl FrameDesc {
             options: 0,
             lengths: SegmentLengths::default(),
         }
+    }
+
+    /// Replaces the default options with the provided value.
+    pub fn with_options(mut self, options: u32) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Replaces the default segment lengths.
+    pub fn with_lengths(mut self, headroom: usize, data: usize) -> Self {
+        self.lengths = SegmentLengths { headroom, data };
+        self
     }
 
     /// The starting address of the packet data segment of the frame

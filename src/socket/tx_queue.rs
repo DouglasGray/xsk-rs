@@ -216,10 +216,10 @@ impl TxQueue {
     /// * `desired` - The maximum number of free slots you want to check for. The return value
     ///  will be min(desired, actual_free_slots).
     #[inline]
-    pub fn nb_free(&self, desired: u32) -> u32 {
+    pub fn nb_free(&mut self, desired: u32) -> u32 {
         unsafe {
             libxdp_sys::xsk_prod_nb_free(
-                self.ring.as_ref() as *const _ as *mut _,
+                self.ring.as_mut().as_mut(),
                 desired
             )
         }

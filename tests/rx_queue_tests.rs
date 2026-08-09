@@ -180,6 +180,37 @@ async fn consume_one_frame_data_matches_what_was_sent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[serial]
+async fn nb_avail_reports_received_packets_and_honors_desired() {
+    fn test(dev1: (Xsk, PacketGenerator), dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+        let mut xsk2 = dev2.0;
+
+        assert_eq!(xsk2.rx_q.nb_avail(RX_Q_SIZE), 0);
+
+        unsafe {
+            assert_eq!(xsk2.fq.produce(&xsk2.descs[..2]), 2);
+
+            for desc in &mut xsk1.descs[..2] {
+                xsk1.umem
+                    .data_mut(desc)
+                    .cursor()
+                    .write_all(&ETHERNET_PACKET[..])
+                    .unwrap();
+            }
+
+            assert_eq!(xsk1.tx_q.produce_and_wakeup(&xsk1.descs[..2]).unwrap(), 2);
+        }
+
+        assert!(xsk2.rx_q.poll(100).unwrap());
+        assert_eq!(xsk2.rx_q.nb_avail(1), 1);
+        assert_eq!(xsk2.rx_q.nb_avail(RX_Q_SIZE), 2);
+    }
+
+    build_configs_and_run_test(test).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
 async fn consumed_frame_addresses_include_xdp_and_frame_headroom() {
     fn test(dev1: (Xsk, PacketGenerator), dev2: (Xsk, PacketGenerator)) {
         unsafe {

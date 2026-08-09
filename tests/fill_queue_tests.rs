@@ -72,6 +72,23 @@ async fn produce_one_is_ok() {
     build_configs_and_run_test(test).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn nb_free_reports_available_fill_slots() {
+    fn test(dev1: (Xsk, PacketGenerator), _dev2: (Xsk, PacketGenerator)) {
+        let mut xsk1 = dev1.0;
+
+        // `desired` is a cache-refresh threshold for producer rings, not a cap.
+        assert_eq!(xsk1.fq.nb_free(1), FQ_SIZE);
+        assert_eq!(unsafe { xsk1.fq.produce(&xsk1.descs[..2]) }, 2);
+        assert_eq!(xsk1.fq.nb_free(1), FQ_SIZE - 2);
+        assert_eq!(unsafe { xsk1.fq.produce(&xsk1.descs[2..4]) }, 2);
+        assert_eq!(xsk1.fq.nb_free(1), 0);
+    }
+
+    build_configs_and_run_test(test).await
+}
+
 async fn build_configs_and_run_test<F>(test: F)
 where
     F: Fn((Xsk, PacketGenerator), (Xsk, PacketGenerator)) + Send + 'static,
