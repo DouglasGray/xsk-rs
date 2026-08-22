@@ -60,8 +60,8 @@ impl RxQueue {
                     unsafe { libxdp_sys::xsk_ring_cons__rx_desc(self.ring.as_ptr(), idx) };
 
                 unsafe {
-                    desc.addr = (*recv_pkt_desc).addr as usize;
-                    desc.lengths.data = (*recv_pkt_desc).len as usize;
+                    desc.addr = (*recv_pkt_desc).addr;
+                    desc.lengths.data = (*recv_pkt_desc).len;
                     desc.lengths.headroom = 0;
                     desc.options = (*recv_pkt_desc).options;
                 }
@@ -93,8 +93,8 @@ impl RxQueue {
                 unsafe { libxdp_sys::xsk_ring_cons__rx_desc(self.ring.as_ptr(), idx) };
 
             unsafe {
-                desc.addr = (*recv_pkt_desc).addr as usize;
-                desc.lengths.data = (*recv_pkt_desc).len as usize;
+                desc.addr = (*recv_pkt_desc).addr;
+                desc.lengths.data = (*recv_pkt_desc).len;
                 desc.lengths.headroom = 0;
                 desc.options = (*recv_pkt_desc).options;
             }

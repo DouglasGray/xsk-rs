@@ -21,24 +21,32 @@ use std::{
 /// will always be less than or equal to [`frame_headroom`], and
 /// `data` less than or equal to [`mtu`].
 ///
+/// Both lengths are `u32` rather than `usize` because the packet data
+/// length is one half of the kernel ABI - it is written to and read
+/// from an `xdp_desc`'s `len` field, a `__u32` - and because a segment
+/// can never be longer than the frame containing it, which
+/// [`FrameSize`] already bounds to a `u32`. Keeping the headroom
+/// length the same width lets both share a [`Cursor`].
+///
 /// [`frame_headroom`]: crate::config::UmemConfig::frame_headroom
 /// [`mtu`]: crate::config::UmemConfig::mtu
+/// [`FrameSize`]: crate::config::FrameSize
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SegmentLengths {
-    pub(crate) headroom: usize,
-    pub(crate) data: usize,
+    pub(crate) headroom: u32,
+    pub(crate) data: u32,
 }
 
 impl SegmentLengths {
     /// Current length of the headroom segment.
     #[inline]
-    pub fn headroom(&self) -> usize {
+    pub fn headroom(&self) -> u32 {
         self.headroom
     }
 
     /// Current length of the packet data segment.
     #[inline]
-    pub fn data(&self) -> usize {
+    pub fn data(&self) -> u32 {
         self.data
     }
 }
@@ -55,9 +63,16 @@ const XDP_PKT_CONTD: u32 = 1 << 0;
 /// the packet data segment of some frame. `lengths` describes the
 /// length (in bytes) of any data stored in the frame's headroom or
 /// data segments.
+///
+/// `addr` is a `u64` rather than a `usize` because that is the width
+/// the kernel uses for it, independent of the host's pointer width: an
+/// `xdp_desc`'s `addr` field and the entries of the fill and
+/// completion rings are all `__u64`. Narrowing on the way in would
+/// also discard the frame offset that unaligned chunk mode packs into
+/// the top 16 bits.
 #[derive(Debug, Clone, Copy)]
 pub struct FrameDesc {
-    pub(crate) addr: usize,
+    pub(crate) addr: u64,
     pub(crate) options: u32,
     pub(crate) lengths: SegmentLengths,
 }
@@ -67,7 +82,7 @@ impl FrameDesc {
     ///
     /// `addr` must be the starting address of the packet data segment
     /// of some [`Umem`](super::Umem) frame.
-    pub(super) fn new(addr: usize) -> Self {
+    pub(super) fn new(addr: u64) -> Self {
         Self {
             addr,
             options: 0,
@@ -78,7 +93,7 @@ impl FrameDesc {
     /// The starting address of the packet data segment of the frame
     /// pointed at by this descriptor.
     #[inline]
-    pub fn addr(&self) -> usize {
+    pub fn addr(&self) -> u64 {
         self.addr
     }
 
@@ -110,9 +125,9 @@ impl FrameDesc {
 
     #[inline]
     pub(crate) fn write_xdp_desc(&self, desc: &mut libxdp_sys::xdp_desc) {
-        desc.addr = self.addr as u64;
+        desc.addr = self.addr;
         desc.options = self.options;
-        desc.len = self.lengths.data as u32;
+        desc.len = self.lengths.data;
     }
 }
 
@@ -182,26 +197,26 @@ impl Deref for Headroom<'_> {
 /// Mutable headroom segment of a [`Umem`](crate::umem::Umem) frame.
 #[derive(Debug)]
 pub struct HeadroomMut<'umem> {
-    len: &'umem mut usize,
+    len: &'umem mut u32,
     buf: &'umem mut [u8],
 }
 
 impl<'umem> HeadroomMut<'umem> {
-    pub(super) fn new(len: &'umem mut usize, buf: &'umem mut [u8]) -> Self {
+    pub(super) fn new(len: &'umem mut u32, buf: &'umem mut [u8]) -> Self {
         Self { len, buf }
     }
 
     /// Returns this segment's contents, up to its current length.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        &self.buf[..*self.len]
+        &self.buf[..*self.len as usize]
     }
 
     /// Returns a mutable view of this segment's contents, up to its
     /// current length.
     #[inline]
     pub fn contents_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..*self.len]
+        &mut self.buf[..*self.len as usize]
     }
 
     /// A cursor for writing to this segment.
@@ -309,12 +324,12 @@ impl Deref for Data<'_> {
 /// frame.
 #[derive(Debug)]
 pub struct DataMut<'umem> {
-    len: &'umem mut usize,
+    len: &'umem mut u32,
     buf: &'umem mut [u8],
 }
 
 impl<'umem> DataMut<'umem> {
-    pub(super) fn new(len: &'umem mut usize, buf: &'umem mut [u8]) -> Self {
+    pub(super) fn new(len: &'umem mut u32, buf: &'umem mut [u8]) -> Self {
         Self { len, buf }
     }
 
@@ -323,7 +338,7 @@ impl<'umem> DataMut<'umem> {
     /// Will change as packets are sent or received using this frame.
     #[inline]
     pub fn contents(&self) -> &[u8] {
-        &self.buf[..*self.len]
+        &self.buf[..*self.len as usize]
     }
 
     /// Returns a mutable view of this segment's contents, up to its
@@ -332,7 +347,7 @@ impl<'umem> DataMut<'umem> {
     /// Will change as packets are sent or received using this frame.
     #[inline]
     pub fn contents_mut(&mut self) -> &mut [u8] {
-        &mut self.buf[..*self.len]
+        &mut self.buf[..*self.len as usize]
     }
 
     /// A cursor for writing to this segment.
@@ -419,9 +434,9 @@ mod tests {
 
         let umem_region = UmemRegion::new(frame_count, layout, false).unwrap();
 
-        let mut desc_0 = FrameDesc::new(0 * frame_size + layout.frame_headroom);
+        let mut desc_0 = FrameDesc::new((0 * frame_size + layout.frame_headroom) as u64);
 
-        let mut desc_1 = FrameDesc::new(1 * frame_size + layout.frame_headroom);
+        let mut desc_1 = FrameDesc::new((1 * frame_size + layout.frame_headroom) as u64);
 
         let mut xdp_desc = xdp_desc {
             addr: 0,
@@ -462,7 +477,7 @@ mod tests {
                 slice::from_raw_parts(
                     umem_region
                         .as_ptr()
-                        .add(0 * frame_size + layout.frame_headroom)
+                        .add((0 * frame_size + layout.frame_headroom) as usize)
                         as *const u8,
                     5,
                 )
@@ -475,7 +490,7 @@ mod tests {
                 slice::from_raw_parts(
                     umem_region
                         .as_ptr()
-                        .add(1 * frame_size + layout.frame_headroom)
+                        .add((1 * frame_size + layout.frame_headroom) as usize)
                         as *const u8,
                     6,
                 )
@@ -547,7 +562,9 @@ mod tests {
 
         (0..frame_count.get() as usize).into_iter().for_each(|i| {
             let mut desc = FrameDesc::new(
-                (i * layout.frame_size()) + layout.xdp_headroom + layout.frame_headroom,
+                (i as u64 * layout.frame_size() as u64)
+                    + layout.xdp_headroom as u64
+                    + layout.frame_headroom as u64,
             );
 
             let (mut headroom, mut data) = unsafe { umem_region.frame_mut(&mut desc) };

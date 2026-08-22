@@ -57,6 +57,98 @@ jobs:
           components: miri
       - run: cargo miri test --lib
 
+  # Everything the jobs above do, against a 32-bit target.
+  #
+  # `cargo fmt` is absent deliberately: it does not look at the target.
+  #
+  # Two things about this are not obvious. The first is that
+  # `use_cc_build` is not optional here. Without it libxdp-sys shells
+  # out to libxdp's Makefile, which ignores `TARGET` and builds host
+  # objects; because an rlib does not link native code, `cargo build`
+  # succeeds and only linking a test or example fails. The second is
+  # that libxdp-sys's build script reads plain `AR`, `LD` and
+  # `OBJCOPY`, so without them it assembles the archive and the
+  # embedded BPF objects with the host's binutils and the target
+  # linker then rejects the archive outright.
+  cross:
+    name: 32-bit (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No toolchain overrides: rustc and the `cc` crate both pass
+          # -m32 for an i686 target, and the host's binutils are
+          # already bi-arch, so `gcc-multilib` is the whole story.
+          - target: i686-unknown-linux-gnu
+            debian_arch: i386
+            multiarch: i386-linux-gnu
+            packages: gcc-multilib
+            # x86_64 runners execute i686 binaries directly, so this
+            # target can run the suite rather than just build it.
+            native: true
+          - target: armv7-unknown-linux-gnueabihf
+            debian_arch: armhf
+            multiarch: arm-linux-gnueabihf
+            packages: gcc-arm-linux-gnueabihf
+            cc: arm-linux-gnueabihf-gcc
+            binutils: arm-linux-gnueabihf-
+            native: false
+    env:
+      CARGO_ARGS: --target ${{ matrix.target }} --features use_cc_build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross toolchain and target libraries
+        run: |
+          sudo dpkg --add-architecture ${{ matrix.debian_arch }}
+          sudo apt update
+          sudo apt install -y clang llvm build-essential m4 \
+            ${{ matrix.packages }} \
+            libc6-dev:${{ matrix.debian_arch }} \
+            libelf-dev:${{ matrix.debian_arch }} \
+            zlib1g-dev:${{ matrix.debian_arch }}
+
+      # libxdp-sys compiles the BPF programs with clang against
+      # /usr/include/<multiarch>, which is what libc6-dev:<arch> above
+      # installs. Fail loudly rather than letting clang fall back to
+      # the host's headers.
+      - name: Check target headers are present
+        run: test -d /usr/include/${{ matrix.multiarch }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+
+      - name: Point the build at the cross toolchain
+        if: matrix.cc
+        run: |
+          triple=$(echo ${{ matrix.target }} | tr 'a-z-' 'A-Z_')
+          {
+            echo "CC_${{ matrix.target }}=${{ matrix.cc }}"
+            echo "CARGO_TARGET_${triple}_LINKER=${{ matrix.cc }}"
+            echo "AR=${{ matrix.binutils }}ar"
+            echo "LD=${{ matrix.binutils }}ld"
+            echo "OBJCOPY=${{ matrix.binutils }}objcopy"
+          } >> "$GITHUB_ENV"
+
+      - run: cargo check $CARGO_ARGS
+
+      # --all-targets so that tests and examples are linked. A plain
+      # `cargo build` would not catch an archive built for the wrong
+      # architecture.
+      - run: cargo build --all-targets $CARGO_ARGS
+
+      - run: cargo clippy $CARGO_ARGS -- -D warnings
+
+      - name: Test
+        if: matrix.native
+        run: ./run_all_tests.sh
+
+      - run: cargo test --doc $CARGO_ARGS
+        if: matrix.native
+
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest

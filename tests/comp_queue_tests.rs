@@ -131,15 +131,12 @@ async fn addr_of_frames_consumed_match_addr_of_those_produced() {
 
         assert_eq!(unsafe { xsk1.cq.consume(&mut rx_frames[..nb]) }, nb);
 
-        let mut txd_addrs = tx_frames
-            .iter()
-            .map(FrameDesc::addr)
-            .collect::<Vec<usize>>();
+        let mut txd_addrs = tx_frames.iter().map(FrameDesc::addr).collect::<Vec<u64>>();
 
         let mut rxd_addrs = rx_frames[..nb]
             .iter()
             .map(FrameDesc::addr)
-            .collect::<Vec<usize>>();
+            .collect::<Vec<u64>>();
 
         txd_addrs.sort();
         rxd_addrs.sort();
@@ -260,15 +257,12 @@ async fn nb_avail_exact_does_not_consume() {
 
         assert_eq!(unsafe { xsk1.cq.consume(&mut rx_frames[..2]) }, 2);
 
-        let mut txd_addrs = tx_frames
-            .iter()
-            .map(FrameDesc::addr)
-            .collect::<Vec<usize>>();
+        let mut txd_addrs = tx_frames.iter().map(FrameDesc::addr).collect::<Vec<u64>>();
 
         let mut rxd_addrs = rx_frames[..2]
             .iter()
             .map(FrameDesc::addr)
-            .collect::<Vec<usize>>();
+            .collect::<Vec<u64>>();
 
         txd_addrs.sort();
         rxd_addrs.sort();

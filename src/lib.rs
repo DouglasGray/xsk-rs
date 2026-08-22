@@ -129,7 +129,17 @@
 use cfg_if::cfg_if;
 
 cfg_if! {
-    if #[cfg(all(target_pointer_width = "64", target_family = "unix"))] {
+    // Frame addresses and segment lengths are carried at the widths
+    // the kernel uses - `u64` and `u32` - rather than at the host's
+    // pointer width, so nothing here needs a `usize` to be as wide as
+    // a `u64`. What a 32-bit target does still need is for a frame
+    // address to fit a `usize` by the time it is used to reach into
+    // the UMEM, which holds because an address is an offset into a
+    // region this process has already mapped. See `UmemRegion`.
+    if #[cfg(all(
+        any(target_pointer_width = "64", target_pointer_width = "32"),
+        target_family = "unix"
+    ))] {
         pub mod umem;
         pub use umem::{frame::FrameDesc, CompQueue, FillQueue, Umem};
 
@@ -140,15 +150,5 @@ cfg_if! {
 
         mod ring;
         mod util;
-
-        #[cfg(test)]
-        mod tests {
-            use std::mem;
-
-            #[test]
-            fn ensure_usize_and_u64_are_same_size() {
-                assert_eq!(mem::size_of::<usize>(), mem::size_of::<u64>());
-            }
-        }
     }
 }

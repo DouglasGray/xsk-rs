@@ -75,8 +75,7 @@ impl FillQueue {
         if cnt > 0 {
             for desc in descs.iter().take(cnt as usize) {
                 unsafe {
-                    *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_ptr(), idx) =
-                        desc.addr as u64
+                    *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_ptr(), idx) = desc.addr
                 };
 
                 idx = idx.wrapping_add(1);
@@ -102,9 +101,7 @@ impl FillQueue {
         let cnt = unsafe { libxdp_sys::xsk_ring_prod__reserve(self.ring.as_ptr(), 1, &mut idx) };
 
         if cnt > 0 {
-            unsafe {
-                *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_ptr(), idx) = desc.addr as u64
-            };
+            unsafe { *libxdp_sys::xsk_ring_prod__fill_addr(self.ring.as_ptr(), idx) = desc.addr };
 
             unsafe { libxdp_sys::xsk_ring_prod__submit(self.ring.as_ptr(), cnt) };
         }

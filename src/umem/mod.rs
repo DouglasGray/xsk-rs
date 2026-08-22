@@ -193,9 +193,15 @@ impl Umem {
         let mut frame_descs: Vec<FrameDesc> = Vec::with_capacity(frame_count);
 
         for i in 0..frame_count {
-            let addr = (i * frame_layout.frame_size())
-                + frame_layout.xdp_headroom
-                + frame_layout.frame_headroom;
+            // Widened before multiplying rather than after, so that
+            // the arithmetic happens in the width the kernel uses for
+            // an address instead of the host's pointer width. On a
+            // 64-bit target the two are the same, but on a 32-bit one
+            // the product can exceed a `usize` while still being a
+            // perfectly good `u64` address.
+            let addr = (i as u64 * frame_layout.frame_size() as u64)
+                + frame_layout.xdp_headroom as u64
+                + frame_layout.frame_headroom as u64;
 
             frame_descs.push(FrameDesc::new(addr));
         }
@@ -462,13 +468,17 @@ impl Error for UmemCreateError {
 /// Dimensions of a [`Umem`] frame.
 #[derive(Debug, Clone, Copy)]
 struct FrameLayout {
-    xdp_headroom: usize,
-    frame_headroom: usize,
-    mtu: usize,
+    xdp_headroom: u32,
+    frame_headroom: u32,
+    mtu: u32,
 }
 
 impl FrameLayout {
-    fn frame_size(&self) -> usize {
+    /// A `u32` because that is what [`UmemConfig`] states each of
+    /// these at, and because [`FrameSize`](crate::config::FrameSize)
+    /// bounds their sum. Reaching memory with one means widening to a
+    /// `usize`, which is always lossless in that direction.
+    fn frame_size(&self) -> u32 {
         self.xdp_headroom + self.frame_headroom + self.mtu
     }
 }
@@ -476,9 +486,9 @@ impl FrameLayout {
 impl From<UmemConfig> for FrameLayout {
     fn from(c: UmemConfig) -> Self {
         Self {
-            xdp_headroom: c.xdp_headroom() as usize,
-            frame_headroom: c.frame_headroom() as usize,
-            mtu: c.mtu() as usize,
+            xdp_headroom: c.xdp_headroom(),
+            frame_headroom: c.frame_headroom(),
+            mtu: c.mtu(),
         }
     }
 }
@@ -501,6 +511,6 @@ mod tests {
 
         let layout: FrameLayout = config.into();
 
-        assert_eq!(config.frame_size().get() as usize, layout.frame_size())
+        assert_eq!(config.frame_size().get(), layout.frame_size())
     }
 }

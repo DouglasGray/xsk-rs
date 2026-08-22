@@ -42,7 +42,7 @@ impl UmemRegion {
         frame_layout: FrameLayout,
         use_huge_pages: bool,
     ) -> io::Result<Self> {
-        let len = (frame_count.get() as usize) * frame_layout.frame_size();
+        let len = (frame_count.get() as usize) * (frame_layout.frame_size() as usize);
 
         let mmap = Mmap::new(len, use_huge_pages)?;
 
@@ -72,10 +72,40 @@ impl UmemRegion {
     /// # Safety
     ///
     /// `desc` must describe a frame belonging to this [`UmemRegion`].
+    ///
+    /// Frame addresses are `u64` regardless of the host's pointer
+    /// width, so reaching the frame means narrowing to a `usize`. On a
+    /// 64-bit target that is a no-op; on a 32-bit one it holds because
+    /// an address is an offset into a region this process has already
+    /// mapped, and so cannot exceed its address space.
+    ///
+    /// That is a property of the addresses the kernel hands back, not
+    /// something the type system pins down - unaligned chunk mode, for
+    /// one, packs a frame offset into the top 16 bits of an address
+    /// and would break it - so [`umem_offset`](Self::umem_offset)
+    /// checks it rather than assuming it.
     #[inline]
     unsafe fn headroom_ptr(&self, desc: &FrameDesc) -> *mut u8 {
-        let addr = desc.addr - self.layout.frame_headroom;
+        let addr = self.umem_offset(desc) - self.layout.frame_headroom as usize;
         unsafe { self.as_ptr().add(addr) as *mut u8 }
+    }
+
+    /// `desc`'s address as an offset into this region.
+    ///
+    /// Panics in debug builds if the address does not fit a `usize`,
+    /// which on a 64-bit target it always does. See
+    /// [`headroom_ptr`](Self::headroom_ptr) for why it holds on a
+    /// 32-bit one, and why it is worth checking anyway: truncating
+    /// here would not fail, it would silently address the wrong frame.
+    #[inline]
+    fn umem_offset(&self, desc: &FrameDesc) -> usize {
+        debug_assert!(
+            desc.addr <= usize::MAX as u64,
+            "frame address {} does not fit a usize on this target",
+            desc.addr
+        );
+
+        desc.addr as usize
     }
 
     /// A pointer to the headroom segment of the frame described to by
@@ -84,9 +114,11 @@ impl UmemRegion {
     /// # Safety
     ///
     /// `desc` must describe a frame belonging to this [`UmemRegion`].
+    ///
+    /// See [`headroom_ptr`](Self::headroom_ptr) on the narrowing.
     #[inline]
     unsafe fn data_ptr(&self, desc: &FrameDesc) -> *mut u8 {
-        unsafe { self.as_ptr().add(desc.addr) as *mut u8 }
+        unsafe { self.as_ptr().add(self.umem_offset(desc)) as *mut u8 }
     }
 
     /// See docs for [`super::Umem::frame`].
@@ -102,7 +134,9 @@ impl UmemRegion {
         // SAFETY: see `frame`.
         let headroom_ptr = unsafe { self.headroom_ptr(desc) };
 
-        Headroom::new(unsafe { slice::from_raw_parts(headroom_ptr, desc.lengths.headroom) })
+        Headroom::new(unsafe {
+            slice::from_raw_parts(headroom_ptr, desc.lengths.headroom as usize)
+        })
     }
 
     /// See docs for [`super::Umem::data`].
@@ -111,7 +145,7 @@ impl UmemRegion {
         // SAFETY: see `frame`.
         let data_ptr = unsafe { self.data_ptr(desc) };
 
-        Data::new(unsafe { slice::from_raw_parts(data_ptr, desc.lengths.data) })
+        Data::new(unsafe { slice::from_raw_parts(data_ptr, desc.lengths.data as usize) })
     }
 
     /// See docs for [`super::Umem::frame_mut`].
@@ -125,9 +159,9 @@ impl UmemRegion {
         let data_ptr = unsafe { self.data_ptr(desc) };
 
         let headroom =
-            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) };
+            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom as usize) };
 
-        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) };
+        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu as usize) };
 
         (
             HeadroomMut::new(&mut desc.lengths.headroom, headroom),
@@ -142,7 +176,7 @@ impl UmemRegion {
         let headroom_ptr = unsafe { self.headroom_ptr(desc) };
 
         let headroom =
-            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom) };
+            unsafe { slice::from_raw_parts_mut(headroom_ptr, self.layout.frame_headroom as usize) };
 
         HeadroomMut::new(&mut desc.lengths.headroom, headroom)
     }
@@ -153,7 +187,7 @@ impl UmemRegion {
         // SAFETY: see `frame_mut`.
         let data_ptr = unsafe { self.data_ptr(desc) };
 
-        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu) };
+        let data = unsafe { slice::from_raw_parts_mut(data_ptr, self.layout.mtu as usize) };
 
         DataMut::new(&mut desc.lengths.data, data)
     }
