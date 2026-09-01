@@ -77,7 +77,7 @@ impl FrameDesc {
     ///
     /// `addr` must be the starting address of the packet data segment
     /// of some [`Umem`](super::Umem) frame.
-    pub(super) fn new(addr: usize) -> Self {
+    pub fn new(addr: usize) -> Self {
         Self {
             addr,
             options: 0,
@@ -85,6 +85,18 @@ impl FrameDesc {
         }
     }
 
+    /// Replaces the default options with the provided value.
+    pub fn with_options(mut self, options: u32) -> Self {
+        self.options = options;
+        self
+    }
+
+    /// Replaces the default segment lengths.
+    pub fn with_lengths(mut self, headroom: usize, data: usize) -> Self {
+        self.lengths = SegmentLengths { headroom, data };
+        self
+    }
+    
     /// The starting address of the packet data segment of the frame
     /// pointed at by this descriptor.
     #[inline]

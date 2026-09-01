@@ -421,6 +421,13 @@ impl Umem {
         // SAFETY: guaranteed by this function's contract.
         unsafe { libxdp_sys::xsk_socket__delete(ptr) };
     }
+
+    /// Returns a raw pointer to the beginning of the UMEM buffer
+    /// (for use cases like memory mapping, e.g., WebAssembly)
+    #[inline(always)]
+    pub fn as_ptr(&self) -> *const u8 {
+        self.mem.as_ptr() as *const u8
+    }
 }
 
 /// What libxdp did with the fill and comp rings it was handed when
