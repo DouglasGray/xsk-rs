@@ -16,27 +16,29 @@ pub struct ConfigBuilder {
 
 impl ConfigBuilder {
     /// Creates a new [`UmemConfigBuilder`](ConfigBuilder) instance.
-    pub fn new() -> Self {
-        Self::default()
+    pub const fn new() -> Self {
+        ConfigBuilder {
+            config: Config::new_default(),
+        }
     }
 
     /// Set the frame size. Default is
     /// [`XSK_UMEM__DEFAULT_FRAME_SIZE`]. Must be a power of two.
-    pub fn frame_size(&mut self, size: FrameSize) -> &mut Self {
+    pub const fn frame_size(&mut self, size: FrameSize) -> &mut Self {
         self.config.frame_size = size;
         self
     }
 
     /// Set the [`FillQueue`](crate::FillQueue) size. Default is
     /// [`XSK_RING_PROD__DEFAULT_NUM_DESCS`].
-    pub fn fill_queue_size(&mut self, size: QueueSize) -> &mut Self {
+    pub const fn fill_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.fill_queue_size = size;
         self
     }
 
     /// Set the [`CompQueue`](crate::CompQueue) size. Default is
     /// [`XSK_RING_CONS__DEFAULT_NUM_DESCS`].
-    pub fn comp_queue_size(&mut self, size: QueueSize) -> &mut Self {
+    pub const fn comp_queue_size(&mut self, size: QueueSize) -> &mut Self {
         self.config.comp_queue_size = size;
         self
     }
@@ -47,7 +49,7 @@ impl ConfigBuilder {
     /// Not to be confused with [`XDP_PACKET_HEADROOM`] which is the
     /// amount of headroom reserved by XDP. This headroom sits at the
     /// start of the frame, ahead of the XDP program's.
-    pub fn frame_headroom(&mut self, headroom: u32) -> &mut Self {
+    pub const fn frame_headroom(&mut self, headroom: u32) -> &mut Self {
         self.config.frame_headroom = headroom;
         self
     }
@@ -58,7 +60,7 @@ impl ConfigBuilder {
     /// May fail if some of the values are incompatible. For example,
     /// if the requested frame headroom leaves no room in the frame for
     /// packet data, or if the frame size is not a power of two.
-    pub fn build(&self) -> Result<Config, ConfigBuildError> {
+    pub const fn build(&self) -> Result<Config, ConfigBuildError> {
         let frame_size = self.config.frame_size.get();
 
         if !util::is_pow_of_two(frame_size) {
@@ -104,35 +106,61 @@ pub struct Config {
 }
 
 impl Config {
+    const fn new_default() -> Config {
+        const DEFAULT_FRAME_SIZE: FrameSize = match FrameSize::new(XSK_UMEM__DEFAULT_FRAME_SIZE) {
+            Ok(frame_size) => frame_size,
+            Err(_) => panic!("Invalid default frame size"),
+        };
+
+        const DEFAULT_FILL_QUEUE_SIZE: QueueSize =
+            match QueueSize::new(XSK_RING_PROD__DEFAULT_NUM_DESCS) {
+                Ok(fill_queue_size) => fill_queue_size,
+                Err(_) => panic!("Invalid default fill queue size"),
+            };
+
+        const DEFAULT_COMP_QUEUE_SIZE: QueueSize =
+            match QueueSize::new(XSK_RING_CONS__DEFAULT_NUM_DESCS) {
+                Ok(comp_queue_size) => comp_queue_size,
+                Err(_) => panic!("Invalid default completion queue size"),
+            };
+
+        Config {
+            frame_size: DEFAULT_FRAME_SIZE,
+            fill_queue_size: DEFAULT_FILL_QUEUE_SIZE,
+            comp_queue_size: DEFAULT_COMP_QUEUE_SIZE,
+            frame_headroom: XSK_UMEM__DEFAULT_FRAME_HEADROOM,
+        }
+    }
+
     /// Creates a new [`UmemConfigBuilder`](ConfigBuilder) instance
     /// with with sizes as per the `libbpf` defaults.
-    pub fn builder() -> ConfigBuilder {
+    pub const fn builder() -> ConfigBuilder {
         ConfigBuilder::new()
     }
 
     /// The size of each frame in the [`Umem`](crate::Umem).
-    pub fn frame_size(&self) -> FrameSize {
+    pub const fn frame_size(&self) -> FrameSize {
         self.frame_size
     }
 
     /// The [`FillQueue`](crate::FillQueue) size.
-    pub fn fill_queue_size(&self) -> QueueSize {
+    pub const fn fill_queue_size(&self) -> QueueSize {
         self.fill_queue_size
     }
 
     /// The [`CompQueue`](crate::CompQueue) size.
-    pub fn comp_queue_size(&self) -> QueueSize {
+    pub const fn comp_queue_size(&self) -> QueueSize {
         self.comp_queue_size
     }
 
     /// The frame headroom reserved for the XDP program.
-    pub fn xdp_headroom(&self) -> u32 {
+    pub const fn xdp_headroom(&self) -> u32 {
         XDP_PACKET_HEADROOM
     }
 
     /// The frame headroom available to the user, at the start of the
     /// frame.
-    pub fn frame_headroom(&self) -> u32 {
+    pub const fn frame_headroom(&self) -> u32 {
         self.frame_headroom
     }
 
@@ -141,19 +169,14 @@ impl Config {
     ///
     /// Is defined as the frame size minus both the XDP headroom and
     /// user headroom.
-    pub fn mtu(&self) -> u32 {
+    pub const fn mtu(&self) -> u32 {
         self.frame_size.get() - (self.xdp_headroom() + self.frame_headroom)
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self {
-            frame_size: FrameSize(XSK_UMEM__DEFAULT_FRAME_SIZE),
-            fill_queue_size: QueueSize(XSK_RING_PROD__DEFAULT_NUM_DESCS),
-            comp_queue_size: QueueSize(XSK_RING_CONS__DEFAULT_NUM_DESCS),
-            frame_headroom: XSK_UMEM__DEFAULT_FRAME_HEADROOM,
-        }
+        Config::new_default()
     }
 }
 

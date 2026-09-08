@@ -4,7 +4,7 @@ pub fn get_errno() -> i32 {
 }
 
 #[inline]
-pub fn is_pow_of_two(val: u32) -> bool {
+pub const fn is_pow_of_two(val: u32) -> bool {
     if val == 0 {
         return false;
     }

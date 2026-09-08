@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Changed
+
+- The `Config` and `ConfigBuilder` structs can now be created and populated in a `const` context. This implies their dependent types (`QueueSize` and `FrameSize`) are also `const` compatible.
+
 ## [0.11.0] - 2026-08-28
 
 ## Fixed

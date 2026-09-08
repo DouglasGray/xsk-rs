@@ -30,7 +30,7 @@ pub struct QueueSize(u32);
 impl QueueSize {
     /// Create a new `QueueSize` instance. Fails if `size` is not a
     /// power of two.
-    pub fn new(size: u32) -> Result<Self, QueueSizeError> {
+    pub const fn new(size: u32) -> Result<Self, QueueSizeError> {
         if !util::is_pow_of_two(size) {
             Err(QueueSizeError(size))
         } else {
@@ -39,7 +39,7 @@ impl QueueSize {
     }
 
     /// The queue size.
-    pub fn get(&self) -> u32 {
+    pub const fn get(&self) -> u32 {
         self.0
     }
 }
@@ -77,7 +77,7 @@ pub struct FrameSize(u32);
 impl FrameSize {
     /// Create a new `FrameSize` instance. Fails if `size` is smaller
     /// than [`XDP_UMEM_MIN_CHUNK_SIZE`].
-    pub fn new(size: u32) -> Result<Self, FrameSizeError> {
+    pub const fn new(size: u32) -> Result<Self, FrameSizeError> {
         if size < XDP_UMEM_MIN_CHUNK_SIZE {
             Err(FrameSizeError(size))
         } else {
@@ -86,7 +86,7 @@ impl FrameSize {
     }
 
     /// The frame size.
-    pub fn get(&self) -> u32 {
+    pub const fn get(&self) -> u32 {
         self.0
     }
 }
@@ -118,6 +118,20 @@ impl error::Error for FrameSizeError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Testing the const creation
+    const _QUEUE_SIZE_1: QueueSize = {
+        match QueueSize::new(1) {
+            Ok(v) => v,
+            Err(_) => panic!("out of range"),
+        }
+    };
+    const _FRAME_SIZE_1: FrameSize = {
+        match FrameSize::new(XDP_UMEM_MIN_CHUNK_SIZE) {
+            Ok(v) => v,
+            Err(_) => panic!("out of range"),
+        }
+    };
 
     #[test]
     fn queue_size_should_accept_only_non_zero_powers_of_two() {
